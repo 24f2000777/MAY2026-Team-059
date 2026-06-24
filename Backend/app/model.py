@@ -1,13 +1,10 @@
 # All 6 database tables for NAGRIK AI
-from sqlalchemy.orm import DeclarativeBase, relationship
+from sqlalchemy.orm import relationship
 from sqlalchemy import Text, Integer, String, Column, Boolean, ForeignKey, DateTime
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.sql import func
+from app.database import Base
 import uuid
-
-
-class Base(DeclarativeBase):
-    pass
 
 
 # ─── TABLE 1: USERS ────────────────────────────────────

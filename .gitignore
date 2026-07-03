@@ -1,0 +1,11 @@
+.env
+venv/
+.venv/
+__pycache__/
+*.pyc
+*.pkl
+.DS_Store
+*.egg-info/
+
+# priority scorer training data - large files, not committed
+Backend/app/ml/priority_scorer/data/*.csv

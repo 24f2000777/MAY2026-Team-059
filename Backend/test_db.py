@@ -1,8 +1,15 @@
 # Run this to create all 6 tables and verify they exist
 from sqlalchemy import create_engine, text
-from app.config import settings
-from app.database import Base
-from app.model import User, Complaint, ComplaintUpdate, Notification, Rating, ChatSession
+from app.core.config import settings
+from app.core.database import Base
+from app.model import (
+    User,
+    Complaint,
+    ComplaintUpdate,
+    Notification,
+    Rating,
+    ChatSession,
+)
 
 engine = create_engine(settings.SYNC_DATABASE_URL)
 

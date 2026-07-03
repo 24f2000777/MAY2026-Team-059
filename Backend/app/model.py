@@ -3,7 +3,7 @@ from sqlalchemy.orm import relationship
 from sqlalchemy import Text, Integer, String, Column, Boolean, ForeignKey, DateTime
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.sql import func
-from app.database import Base
+from app.core.database import Base
 import uuid
 
 
@@ -16,7 +16,7 @@ class User(Base):
     name = Column(String(100), nullable=False)
     email = Column(String(200), nullable=True)
     role = Column(String(20), nullable=False)
-    password = Column(String(255), nullable=False)
+    hashed_password= Column(String(255), nullable=False)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())

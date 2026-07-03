@@ -1,9 +1,29 @@
-# FastAPI entry point
 from fastapi import FastAPI
 
-app = FastAPI(title="NAGRIK AI", version="0.1.0")
+from app.api.auth import router as auth_router
+from app.api.complaints import router as complaint_router
+from app.api.notifications import router as notification_router
+
+app = FastAPI(
+    title="NAGRIK AI",
+    version="1.0.0",
+    description="AI Powered Civic Complaint Management System",
+)
+
+app.include_router(auth_router)
+app.include_router(complaint_router)
+app.include_router(notification_router)
 
 
-@app.get("/health")
+@app.get("/", tags=["Root"])
+async def root():
+    return {
+        "message": "Welcome to NAGRIK AI API"
+    }
+
+
+@app.get("/health", tags=["Health"])
 async def health_check():
-    return {"status": "ok"}
+    return {
+        "status": "ok"
+    }

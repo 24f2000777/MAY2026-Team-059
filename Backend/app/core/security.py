@@ -211,7 +211,7 @@ def hash_otp(otp: str) -> str:
     """
 
     return hmac.new(
-        settings.SECRET_KEY.encode(),
+        settings.OTP_SECRET_KEY.encode(),
         otp.encode(),
         hashlib.sha256,
     ).hexdigest()

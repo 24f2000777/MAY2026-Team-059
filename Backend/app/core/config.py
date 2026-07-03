@@ -65,6 +65,8 @@ class Settings(BaseSettings):
     REDIS_URL: str = "redis://localhost:6379/0"
     
     OTP_EXPIRE_SECONDS: int = 300
+    
+    OTP_SECRET_KEY: str
 
     # =====================================================
     # Celery

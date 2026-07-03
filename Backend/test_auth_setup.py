@@ -245,7 +245,7 @@ def test_otp_flow():
 
     divider("OTP FLOW TEST")
 
-    email = "21f3002439@ds.study.iitm.ac.in"      # <- change this
+    email = "your_email@example.com"     # <- change this
 
     print("\nCreating OTP...")
 

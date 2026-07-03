@@ -127,8 +127,18 @@ validation checks, as a sanity check on the formula — never as a model input.
 
 ### Prerequisites
 - Python 3.9+
-- `bmc_train.csv` and `bmc_test.csv` (BMC complaint dataset) — not included in the repo, place
+- `bmc_train.csv` and `bmc_test.csv` (BMC complaint dataset), not included in the repo, place
   them in `Backend/app/ml/priority_scorer/data/`
+
+### Getting the data
+Download the dataset from Kaggle:
+[mumbai-nagar-seva-bmc-civic-complaint-resolution-2018-2024](https://www.kaggle.com/competitions/mumbai-nagar-seva-bmc-civic-complaint-resolution-2018-2024/data)
+
+This is a competition dataset with its own real `train.csv`/`test.csv` split (renamed here as
+`bmc_train.csv`/`bmc_test.csv`). That's the actual 80/20 split this module trains and
+evaluates on, not one we cut ourselves. It's not committed to the repo since `bmc_train.csv`
+alone is 226MB, well over GitHub's 100MB per-file push limit. After downloading, place both
+files in `Backend/app/ml/priority_scorer/data/`.
 
 ### Install dependencies
 ```bash

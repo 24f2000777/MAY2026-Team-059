@@ -136,8 +136,11 @@ cd Backend
 python -m venv venv
 source venv/bin/activate          # Mac/Linux
 pip install -r requirements.txt
-pip install joblib                # not yet pinned in requirements.txt
 ```
+Note: `requirements.txt` on this branch only lists what the ML module needs (`pandas`,
+`numpy`, `scikit-learn`, `joblib`) — the full backend stack (FastAPI, SQLAlchemy, etc.) lives
+on `feature/db-setup`, unmerged into `develop` as of this branch. Once that's resolved, this
+file will need reconciling with the fuller list.
 
 ### Retrain the model (optional — `model.joblib` is already committed)
 ```bash

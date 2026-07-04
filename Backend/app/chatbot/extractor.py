@@ -5,16 +5,19 @@ from providers import extraction_chain
 def extract_complaint_info(user_query):
     result = extraction_chain.invoke({"user_query": user_query})
 
-    category = result.complaint_category.strip()
+    # category being None is a valid, expected result, it means the llm decided
+    # this isn't actually a BMC civic complaint, not a parsing failure
+    category = result.complaint_category.strip() if result.complaint_category else None
     severity = result.severity.strip()
+    location = result.location.strip() if result.location else None
 
-    if category not in CATEGORIES:
+    if category is not None and category not in CATEGORIES:
         raise ValueError(f"llm returned an invalid category: {category}")
     if severity not in SEVERITY_LEVELS:
         raise ValueError(f"llm returned an invalid severity: {severity}")
 
     return {
-        "location": result.location,
+        "location": location,
         "complaint_category": category,
         "severity": severity,
     }

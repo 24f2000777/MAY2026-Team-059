@@ -65,6 +65,19 @@ class Settings(BaseSettings):
     REDIS_URL: str = "redis://localhost:6379/0"
     
     OTP_EXPIRE_SECONDS: int = 300
+
+    # Reset-password OTPs get a longer window than verify-email
+    # OTPs (per the API design doc: 10 minutes vs 5 minutes),
+    # since a user recovering a locked-out account may take
+    # longer to find the email than someone mid-registration.
+    RESET_PASSWORD_OTP_EXPIRE_SECONDS: int = 600
+
+    # Caps how many times forgot-password can be requested for
+    # the same email in a rolling window, to stop an email
+    # address from being spammed with reset OTPs.
+    PASSWORD_RESET_RATE_LIMIT_MAX_ATTEMPTS: int = 3
+
+    PASSWORD_RESET_RATE_LIMIT_WINDOW_SECONDS: int = 3600
     
     OTP_SECRET_KEY: str
 

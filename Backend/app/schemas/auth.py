@@ -164,3 +164,71 @@ class ResendOTPRequest(BaseModel):
     """
 
     email: EmailStr
+
+
+# =====================================================
+# Update Profile
+# =====================================================
+
+class UpdateProfileRequest(BaseModel):
+    """
+    Request body for updating the current user's own profile.
+
+    Only name and phone are editable here. Email is
+    intentionally excluded — changing it would invalidate
+    the account's verification status and needs its own
+    re-verification flow, not a plain field update. Address
+    is not part of the current User model.
+
+    Both fields are optional so a caller can update just one
+    of them; at least one should be provided by the client,
+    though the service layer treats "nothing changed" as a
+    harmless no-op rather than an error.
+    """
+
+    name: str | None = Field(
+        default=None,
+        min_length=2,
+        max_length=100,
+    )
+
+    phone: str | None = Field(
+        default=None,
+        min_length=10,
+        max_length=15,
+    )
+
+
+# =====================================================
+# Change Password
+# =====================================================
+
+class ChangePasswordRequest(BaseModel):
+    """
+    Request body for changing the current user's password
+    while already logged in (distinct from the OTP-based
+    forgot/reset-password flow).
+    """
+
+    current_password: str
+
+    new_password: str = Field(..., min_length=8, max_length=128)
+
+
+# =====================================================
+# Logout
+# =====================================================
+
+class LogoutRequest(BaseModel):
+    """
+    Request body for logout.
+
+    The access token being logged out is taken from the
+    Authorization header, not this body. refresh_token is
+    optional here so a client can also invalidate its refresh
+    token in the same call — without it, only the access
+    token is blacklisted and the refresh token remains valid
+    until it naturally expires.
+    """
+
+    refresh_token: str | None = None

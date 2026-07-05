@@ -14,10 +14,11 @@ Responsibilities
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from uuid import uuid4
 
 from jose import JWTError, jwt
 from passlib.context import CryptContext
-from fastapi.security import OAuth2PasswordBearer
+from fastapi.security import HTTPBearer
 
 from app.core.config import settings
 
@@ -36,12 +37,29 @@ pwd_context = CryptContext(
 )
 
 # =====================================================
-# OAuth2
+# Bearer Token Scheme
 # =====================================================
+#
+# HTTPBearer (not OAuth2PasswordBearer) because login is a
+# plain JSON endpoint (LoginRequest), not an OAuth2 password
+# grant form. HTTPBearer gives Swagger UI a simple "paste your
+# token" field instead of a username/password form that would
+# POST the wrong shape to /auth/login.
 
-oauth2_scheme = OAuth2PasswordBearer(
-    tokenUrl="/auth/login"
+bearer_scheme = HTTPBearer(
+    bearerFormat="JWT",
+    description="Paste the access token returned by POST /auth/login.",
+    auto_error=False,
 )
+# auto_error=False: by default HTTPBearer raises its own 403
+# "Not authenticated" the instant the header is missing,
+# bypassing our exception handlers entirely. That produces a
+# 403 for "no token" while every other invalid-token case in
+# this app correctly returns 401 — an inconsistent contract for
+# API consumers. With auto_error=False, credentials is simply
+# None when the header is absent, and get_current_token_payload
+# (app/dependencies/auth.py) raises InvalidTokenError itself,
+# giving a uniform 401 for every "not authenticated" case.
 
 # =====================================================
 # JWT Constants
@@ -54,6 +72,7 @@ JWT_SUB = "sub"
 JWT_ROLE = "role"
 JWT_TYPE = "type"
 JWT_EXP = "exp"
+JWT_JTI = "jti"
 
 # =====================================================
 # Password Utilities
@@ -94,6 +113,12 @@ def _create_token(
 ) -> str:
     """
     Internal helper to create a JWT.
+
+    Every token gets a unique `jti` claim so that an
+    individual token — as opposed to the whole user account —
+    can be revoked independently. This is what makes a real
+    logout possible: logout blacklists just this token's jti
+    in Redis until it would have expired anyway.
     """
 
     expire = datetime.now(timezone.utc) + expires_delta
@@ -103,6 +128,7 @@ def _create_token(
         JWT_ROLE: role,
         JWT_TYPE: token_type,
         JWT_EXP: expire,
+        JWT_JTI: uuid4().hex,
     }
 
     return jwt.encode(
@@ -206,8 +232,10 @@ def hash_otp(otp: str) -> str:
     """
     Hash an OTP using HMAC-SHA256.
 
-    Uses the application's SECRET_KEY as
-    the HMAC secret.
+    Uses the application's OTP_SECRET_KEY as
+    the HMAC secret — a separate key from the
+    JWT SECRET_KEY, so that OTP hashes and JWT
+    signatures don't share a key.
     """
 
     return hmac.new(
@@ -229,5 +257,3 @@ def verify_otp_hash(
         hash_otp(otp),
         otp_hash,
     )
-
-

@@ -6,6 +6,7 @@ from app.api.auth import router as auth_router
 from app.api.complaints import router as complaint_router
 from app.api.notifications import router as notification_router
 from app.core.redis import check_redis_connection
+from app.core.exception_handlers import register_exception_handlers
 
 
 @asynccontextmanager
@@ -40,6 +41,8 @@ app = FastAPI(
     description="AI Powered Civic Complaint Management System",
     lifespan=lifespan,
 )
+
+register_exception_handlers(app)
 
 app.include_router(auth_router)
 app.include_router(complaint_router)

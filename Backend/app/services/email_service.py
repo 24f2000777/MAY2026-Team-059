@@ -71,7 +71,7 @@ Your verification OTP is:
 
 {otp}
 
-This OTP is valid for 5 minutes.
+This OTP is valid for {settings.OTP_EXPIRE_SECONDS // 60} minutes.
 
 If you did not request this email, please ignore it.
 
@@ -104,7 +104,7 @@ Your password reset OTP is:
 
 {otp}
 
-This OTP is valid for 5 minutes.
+This OTP is valid for {settings.RESET_PASSWORD_OTP_EXPIRE_SECONDS // 60} minutes.
 
 If you did not request this email, please ignore it.
 

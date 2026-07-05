@@ -22,6 +22,24 @@ VERIFY_EMAIL_PREFIX = "verify_email"
 RESET_PASSWORD_PREFIX = "reset_password"
 
 
+# Per-purpose OTP expiry. Reset-password OTPs live longer than
+# verify-email OTPs (10 min vs 5 min, per the API design doc) —
+# a user recovering a locked-out account may take longer to
+# find the email than someone mid-registration with the inbox
+# already open. Falls back to OTP_EXPIRE_SECONDS for any purpose
+# not listed here.
+_OTP_EXPIRY_SECONDS_BY_PURPOSE = {
+    RESET_PASSWORD_PREFIX: settings.RESET_PASSWORD_OTP_EXPIRE_SECONDS,
+}
+
+
+def _expiry_seconds_for(purpose: str) -> int:
+    return _OTP_EXPIRY_SECONDS_BY_PURPOSE.get(
+        purpose,
+        settings.OTP_EXPIRE_SECONDS,
+    )
+
+
 def _redis_key(
     purpose: str,
     email: str,
@@ -50,7 +68,8 @@ def create_otp(
     The plain OTP is returned so that it can
     be sent via Email.
 
-    Only the hashed OTP is stored in Redis.
+    Only the hashed OTP is stored in Redis, with a TTL sized
+    per purpose — see _OTP_EXPIRY_SECONDS_BY_PURPOSE.
     """
 
     otp = generate_otp()
@@ -62,7 +81,7 @@ def create_otp(
             purpose,
             email,
         ),
-        settings.OTP_EXPIRE_SECONDS,
+        _expiry_seconds_for(purpose),
         otp_hash,
     )
 

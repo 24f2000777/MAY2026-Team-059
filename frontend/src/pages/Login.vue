@@ -6,15 +6,17 @@ import { useAuthStore } from '../stores/authStore'
 const auth = useAuthStore()
 const router = useRouter()
 
-const phone = ref('')
+const email = ref('')
 const password = ref('')
 const error = ref('')
+
+const homeForRole = { citizen: '/citizen', staff: '/staff', admin: '/admin' }
 
 function submit() {
   error.value = ''
   try {
-    auth.login({ phone: phone.value, password: password.value })
-    router.push('/login') // will point to role dashboards from Phase 2 onward
+    const user = auth.login({ email: email.value, password: password.value })
+    router.push(homeForRole[user.role])
   } catch (e) {
     error.value = e.message
   }
@@ -28,8 +30,8 @@ function submit() {
       <div class="auth-body">
         <form @submit.prevent="submit">
           <div class="field">
-            <label>Phone Number</label>
-            <input v-model="phone" type="text" placeholder="10-digit phone number" required />
+            <label>Email</label>
+            <input v-model="email" type="email" placeholder="you@example.com" required />
           </div>
           <div class="field">
             <label>Password</label>

@@ -49,8 +49,8 @@ paths:
                 value:
                   title: Pothole near community park
                   description: Large pothole causing traffic slowdown near Gate 3.
-                  category: ROADS
-                  priority: MEDIUM
+                  category: pothole
+                  priority: medium
                   location:
                     addressLine: Gate 3, Community Park
                     city: Pune
@@ -619,9 +619,9 @@ components:
         visibility:
           type: string
           enum:
-            - PUBLIC
-            - INTERNAL
-          default: PUBLIC
+            - public
+            - internal
+          default: public
 
     ComplaintResponse:
       type: object
@@ -716,34 +716,37 @@ components:
     ComplaintCategory:
       type: string
       enum:
-        - ROADS
-        - WATER
-        - ELECTRICITY
-        - SANITATION
-        - PUBLIC_SAFETY
-        - TRAFFIC
-        - OTHER
+        - road
+        - pothole
+        - streetlight
+        - drainage
+        - garbage
+        - water_supply
+        - sewage
+        - traffic
+        - electricity
+        - other
 
     ComplaintStatus:
       type: string
       enum:
-        - SUBMITTED
-        - UNDER_REVIEW
-        - ASSIGNED
-        - IN_PROGRESS
-        - RESOLVED
-        - CLOSED
-        - REJECTED
-        - WITHDRAWN
+        - submitted
+        - pending_approval
+        - approved
+        - in_progress
+        - resolved
+        - closed
+        - rejected
+        - withdrawn
 
     ComplaintPriority:
       type: string
       enum:
-        - LOW
-        - MEDIUM
-        - HIGH
-        - URGENT
-      default: MEDIUM
+        - low
+        - medium
+        - high
+        - urgent
+      default: medium
 
     Location:
       type: object
@@ -792,9 +795,9 @@ components:
         role:
           type: string
           enum:
-            - CITIZEN
-            - OFFICIAL
-            - ADMIN
+            - citizen
+            - official
+            - admin
 
     StatusHistoryItem:
       type: object
@@ -834,8 +837,8 @@ components:
         visibility:
           type: string
           enum:
-            - PUBLIC
-            - INTERNAL
+            - public
+            - internal
         createdBy:
           $ref: '#/components/schemas/UserSummary'
         createdAt:

@@ -1,0 +1,947 @@
+openapi: 3.0.3
+info:
+  title: NAGRIK AI API
+  version: 0.1.0
+  description: >
+    Initial Swagger-compatible OpenAPI specification for Milestone 3-5.
+    Complaint endpoints are documented first. Additional endpoint groups should
+    be added as Amit/Akshit complete their API work.
+  contact:
+    name: NAGRIK AI Team
+servers:
+  - url: http://localhost:8000/api/v1
+    description: Local development server
+  - url: https://api.nagrik-ai.example.com/api/v1
+    description: Production placeholder
+tags:
+  - name: Complaints
+    description: Complaint creation, tracking, updates, attachments, and comments.
+  - name: Users
+    description: Placeholder for user/account endpoints from other contributors.
+  - name: Admin
+    description: Placeholder for administrative endpoints from other contributors.
+
+security:
+  - bearerAuth: []
+
+paths:
+  /complaints:
+    post:
+      tags:
+        - Complaints
+      summary: Create a new complaint
+      description: Creates a citizen complaint and returns the created complaint record.
+      operationId: createComplaint
+      x-user-stories:
+        - id: US-COMP-01
+          story: As a citizen, I want to submit a civic complaint so that the responsible authority can review it.
+        - id: US-COMP-02
+          story: As a citizen, I want to attach location and category details so that my complaint is routed correctly.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateComplaintRequest'
+            examples:
+              pothole:
+                summary: Road damage complaint
+                value:
+                  title: Pothole near community park
+                  description: Large pothole causing traffic slowdown near Gate 3.
+                  category: ROADS
+                  priority: MEDIUM
+                  location:
+                    addressLine: Gate 3, Community Park
+                    city: Pune
+                    state: Maharashtra
+                    postalCode: '411001'
+                    latitude: 18.5204
+                    longitude: 73.8567
+      responses:
+        '201':
+          description: Complaint created successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ComplaintResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    get:
+      tags:
+        - Complaints
+      summary: List complaints
+      description: Returns complaints visible to the authenticated user, with filters for status, category, and location.
+      operationId: listComplaints
+      x-user-stories:
+        - id: US-COMP-03
+          story: As a citizen, I want to view my submitted complaints so that I can track progress.
+        - id: US-COMP-04
+          story: As an official, I want to filter complaints by status and category so that I can prioritize work.
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - name: status
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/ComplaintStatus'
+        - name: category
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/ComplaintCategory'
+        - name: city
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 100
+        - name: assignedTo
+          in: query
+          required: false
+          description: Official or department assignee identifier.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Paginated complaint list.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ComplaintListResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /complaints/{complaintId}:
+    get:
+      tags:
+        - Complaints
+      summary: Get complaint details
+      description: Returns full complaint details, including status history, comments, and attachments.
+      operationId: getComplaintById
+      x-user-stories:
+        - id: US-COMP-05
+          story: As a citizen, I want to open a complaint detail page so that I can see the current status and official response.
+        - id: US-COMP-06
+          story: As an official, I want complete complaint context so that I can resolve the issue accurately.
+      parameters:
+        - $ref: '#/components/parameters/ComplaintId'
+      responses:
+        '200':
+          description: Complaint details found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ComplaintResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    patch:
+      tags:
+        - Complaints
+      summary: Update complaint details
+      description: Updates editable complaint fields before final closure.
+      operationId: updateComplaint
+      x-user-stories:
+        - id: US-COMP-07
+          story: As a citizen, I want to correct complaint details so that inaccurate information does not delay resolution.
+        - id: US-COMP-08
+          story: As an official, I want to update category or assignment details so that complaints are routed to the right team.
+      parameters:
+        - $ref: '#/components/parameters/ComplaintId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateComplaintRequest'
+      responses:
+        '200':
+          description: Complaint updated successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ComplaintResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    delete:
+      tags:
+        - Complaints
+      summary: Withdraw a complaint
+      description: Withdraws a complaint when the authenticated user has permission and the complaint is not already closed.
+      operationId: withdrawComplaint
+      x-user-stories:
+        - id: US-COMP-09
+          story: As a citizen, I want to withdraw a complaint that is no longer valid so that officials do not spend time on it.
+      parameters:
+        - $ref: '#/components/parameters/ComplaintId'
+      responses:
+        '204':
+          description: Complaint withdrawn successfully.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /complaints/{complaintId}/status:
+    patch:
+      tags:
+        - Complaints
+      summary: Update complaint status
+      description: Records an official complaint status transition with optional public note.
+      operationId: updateComplaintStatus
+      x-user-stories:
+        - id: US-COMP-10
+          story: As an official, I want to update complaint status so that citizens know what action has been taken.
+        - id: US-COMP-11
+          story: As a citizen, I want status changes to include notes so that I understand the resolution progress.
+      parameters:
+        - $ref: '#/components/parameters/ComplaintId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateComplaintStatusRequest'
+      responses:
+        '200':
+          description: Complaint status updated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ComplaintResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /complaints/{complaintId}/comments:
+    post:
+      tags:
+        - Complaints
+      summary: Add a complaint comment
+      description: Adds a citizen or official comment to a complaint thread.
+      operationId: addComplaintComment
+      x-user-stories:
+        - id: US-COMP-12
+          story: As a citizen, I want to add follow-up information so that officials have the latest context.
+        - id: US-COMP-13
+          story: As an official, I want to ask for clarification so that I can resolve the complaint correctly.
+      parameters:
+        - $ref: '#/components/parameters/ComplaintId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCommentRequest'
+      responses:
+        '201':
+          description: Comment added successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Comment'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    get:
+      tags:
+        - Complaints
+      summary: List complaint comments
+      description: Returns comments for a complaint in chronological order.
+      operationId: listComplaintComments
+      x-user-stories:
+        - id: US-COMP-14
+          story: As a complaint participant, I want to read the discussion history so that I can understand prior updates.
+      parameters:
+        - $ref: '#/components/parameters/ComplaintId'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: Paginated comments.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CommentListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /complaints/{complaintId}/attachments:
+    post:
+      tags:
+        - Complaints
+      summary: Upload complaint attachment
+      description: Uploads evidence such as an image, document, or video for a complaint.
+      operationId: uploadComplaintAttachment
+      x-user-stories:
+        - id: US-COMP-15
+          story: As a citizen, I want to upload evidence so that officials can verify the issue.
+        - id: US-COMP-16
+          story: As an official, I want supporting media so that I can assess severity and resolution status.
+      parameters:
+        - $ref: '#/components/parameters/ComplaintId'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - file
+              properties:
+                file:
+                  type: string
+                  format: binary
+                description:
+                  type: string
+                  maxLength: 500
+      responses:
+        '201':
+          description: Attachment uploaded successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Attachment'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '415':
+          $ref: '#/components/responses/UnsupportedMediaType'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    get:
+      tags:
+        - Complaints
+      summary: List complaint attachments
+      description: Returns attachment metadata for a complaint.
+      operationId: listComplaintAttachments
+      x-user-stories:
+        - id: US-COMP-17
+          story: As a complaint participant, I want to view uploaded evidence so that I can understand the complaint record.
+      parameters:
+        - $ref: '#/components/parameters/ComplaintId'
+      responses:
+        '200':
+          description: Attachment list.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Attachment'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    ComplaintId:
+      name: complaintId
+      in: path
+      required: true
+      description: Unique complaint identifier.
+      schema:
+        type: string
+        format: uuid
+    Page:
+      name: page
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+    PageSize:
+      name: pageSize
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+
+  responses:
+    BadRequest:
+      description: The request is malformed or contains unsupported query/body fields.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: BAD_REQUEST
+              message: Request could not be processed.
+    Unauthorized:
+      description: Authentication is missing, invalid, or expired.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: UNAUTHORIZED
+              message: Login is required to access this resource.
+    Forbidden:
+      description: The authenticated user does not have permission for this action.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: FORBIDDEN
+              message: You do not have permission to perform this action.
+    NotFound:
+      description: The requested resource was not found.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: NOT_FOUND
+              message: Complaint not found.
+    Conflict:
+      description: The requested action conflicts with the current resource state.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: CONFLICT
+              message: Closed complaints cannot be modified.
+    ValidationError:
+      description: One or more request fields failed validation.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ValidationErrorResponse'
+          example:
+            error:
+              code: VALIDATION_ERROR
+              message: Validation failed.
+              details:
+                - field: title
+                  message: Title is required.
+    PayloadTooLarge:
+      description: Uploaded file exceeds the configured size limit.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: PAYLOAD_TOO_LARGE
+              message: Attachment exceeds maximum upload size.
+    UnsupportedMediaType:
+      description: Uploaded file type is not supported.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: UNSUPPORTED_MEDIA_TYPE
+              message: Only image, PDF, and video attachments are supported.
+    InternalServerError:
+      description: Unexpected server error.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: INTERNAL_SERVER_ERROR
+              message: Something went wrong. Please try again later.
+
+  schemas:
+    CreateComplaintRequest:
+      type: object
+      required:
+        - title
+        - description
+        - category
+        - location
+      properties:
+        title:
+          type: string
+          minLength: 5
+          maxLength: 150
+        description:
+          type: string
+          minLength: 20
+          maxLength: 3000
+        category:
+          $ref: '#/components/schemas/ComplaintCategory'
+        priority:
+          $ref: '#/components/schemas/ComplaintPriority'
+        location:
+          $ref: '#/components/schemas/Location'
+        isAnonymous:
+          type: boolean
+          default: false
+
+    UpdateComplaintRequest:
+      type: object
+      minProperties: 1
+      properties:
+        title:
+          type: string
+          minLength: 5
+          maxLength: 150
+        description:
+          type: string
+          minLength: 20
+          maxLength: 3000
+        category:
+          $ref: '#/components/schemas/ComplaintCategory'
+        priority:
+          $ref: '#/components/schemas/ComplaintPriority'
+        location:
+          $ref: '#/components/schemas/Location'
+        assignedTo:
+          type: string
+          format: uuid
+          nullable: true
+
+    UpdateComplaintStatusRequest:
+      type: object
+      required:
+        - status
+      properties:
+        status:
+          $ref: '#/components/schemas/ComplaintStatus'
+        note:
+          type: string
+          maxLength: 1000
+        notifyCitizen:
+          type: boolean
+          default: true
+
+    CreateCommentRequest:
+      type: object
+      required:
+        - body
+      properties:
+        body:
+          type: string
+          minLength: 1
+          maxLength: 2000
+        visibility:
+          type: string
+          enum:
+            - PUBLIC
+            - INTERNAL
+          default: PUBLIC
+
+    ComplaintResponse:
+      type: object
+      required:
+        - data
+      properties:
+        data:
+          $ref: '#/components/schemas/Complaint'
+
+    ComplaintListResponse:
+      type: object
+      required:
+        - data
+        - pagination
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Complaint'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+
+    CommentListResponse:
+      type: object
+      required:
+        - data
+        - pagination
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Comment'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+
+    Complaint:
+      type: object
+      required:
+        - id
+        - title
+        - description
+        - category
+        - status
+        - priority
+        - location
+        - createdBy
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        description:
+          type: string
+        category:
+          $ref: '#/components/schemas/ComplaintCategory'
+        status:
+          $ref: '#/components/schemas/ComplaintStatus'
+        priority:
+          $ref: '#/components/schemas/ComplaintPriority'
+        location:
+          $ref: '#/components/schemas/Location'
+        createdBy:
+          $ref: '#/components/schemas/UserSummary'
+        assignedTo:
+          allOf:
+            - $ref: '#/components/schemas/UserSummary'
+          nullable: true
+        isAnonymous:
+          type: boolean
+        statusHistory:
+          type: array
+          items:
+            $ref: '#/components/schemas/StatusHistoryItem'
+        attachments:
+          type: array
+          items:
+            $ref: '#/components/schemas/Attachment'
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        closedAt:
+          type: string
+          format: date-time
+          nullable: true
+
+    ComplaintCategory:
+      type: string
+      enum:
+        - ROADS
+        - WATER
+        - ELECTRICITY
+        - SANITATION
+        - PUBLIC_SAFETY
+        - TRAFFIC
+        - OTHER
+
+    ComplaintStatus:
+      type: string
+      enum:
+        - SUBMITTED
+        - UNDER_REVIEW
+        - ASSIGNED
+        - IN_PROGRESS
+        - RESOLVED
+        - CLOSED
+        - REJECTED
+        - WITHDRAWN
+
+    ComplaintPriority:
+      type: string
+      enum:
+        - LOW
+        - MEDIUM
+        - HIGH
+        - URGENT
+      default: MEDIUM
+
+    Location:
+      type: object
+      required:
+        - addressLine
+        - city
+        - state
+      properties:
+        addressLine:
+          type: string
+          maxLength: 255
+        landmark:
+          type: string
+          maxLength: 255
+        city:
+          type: string
+          maxLength: 100
+        state:
+          type: string
+          maxLength: 100
+        postalCode:
+          type: string
+          maxLength: 20
+        latitude:
+          type: number
+          format: double
+          minimum: -90
+          maximum: 90
+        longitude:
+          type: number
+          format: double
+          minimum: -180
+          maximum: 180
+
+    UserSummary:
+      type: object
+      required:
+        - id
+        - name
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        role:
+          type: string
+          enum:
+            - CITIZEN
+            - OFFICIAL
+            - ADMIN
+
+    StatusHistoryItem:
+      type: object
+      required:
+        - status
+        - changedBy
+        - changedAt
+      properties:
+        status:
+          $ref: '#/components/schemas/ComplaintStatus'
+        note:
+          type: string
+        changedBy:
+          $ref: '#/components/schemas/UserSummary'
+        changedAt:
+          type: string
+          format: date-time
+
+    Comment:
+      type: object
+      required:
+        - id
+        - complaintId
+        - body
+        - visibility
+        - createdBy
+        - createdAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        complaintId:
+          type: string
+          format: uuid
+        body:
+          type: string
+        visibility:
+          type: string
+          enum:
+            - PUBLIC
+            - INTERNAL
+        createdBy:
+          $ref: '#/components/schemas/UserSummary'
+        createdAt:
+          type: string
+          format: date-time
+
+    Attachment:
+      type: object
+      required:
+        - id
+        - complaintId
+        - fileName
+        - contentType
+        - url
+        - uploadedBy
+        - uploadedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        complaintId:
+          type: string
+          format: uuid
+        fileName:
+          type: string
+        contentType:
+          type: string
+        sizeBytes:
+          type: integer
+          format: int64
+        url:
+          type: string
+          format: uri
+        description:
+          type: string
+          nullable: true
+        uploadedBy:
+          $ref: '#/components/schemas/UserSummary'
+        uploadedAt:
+          type: string
+          format: date-time
+
+    Pagination:
+      type: object
+      required:
+        - page
+        - pageSize
+        - totalItems
+        - totalPages
+      properties:
+        page:
+          type: integer
+          minimum: 1
+        pageSize:
+          type: integer
+          minimum: 1
+        totalItems:
+          type: integer
+          minimum: 0
+        totalPages:
+          type: integer
+          minimum: 0
+
+    ErrorResponse:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+            requestId:
+              type: string
+
+    ValidationErrorResponse:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: object
+          required:
+            - code
+            - message
+            - details
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+            details:
+              type: array
+              items:
+                type: object
+                required:
+                  - field
+                  - message
+                properties:
+                  field:
+                    type: string
+                  message:
+                    type: string

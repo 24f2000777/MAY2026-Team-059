@@ -7,7 +7,7 @@ const auth = useAuthStore()
 <template>
   <div class="app-shell">
     <Navbar v-if="auth.isLoggedIn" />
-    <main class="app-content">
+    <main>
       <router-view />
     </main>
   </div>

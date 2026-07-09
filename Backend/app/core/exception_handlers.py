@@ -28,6 +28,7 @@ from fastapi import FastAPI, Request, status
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from sqlalchemy.exc import IntegrityError
 
 from app.utils.exceptions import (
     AuthenticationError,
@@ -40,6 +41,7 @@ from app.utils.exceptions import (
     EmailNotVerifiedError,
     InvalidOTPError,
     RateLimitExceededError,
+    InsufficientPermissionsError,
 )
 
 
@@ -143,6 +145,13 @@ async def handle_rate_limit_exceeded(
     return _error_response(status.HTTP_429_TOO_MANY_REQUESTS, exc)
 
 
+async def handle_insufficient_permissions(
+    request: Request,
+    exc: InsufficientPermissionsError,
+) -> JSONResponse:
+    return _error_response(status.HTTP_403_FORBIDDEN, exc)
+
+
 async def handle_authentication_error(
     request: Request,
     exc: AuthenticationError,
@@ -179,6 +188,41 @@ async def handle_validation_error(
             "message": "Request validation failed.",
             "error_code": "VAL_001",
             "details": {"errors": jsonable_encoder(exc.errors())},
+        },
+    )
+
+
+async def handle_integrity_error(
+    request: Request,
+    exc: IntegrityError,
+) -> JSONResponse:
+    """
+    Catches raw database unique constraint violations (e.g. from race conditions
+    during registration). Looks at the raw error string to determine whether
+    the conflict was email or phone, and returns the standard envelope.
+    """
+    
+    error_str = str(exc.orig).lower() if exc.orig else str(exc).lower()
+    
+    if "phone" in error_str:
+        return JSONResponse(
+            status_code=status.HTTP_409_CONFLICT,
+            content={
+                "success": False,
+                "message": "Phone number is already registered.",
+                "error_code": "AUTH_008",
+                "details": None,
+            },
+        )
+    
+    # Default to email
+    return JSONResponse(
+        status_code=status.HTTP_409_CONFLICT,
+        content={
+            "success": False,
+            "message": "Email is already registered.",
+            "error_code": "AUTH_007",
+            "details": None,
         },
     )
 
@@ -246,6 +290,11 @@ def register_exception_handlers(app: FastAPI) -> None:
         handle_rate_limit_exceeded,
     )
 
+    app.add_exception_handler(
+        InsufficientPermissionsError,
+        handle_insufficient_permissions,
+    )
+
     # Catch-all fallback for any other AuthenticationError subclass.
     app.add_exception_handler(
         AuthenticationError,
@@ -257,4 +306,10 @@ def register_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(
         RequestValidationError,
         handle_validation_error,
+    )
+    
+    # Handle database integrity errors (e.g. race conditions)
+    app.add_exception_handler(
+        IntegrityError,
+        handle_integrity_error,
     )

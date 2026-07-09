@@ -1,12 +1,15 @@
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.auth import router as auth_router
 from app.api.complaints import router as complaint_router
 from app.api.notifications import router as notification_router
+from app.api.dashboard import router as dashboard_router
 from app.core.redis import check_redis_connection
 from app.core.exception_handlers import register_exception_handlers
+from app.schemas.common import SuccessResponse
 
 
 @asynccontextmanager
@@ -19,7 +22,7 @@ async def lifespan(app: FastAPI):
     """
 
     # Startup
-    check_redis_connection()
+    await check_redis_connection()
     """
     # connect_to_vector_db()
     # start_scheduler()
@@ -42,22 +45,40 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 register_exception_handlers(app)
 
 app.include_router(auth_router)
 app.include_router(complaint_router)
 app.include_router(notification_router)
+app.include_router(dashboard_router)
 
 
-@app.get("/", tags=["Root"])
+@app.get(
+    "/",
+    response_model=SuccessResponse[None],
+    tags=["Root"],
+)
 async def root():
-    return {
-        "message": "Welcome to NAGRIK AI API"
-    }
+    return SuccessResponse[None](
+        message="Welcome to NAGRIK AI API",
+    )
 
 
-@app.get("/health", tags=["Health"])
+@app.get(
+    "/health",
+    response_model=SuccessResponse[dict],
+    tags=["Health"],
+)
 async def health_check():
-    return {
-        "status": "ok"
-    }
+    return SuccessResponse[dict](
+        message="Service is healthy.",
+        data={"status": "ok"},
+    )

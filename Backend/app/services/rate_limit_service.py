@@ -1,16 +1,15 @@
 """
 Rate Limit Service
 
-A generic, Redis-backed fixed-window rate limiter. Used first
-for password-reset requests (max 3 per hour per email, per the
-API design doc), but written generically so any other action
-(e.g. login attempts) can reuse it later with its own key,
-limit, and window.
+A generic, Redis-backed fixed-window rate limiter. Used for
+password-reset requests (3/hour/email) and OTP verification
+attempts (guards against brute-forcing a 6-digit code), and
+written generically so any other action (e.g. login attempts)
+can reuse it later with its own key, limit, and window.
 
 Fixed-window counters are simpler than a sliding-window or
 token-bucket approach and are accurate enough for this use
-case: the goal is stopping an email address from being spammed
-with reset OTPs, not billing-grade precision.
+case: the goal is stopping abuse, not billing-grade precision.
 """
 
 from __future__ import annotations
@@ -31,7 +30,7 @@ def _redis_key(scope: str, identifier: str) -> str:
     return f"rate_limit:{scope}:{identifier}"
 
 
-def enforce_rate_limit(
+async def enforce_rate_limit(
     *,
     scope: str,
     identifier: str,
@@ -54,11 +53,11 @@ def enforce_rate_limit(
 
     key = _redis_key(scope, identifier)
 
-    attempts = redis_client.incr(key)
+    attempts = await redis_client.incr(key)
 
     if attempts == 1:
         # First attempt in a fresh window — start the clock.
-        redis_client.expire(key, window_seconds)
+        await redis_client.expire(key, window_seconds)
 
     if attempts > max_attempts:
         raise RateLimitExceededError(

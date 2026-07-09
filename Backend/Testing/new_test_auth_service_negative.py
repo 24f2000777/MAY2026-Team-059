@@ -25,8 +25,14 @@ Run once, it finishes on its own:
 from __future__ import annotations
 
 import asyncio
+import os
+import sys
 import random
 from uuid import uuid4
+
+# See test_auth_full_suite.py for why this line is needed now
+# that this script lives in Testing/ instead of Backend/ directly.
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from jose import jwt
 
@@ -181,15 +187,21 @@ async def cleanup():
         await db.execute(delete(User).where(User.email == ctx.email))
         await db.commit()
 
-    redis_client.delete(f"{OTP_VERIFY_EMAIL}:{ctx.email}")
-    redis_client.delete(f"{OTP_RESET_PASSWORD}:{ctx.email}")
+    await redis_client.delete(f"{OTP_VERIFY_EMAIL}:{ctx.email}")
+    await redis_client.delete(f"{OTP_RESET_PASSWORD}:{ctx.email}")
 
     # forgot_password is now rate-limited (3/hour/email). This
     # script reuses the same ctx.email across all 18 tests, so
     # without clearing the counter here, later tests that call
     # forgot_password would trip a limit meant to catch real
     # abuse, not repeated test runs against one fixed email.
-    redis_client.delete(f"rate_limit:forgot_password:{ctx.email}")
+    await redis_client.delete(f"rate_limit:forgot_password:{ctx.email}")
+
+    # Same reasoning for the two OTP-verification-attempt
+    # limiters added after a security review (guards against
+    # brute-forcing a 6-digit OTP within its lifetime).
+    await redis_client.delete(f"rate_limit:verify_otp_attempt:{ctx.email}")
+    await redis_client.delete(f"rate_limit:reset_otp_attempt:{ctx.email}")
 
     # Drop any stale captured OTPs for this email too
     CAPTURED_OTPS.pop((OTP_VERIFY_EMAIL, ctx.email), None)
@@ -390,7 +402,7 @@ async def test_expired_verification_otp():
 
     await create_unverified_user()
 
-    redis_client.delete(f"{OTP_VERIFY_EMAIL}:{ctx.email}")
+    await redis_client.delete(f"{OTP_VERIFY_EMAIL}:{ctx.email}")
 
     async with AsyncSessionLocal() as db:
 
@@ -411,7 +423,7 @@ async def test_already_verified_user():
 
     await create_verified_user()
 
-    otp = create_otp(email=ctx.email, purpose=OTP_VERIFY_EMAIL)
+    otp = await create_otp(email=ctx.email, purpose=OTP_VERIFY_EMAIL)
 
     async with AsyncSessionLocal() as db:
 
@@ -692,7 +704,7 @@ async def test_reset_password_expired_otp():
     await create_verified_user()
     await request_password_reset()
 
-    redis_client.delete(f"{OTP_RESET_PASSWORD}:{ctx.email}")
+    await redis_client.delete(f"{OTP_RESET_PASSWORD}:{ctx.email}")
 
     async with AsyncSessionLocal() as db:
 
@@ -801,6 +813,8 @@ async def main():
     print()
 
     await cleanup()
+
+    await redis_client.aclose()
 
 
 if __name__ == "__main__":

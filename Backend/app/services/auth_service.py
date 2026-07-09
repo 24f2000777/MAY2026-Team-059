@@ -38,6 +38,7 @@ from app.core.security import (
     create_access_token,
     create_refresh_token,
     decode_token,
+    DUMMY_PASSWORD_HASH,
     JWT_SUB,
     JWT_TYPE,
     JWT_JTI,
@@ -156,54 +157,70 @@ async def _get_user_by_id(
     return result.scalar_one_or_none()
 
 
-def _send_verification_otp(
+async def _send_verification_otp(
     email: str,
 ) -> None:
     """
     Generate and send an email verification OTP.
 
-    Deletes the OTP from Redis if email
-    delivery fails.
+    The actual SMTP call (smtplib.SMTP, inside
+    send_verification_email) is a blocking network call.
+    Running it directly inside this async function would
+    block the whole event loop — every other concurrent
+    request on this worker would stall for however long SMTP
+    takes to respond. asyncio.to_thread offloads it to a
+    separate thread, so this coroutine still waits for the
+    result (the caller gets the same success/failure
+    guarantee as before) without blocking anyone else's
+    requests while it waits.
+
+    Deletes the OTP from Redis if email delivery fails.
     """
 
-    otp = create_otp(
+    otp = await create_otp(
         email=email,
         purpose=OTP_VERIFY_EMAIL,
     )
 
     try:
-        send_verification_email(
+        await asyncio.to_thread(
+            send_verification_email,
             recipient=email,
             otp=otp,
         )
 
     except Exception:
-        delete_otp(
+        await delete_otp(
             email=email,
             purpose=OTP_VERIFY_EMAIL,
         )
         raise
-    
-def _send_reset_password_otp(
+
+
+async def _send_reset_password_otp(
     email: str,
 ) -> None:
     """
     Generate and send a password reset OTP.
+
+    See _send_verification_otp's docstring — same
+    asyncio.to_thread reasoning applies here.
     """
 
-    otp = create_otp(
+    otp = await create_otp(
         email=email,
         purpose=OTP_RESET_PASSWORD,
     )
 
     try:
-        send_password_reset_email(
+        await asyncio.to_thread(
+            send_password_reset_email,
             recipient=email,
             otp=otp,
         )
 
     except Exception:
-        delete_otp(
+        await delete_otp(
             email=email,
             purpose=OTP_RESET_PASSWORD,
         )
@@ -233,6 +250,21 @@ async def register_user(
     Note:
         The database transaction is committed by the
         get_db() dependency after the request completes.
+
+    Note on user enumeration:
+        This intentionally tells the caller when an email is
+        already registered (both here and via the "pending
+        verification" branch below) — this matches near-
+        universal industry practice for registration flows
+        (almost every consumer product does this, since a
+        silent/generic response would make "did my signup
+        work?" impossible to answer). This is a deliberate,
+        accepted tradeoff, not an oversight. Contrast with
+        login_user, where the equivalent timing side-channel
+        IS closed, because there the leak is more severe (it
+        would help credential-stuffing against accounts the
+        attacker already suspects exist) and closing it costs
+        nothing user-facing.
     """
 
     # -------------------------------------------------
@@ -253,7 +285,7 @@ async def register_user(
             )
 
         # Account exists but email not verified
-        _send_verification_otp(
+        await _send_verification_otp(
             existing_user.email,
         )
 
@@ -303,20 +335,20 @@ async def register_user(
     # Send verification email
     # -------------------------------------------------
 
-    _send_verification_otp(
+    await _send_verification_otp(
         user.email,
     )
 
-    
+
     return MessageResponse(
         message=(
             "Registration successful. "
             "A verification OTP has been sent to your email."
         )
     )
-    
-    
-    
+
+
+
 # =====================================================
 # Verify Email
 # =====================================================
@@ -333,14 +365,13 @@ async def verify_email(
     ----
     1. Find user.
     2. Ensure account is not already active.
-    3. Verify OTP from Redis.
-    4. Activate account.
-    5. Return success message.
+    3. Enforce rate limit on verification attempts (a 6-digit
+       OTP is guessable if attempts are unlimited within its
+       5-minute lifetime).
+    4. Verify OTP from Redis.
+    5. Activate account.
+    6. Return success message.
     """
-
-    # -------------------------------------------------
-    # Find user
-    # -------------------------------------------------
 
     user = await _get_user_by_email(
         db,
@@ -362,10 +393,21 @@ async def verify_email(
         )
 
     # -------------------------------------------------
+    # Rate limit verification attempts against this OTP
+    # -------------------------------------------------
+
+    await enforce_rate_limit(
+        scope="verify_otp_attempt",
+        identifier=request.email,
+        max_attempts=settings.OTP_VERIFY_RATE_LIMIT_MAX_ATTEMPTS,
+        window_seconds=settings.OTP_VERIFY_RATE_LIMIT_WINDOW_SECONDS,
+    )
+
+    # -------------------------------------------------
     # Verify OTP
     # -------------------------------------------------
 
-    is_valid = verify_otp(
+    is_valid = await verify_otp(
         email=request.email,
         otp=request.otp,
         purpose=OTP_VERIFY_EMAIL,
@@ -410,6 +452,19 @@ async def login_user(
     4. Generate access token.
     5. Generate refresh token.
     6. Return authentication response.
+
+    Note on timing safety:
+        If no user is found, a real bcrypt verification is
+        still performed (against DUMMY_PASSWORD_HASH) before
+        raising. bcrypt is deliberately slow (~100-300ms) —
+        skipping it entirely for unknown emails while
+        performing it for known ones would create a
+        measurable timing difference, letting a caller
+        distinguish "no such account" from "wrong password"
+        purely by how long the response took, even though
+        both return the identical 401 body. Always doing the
+        same bcrypt work regardless of whether the user
+        exists closes that side channel.
     """
 
     # -------------------------------------------------
@@ -422,6 +477,14 @@ async def login_user(
     )
 
     if user is None:
+        # Burn the same bcrypt time a real verification would
+        # take, so this branch and the "wrong password" branch
+        # below are indistinguishable by response time.
+        verify_password(
+            request.password,
+            DUMMY_PASSWORD_HASH,
+        )
+
         raise InvalidCredentialsError(
             "Invalid email or password."
         )
@@ -470,9 +533,9 @@ async def login_user(
         refresh_token=refresh_token,
         user=UserResponse.model_validate(user),
     )
-    
-    
-    
+
+
+
 # =====================================================
 # Refresh Access Token
 # =====================================================
@@ -482,8 +545,21 @@ async def refresh_access_token(
     refresh_token: str,
 ) -> TokenResponse:
     """
-    Generate a new access token using
-    a valid refresh token.
+    Generate a new access token AND a new refresh token from a
+    valid, unexpired, non-revoked refresh token — rotating the
+    refresh token on every use.
+
+    Rotation means each refresh token is single-use: the one
+    presented here is immediately blacklisted (the blacklist
+    infrastructure already exists for logout, so this reuses
+    it rather than adding a new mechanism), and a brand new
+    refresh token is issued alongside the new access token. If
+    a refresh token is ever stolen, it's only useful until the
+    legitimate client's next refresh — after that, both the
+    thief's copy and the legitimate client's copy of the OLD
+    token are dead, which surfaces the theft immediately
+    instead of leaving a long-lived, silently-reusable token
+    valid for its full 7-day lifetime.
     """
 
     # -------------------------------------------------
@@ -511,16 +587,16 @@ async def refresh_access_token(
     # Verify token type
     # -------------------------------------------------
 
-    if payload.get(JWT_TYPE)!= REFRESH_TOKEN:
+    if payload.get(JWT_TYPE) != REFRESH_TOKEN:
         raise InvalidTokenError(
             "Invalid refresh token."
         )
 
     # -------------------------------------------------
-    # Revoked via logout?
+    # Revoked via logout or a previous refresh?
     # -------------------------------------------------
 
-    if is_token_blacklisted(payload.get(JWT_JTI)):
+    if await is_token_blacklisted(payload.get(JWT_JTI)):
         raise InvalidTokenError(
             "Refresh token has been revoked."
         )
@@ -539,7 +615,7 @@ async def refresh_access_token(
     # -------------------------------------------------
     # Validate UUID
     # -------------------------------------------------
-    
+
     try:
         user_uuid = UUID(user_id)
 
@@ -571,10 +647,24 @@ async def refresh_access_token(
         )
 
     # -------------------------------------------------
-    # Generate NEW Access Token
+    # Rotate: retire the presented refresh token...
     # -------------------------------------------------
 
-    access_token = create_access_token(
+    await blacklist_token(
+        jti=payload.get(JWT_JTI),
+        expires_at=payload.get(JWT_EXP),
+    )
+
+    # -------------------------------------------------
+    # ...and issue a brand new access + refresh pair
+    # -------------------------------------------------
+
+    new_access_token = create_access_token(
+        user_id=str(user.id),
+        role=user.role,
+    )
+
+    new_refresh_token = create_refresh_token(
         user_id=str(user.id),
         role=user.role,
     )
@@ -584,12 +674,12 @@ async def refresh_access_token(
     # -------------------------------------------------
 
     return TokenResponse(
-        access_token=access_token,
-        refresh_token=refresh_token,
+        access_token=new_access_token,
+        refresh_token=new_refresh_token,
         user=UserResponse.model_validate(user),
     )
-    
-    
+
+
 
 
 # =====================================================
@@ -619,7 +709,7 @@ async def forgot_password(
     # enumeration oracle either.
     # -------------------------------------------------
 
-    enforce_rate_limit(
+    await enforce_rate_limit(
         scope="forgot_password",
         identifier=request.email,
         max_attempts=settings.PASSWORD_RESET_RATE_LIMIT_MAX_ATTEMPTS,
@@ -653,7 +743,7 @@ async def forgot_password(
     # Send password reset OTP
     # -------------------------------------------------
 
-    _send_reset_password_otp(
+    await _send_reset_password_otp(
         user.email,
     )
 
@@ -663,9 +753,9 @@ async def forgot_password(
             "to your email."
         )
     )
-    
-    
-    
+
+
+
 # =====================================================
 # Reset Password
 # =====================================================
@@ -677,6 +767,15 @@ async def reset_password(
     """
     Reset a user's password after
     successful OTP verification.
+
+    Flow
+    ----
+    1. Find user.
+    2. Ensure account is verified.
+    3. Enforce rate limit on verification attempts against
+       this OTP (same brute-force concern as verify_email).
+    4. Verify OTP.
+    5. Update password.
     """
 
     # -------------------------------------------------
@@ -703,10 +802,21 @@ async def reset_password(
         )
 
     # -------------------------------------------------
+    # Rate limit verification attempts against this OTP
+    # -------------------------------------------------
+
+    await enforce_rate_limit(
+        scope="reset_otp_attempt",
+        identifier=request.email,
+        max_attempts=settings.OTP_VERIFY_RATE_LIMIT_MAX_ATTEMPTS,
+        window_seconds=settings.OTP_VERIFY_RATE_LIMIT_WINDOW_SECONDS,
+    )
+
+    # -------------------------------------------------
     # Verify OTP
     # -------------------------------------------------
 
-    is_valid = verify_otp(
+    is_valid = await verify_otp(
         email=request.email,
         otp=request.otp,
         purpose=OTP_RESET_PASSWORD,
@@ -863,7 +973,8 @@ async def logout_user(
     passed in (the one used to authenticate this very request).
     Optionally also revokes a refresh token, if the client
     supplies one in the request body — without it, the refresh
-    token remains valid until it naturally expires.
+    token remains valid until it naturally expires (or until
+    it's next used, since refresh_access_token now rotates it).
 
     A refresh token that is already malformed or expired is
     treated as "nothing to revoke" rather than an error, since
@@ -877,7 +988,7 @@ async def logout_user(
        well-formed refresh token, blacklist its jti too.
     """
 
-    blacklist_token(
+    await blacklist_token(
         jti=access_token_payload.get(JWT_JTI),
         expires_at=access_token_payload.get(JWT_EXP),
     )
@@ -894,7 +1005,7 @@ async def logout_user(
             refresh_payload is not None
             and refresh_payload.get(JWT_TYPE) == REFRESH_TOKEN
         ):
-            blacklist_token(
+            await blacklist_token(
                 jti=refresh_payload.get(JWT_JTI),
                 expires_at=refresh_payload.get(JWT_EXP),
             )

@@ -10,6 +10,7 @@ Example:
     print(settings.SECRET_KEY)
 """
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -34,7 +35,7 @@ class Settings(BaseSettings):
     # JWT Authentication
     # =====================================================
 
-    SECRET_KEY: str
+    SECRET_KEY: str = Field(min_length=32)
 
     ALGORITHM: str = "HS256"
 
@@ -78,8 +79,16 @@ class Settings(BaseSettings):
     PASSWORD_RESET_RATE_LIMIT_MAX_ATTEMPTS: int = 3
 
     PASSWORD_RESET_RATE_LIMIT_WINDOW_SECONDS: int = 3600
+
+    # Caps how many times a caller can attempt to verify an
+    # already-issued OTP (verify-email or reset-password) within
+    # its lifetime, so a 6-digit code can't just be brute-forced
+    # by guessing repeatedly before it expires.
+    OTP_VERIFY_RATE_LIMIT_MAX_ATTEMPTS: int = 5
+
+    OTP_VERIFY_RATE_LIMIT_WINDOW_SECONDS: int = 900
     
-    OTP_SECRET_KEY: str
+    OTP_SECRET_KEY: str = Field(min_length=32)
 
     # =====================================================
     # Celery
@@ -101,7 +110,7 @@ class Settings(BaseSettings):
 
     ENVIRONMENT: str = "development"
 
-    DEBUG: bool = True
+    DEBUG: bool = False
 
     # =====================================================
     # Pydantic Configuration

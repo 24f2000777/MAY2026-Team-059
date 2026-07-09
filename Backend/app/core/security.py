@@ -16,6 +16,18 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
+# ── bcrypt / passlib compatibility ──────────────────────
+# passlib 1.7.4 reads bcrypt.__about__.__version__, which was
+# removed in bcrypt >= 4.1. This shim prevents the harmless
+# but noisy "(trapped) error reading bcrypt version" warning
+# on every startup. Must run before passlib is imported.
+import bcrypt as _bcrypt
+
+if not hasattr(_bcrypt, "__about__"):
+    _bcrypt.__about__ = type(
+        "_About", (), {"__version__": _bcrypt.__version__}
+    )()
+
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from fastapi.security import HTTPBearer
@@ -97,6 +109,20 @@ def verify_password(
         plain_password,
         password_hash,
     )
+
+
+# A precomputed bcrypt hash of a password nobody will ever type,
+# used only so that login_user can run a real bcrypt verification
+# even when no user was found for the given email. bcrypt is
+# deliberately slow (~100-300ms); skipping it entirely for unknown
+# emails while performing it for known ones creates a measurable
+# timing difference that lets an attacker distinguish "no such
+# account" from "wrong password" without ever seeing the response
+# body. Always doing the same bcrypt work regardless of whether
+# the user exists closes that side channel.
+DUMMY_PASSWORD_HASH = hash_password(
+    "this-is-not-a-real-password-used-only-for-timing-safety"
+)
 
 
 # =====================================================

@@ -28,11 +28,23 @@ Run once, fully unattended:
 from __future__ import annotations
 
 import asyncio
+import os
+import sys
+
+# This script now lives in Testing/, one level below Backend/,
+# where the `app` package actually lives. Running a script from
+# a subfolder only adds THAT subfolder to Python's import path,
+# not the folder you invoked it from — so without this, every
+# "from app..." import below would fail with
+# ModuleNotFoundError: No module named 'app'. This line adds
+# Backend/ (the parent of this file's folder) to the path,
+# regardless of what directory you run the script from.
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from uuid import uuid4
 
 import httpx
 from jose import jwt as jose_jwt
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 
 from app.main import app
 from app.core.config import settings
@@ -45,6 +57,9 @@ import app.services.auth_service as auth_service_module
 from app.utils.constants import (
     OTP_VERIFY_EMAIL,
     OTP_RESET_PASSWORD,
+    ROLE_CITIZEN,
+    ROLE_OFFICER,
+    ROLE_ADMIN,
 )
 
 
@@ -171,8 +186,8 @@ async def cleanup(emails: list[str]):
         await db.commit()
 
     for email in emails:
-        redis_client.delete(f"{OTP_VERIFY_EMAIL}:{email}")
-        redis_client.delete(f"{OTP_RESET_PASSWORD}:{email}")
+        await redis_client.delete(f"{OTP_VERIFY_EMAIL}:{email}")
+        await redis_client.delete(f"{OTP_RESET_PASSWORD}:{email}")
         CAPTURED_OTPS.pop((OTP_VERIFY_EMAIL, email), None)
         CAPTURED_OTPS.pop((OTP_RESET_PASSWORD, email), None)
 
@@ -259,6 +274,37 @@ async def create_verified_user(
     otp = get_otp(OTP_VERIFY_EMAIL, email)
     response = await api_verify_otp(client, email, otp)
     assert response.status_code == 200, f"setup verify failed: {response.text}"
+
+    return email, phone
+
+
+async def create_verified_user_with_role(
+    client,
+    role: str,
+    email: str | None = None,
+    phone: str | None = None,
+    password: str = DEFAULT_PASSWORD,
+    name: str = "Test User",
+) -> tuple[str, str]:
+    """
+    Register + verify a user via the real API (which always
+    creates citizens — there's no create-officer/admin endpoint
+    yet, that belongs to the future Admin module), then directly
+    overwrite the role column in the DB.
+
+    This is a test-only shortcut to get an officer/admin account
+    to test RBAC against, not something the real API supports.
+    """
+
+    email, phone = await create_verified_user(
+        client, email=email, phone=phone, password=password, name=name
+    )
+
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(select(User).where(User.email == email))
+        user = result.scalar_one()
+        user.role = role
+        await db.commit()
 
     return email, phone
 
@@ -354,7 +400,7 @@ async def test_verify_otp_expired(client):
     try:
         await api_register(client, email, phone)
         get_otp(OTP_VERIFY_EMAIL, email)
-        redis_client.delete(f"{OTP_VERIFY_EMAIL}:{email}")
+        await redis_client.delete(f"{OTP_VERIFY_EMAIL}:{email}")
         response = await api_verify_otp(client, email, "123456")
         expect_status(response, 400, "Verify with expired OTP")
     finally:
@@ -367,7 +413,7 @@ async def test_verify_otp_already_verified(client):
     try:
         await create_verified_user(client, email=email)
         from app.services.otp_service import create_otp
-        otp = create_otp(email=email, purpose=OTP_VERIFY_EMAIL)
+        otp = await create_otp(email=email, purpose=OTP_VERIFY_EMAIL)
         response = await api_verify_otp(client, email, otp)
         expect_status(response, 409, "Verify an already-verified account")
     finally:
@@ -378,6 +424,27 @@ async def test_verify_otp_unknown_email(client):
     title("VERIFY OTP — unknown email")
     response = await api_verify_otp(client, "nobody_" + unique_email(), "123456")
     expect_status(response, 404, "Verify OTP for unregistered email")
+
+
+async def test_verify_otp_rate_limited(client):
+    title("VERIFY OTP — rate limited after 5 attempts per 15 minutes")
+    email, phone = unique_email(), unique_phone()
+    try:
+        await api_register(client, email, phone)
+        get_otp(OTP_VERIFY_EMAIL, email)  # drain it, we're guessing wrong on purpose
+
+        for attempt in range(1, 6):
+            response = await api_verify_otp(client, email, "000000")
+            expect_status(
+                response, 400, f"Wrong-OTP attempt #{attempt} (within limit)"
+            )
+
+        sixth_response = await api_verify_otp(client, email, "000000")
+        expect_status(
+            sixth_response, 429, "6th verify-otp attempt within the window"
+        )
+    finally:
+        await cleanup([email])
 
 
 # ==========================================================
@@ -488,6 +555,38 @@ async def test_refresh_deleted_user(client):
         await cleanup([email])
 
 
+async def test_refresh_rotates_token_old_one_rejected(client):
+    title("REFRESH — rotates the refresh token; the old one is single-use")
+    email = unique_email()
+    try:
+        await create_verified_user(client, email=email)
+        _, old_refresh_token = await login_get_tokens(client, email)
+
+        first_response = await api_refresh(client, old_refresh_token)
+        ok = expect_status(first_response, 200, "First refresh with the original token")
+
+        if ok:
+            new_refresh_token = first_response.json()["data"]["refresh_token"]
+
+            expect(
+                new_refresh_token != old_refresh_token,
+                "A brand new refresh token was issued (rotation)",
+                "Refresh token was NOT rotated — same token returned",
+            )
+
+            reuse_response = await api_refresh(client, old_refresh_token)
+            expect_status(
+                reuse_response, 401, "Reusing the OLD refresh token a second time"
+            )
+
+            second_response = await api_refresh(client, new_refresh_token)
+            expect_status(
+                second_response, 200, "The NEW refresh token works"
+            )
+    finally:
+        await cleanup([email])
+
+
 # ==========================================================
 # FORGOT / RESET PASSWORD
 # ==========================================================
@@ -529,7 +628,7 @@ async def test_reset_password_expired_otp(client):
         await create_verified_user(client, email=email)
         await api_forgot_password(client, email)
         get_otp(OTP_RESET_PASSWORD, email)
-        redis_client.delete(f"{OTP_RESET_PASSWORD}:{email}")
+        await redis_client.delete(f"{OTP_RESET_PASSWORD}:{email}")
         response = await api_reset_password(client, email, "123456", NEW_PASSWORD)
         expect_status(response, 400, "Reset password with expired OTP")
     finally:
@@ -579,6 +678,32 @@ async def test_reset_password_success_and_otp_not_reusable(client):
         # since verify_otp deletes it from Redis on first success.
         reuse_response = await api_reset_password(client, email, otp, "AnotherPass@789")
         expect_status(reuse_response, 400, "Reuse the same reset OTP a second time")
+    finally:
+        await cleanup([email])
+
+
+async def test_reset_otp_rate_limited(client):
+    title("RESET PASSWORD — rate limited after 5 verify attempts per 15 minutes")
+    email = unique_email()
+    try:
+        await create_verified_user(client, email=email)
+        await api_forgot_password(client, email)
+        get_otp(OTP_RESET_PASSWORD, email)  # drain it, guessing wrong on purpose
+
+        for attempt in range(1, 6):
+            response = await api_reset_password(
+                client, email, "000000", NEW_PASSWORD
+            )
+            expect_status(
+                response, 400, f"Wrong-OTP reset attempt #{attempt} (within limit)"
+            )
+
+        sixth_response = await api_reset_password(
+            client, email, "000000", NEW_PASSWORD
+        )
+        expect_status(
+            sixth_response, 429, "6th reset-password attempt within the window"
+        )
     finally:
         await cleanup([email])
 
@@ -860,6 +985,115 @@ async def test_logout_no_auth(client):
 
 
 # ==========================================================
+# DASHBOARD / RBAC
+# ==========================================================
+
+async def test_dashboard_route_resolves_by_role(client):
+    title("GET /dashboard — resolves to the caller's own role")
+    email = unique_email()
+    try:
+        await create_verified_user(client, email=email)
+        access_token, _ = await login_get_tokens(client, email)
+
+        response = await client.get("/dashboard", headers=auth_headers(access_token))
+        ok = expect_status(response, 200, "Get dashboard route")
+        if ok:
+            expect(
+                response.json()["data"]["role"] == ROLE_CITIZEN,
+                "Dashboard route matches the citizen role",
+                f"Unexpected role in response: {response.json()}",
+            )
+    finally:
+        await cleanup([email])
+
+
+async def test_citizen_can_access_citizen_dashboard(client):
+    title("DASHBOARD — citizen can access their own dashboard")
+    email = unique_email()
+    try:
+        await create_verified_user_with_role(client, ROLE_CITIZEN, email=email)
+        access_token, _ = await login_get_tokens(client, email)
+
+        response = await client.get(
+            "/dashboard/citizen", headers=auth_headers(access_token)
+        )
+        expect_status(response, 200, "Citizen accessing /dashboard/citizen")
+    finally:
+        await cleanup([email])
+
+
+async def test_citizen_cannot_access_officer_dashboard(client):
+    title("DASHBOARD — citizen rejected from officer dashboard")
+    email = unique_email()
+    try:
+        await create_verified_user_with_role(client, ROLE_CITIZEN, email=email)
+        access_token, _ = await login_get_tokens(client, email)
+
+        response = await client.get(
+            "/dashboard/officer", headers=auth_headers(access_token)
+        )
+        expect_status(response, 403, "Citizen accessing /dashboard/officer")
+    finally:
+        await cleanup([email])
+
+
+async def test_citizen_cannot_access_admin_dashboard(client):
+    title("DASHBOARD — citizen rejected from admin dashboard")
+    email = unique_email()
+    try:
+        await create_verified_user_with_role(client, ROLE_CITIZEN, email=email)
+        access_token, _ = await login_get_tokens(client, email)
+
+        response = await client.get(
+            "/dashboard/admin", headers=auth_headers(access_token)
+        )
+        expect_status(response, 403, "Citizen accessing /dashboard/admin")
+    finally:
+        await cleanup([email])
+
+
+async def test_officer_can_access_officer_dashboard_only(client):
+    title("DASHBOARD — officer can access officer, not admin")
+    email = unique_email()
+    try:
+        await create_verified_user_with_role(client, ROLE_OFFICER, email=email)
+        access_token, _ = await login_get_tokens(client, email)
+
+        officer_response = await client.get(
+            "/dashboard/officer", headers=auth_headers(access_token)
+        )
+        expect_status(officer_response, 200, "Officer accessing /dashboard/officer")
+
+        admin_response = await client.get(
+            "/dashboard/admin", headers=auth_headers(access_token)
+        )
+        expect_status(admin_response, 403, "Officer accessing /dashboard/admin")
+    finally:
+        await cleanup([email])
+
+
+async def test_admin_can_access_admin_dashboard(client):
+    title("DASHBOARD — admin can access admin dashboard")
+    email = unique_email()
+    try:
+        await create_verified_user_with_role(client, ROLE_ADMIN, email=email)
+        access_token, _ = await login_get_tokens(client, email)
+
+        response = await client.get(
+            "/dashboard/admin", headers=auth_headers(access_token)
+        )
+        expect_status(response, 200, "Admin accessing /dashboard/admin")
+    finally:
+        await cleanup([email])
+
+
+async def test_dashboard_no_auth(client):
+    title("DASHBOARD — no Authorization header")
+    response = await client.get("/dashboard/citizen")
+    expect_status(response, 401, "Dashboard route without a token")
+
+
+# ==========================================================
 # Main Runner
 # ==========================================================
 
@@ -874,6 +1108,7 @@ TESTS = [
     test_verify_otp_expired,
     test_verify_otp_already_verified,
     test_verify_otp_unknown_email,
+    test_verify_otp_rate_limited,
     # Login
     test_login_success,
     test_login_wrong_password,
@@ -885,6 +1120,7 @@ TESTS = [
     test_refresh_garbage_token,
     test_refresh_missing_sub,
     test_refresh_deleted_user,
+    test_refresh_rotates_token_old_one_rejected,
     # Forgot / Reset Password
     test_forgot_password_unknown_user,
     test_forgot_password_inactive_user,
@@ -892,6 +1128,7 @@ TESTS = [
     test_reset_password_expired_otp,
     test_reset_password_same_as_current,
     test_reset_password_success_and_otp_not_reusable,
+    test_reset_otp_rate_limited,
     test_forgot_password_rate_limited,
     # Get Profile
     test_get_me_success,
@@ -913,6 +1150,14 @@ TESTS = [
     test_logout_without_refresh_token_leaves_it_valid,
     test_double_logout_second_call_rejected,
     test_logout_no_auth,
+    # Dashboard / RBAC
+    test_dashboard_route_resolves_by_role,
+    test_citizen_can_access_citizen_dashboard,
+    test_citizen_cannot_access_officer_dashboard,
+    test_citizen_cannot_access_admin_dashboard,
+    test_officer_can_access_officer_dashboard_only,
+    test_admin_can_access_admin_dashboard,
+    test_dashboard_no_auth,
 ]
 
 
@@ -954,6 +1199,8 @@ async def main():
         print("⚠ Some tests failed.")
 
     print()
+
+    await redis_client.aclose()
 
 
 if __name__ == "__main__":

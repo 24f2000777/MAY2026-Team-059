@@ -1,4 +1,9 @@
 # Run this to create all 6 tables and verify they exist
+import os
+import sys
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
 from sqlalchemy import create_engine, text
 from app.core.config import settings
 from app.core.database import Base

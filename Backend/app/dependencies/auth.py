@@ -126,7 +126,7 @@ async def get_current_token_payload(
     # Revoked via logout?
     # -------------------------------------------------
 
-    if is_token_blacklisted(payload.get(JWT_JTI)):
+    if await is_token_blacklisted(payload.get(JWT_JTI)):
         raise InvalidTokenError(
             "Access token has been revoked."
         )

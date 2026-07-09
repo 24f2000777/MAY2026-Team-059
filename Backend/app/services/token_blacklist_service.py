@@ -10,7 +10,9 @@ Responsible for:
 Used to implement real logout: since JWTs are stateless,
 the only way to invalidate one before its expiry is to keep
 a server-side record of "this specific token id is no longer
-valid" and check that record on every authenticated request.
+valid" and check that record on every authenticated request —
+which is exactly why is_token_blacklisted() must be non-blocking:
+it runs on every single authenticated request in the app.
 
 Entries are stored in Redis with a TTL equal to the token's
 remaining lifetime, so a blacklisted token's record disappears
@@ -41,7 +43,7 @@ def _redis_key(jti: str) -> str:
     return f"{BLACKLIST_PREFIX}:{jti}"
 
 
-def blacklist_token(
+async def blacklist_token(
     *,
     jti: str | None,
     expires_at: int | None,
@@ -70,14 +72,14 @@ def blacklist_token(
         # gained by blacklisting it.
         return
 
-    redis_client.setex(
+    await redis_client.setex(
         _redis_key(jti),
         ttl_seconds,
         "1",
     )
 
 
-def is_token_blacklisted(jti: str | None) -> bool:
+async def is_token_blacklisted(jti: str | None) -> bool:
     """
     Check whether a token has been revoked.
 
@@ -93,4 +95,4 @@ def is_token_blacklisted(jti: str | None) -> bool:
     if not jti:
         return False
 
-    return redis_client.exists(_redis_key(jti)) == 1
+    return await redis_client.exists(_redis_key(jti)) == 1

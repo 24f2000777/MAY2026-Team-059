@@ -39,6 +39,7 @@ def _send_email(
     with smtplib.SMTP(
         settings.SMTP_HOST,
         settings.SMTP_PORT,
+        timeout=10,
     ) as smtp:
 
         smtp.starttls(context=context)

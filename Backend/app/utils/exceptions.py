@@ -98,6 +98,14 @@ class InvalidTokenError(AuthenticationError):
     error_code = "AUTH_003"
 
 
+class InsufficientPermissionsError(AuthenticationError):
+    """
+    Raised when an authenticated user's role isn't allowed to
+    access a role-restricted route. See app/dependencies/roles.py.
+    """
+    error_code = "AUTH_004"
+
+
 class AccountAlreadyVerifiedError(AuthenticationError):
     """Raised when account is already verified."""
     error_code = "AUTH_011"

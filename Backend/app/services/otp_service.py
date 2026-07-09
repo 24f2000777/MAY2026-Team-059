@@ -7,6 +7,10 @@ Responsible for
 - Store hashed OTP in Redis
 - Verify OTP
 - Resend OTP
+
+All functions are async and await every Redis call — redis_client
+is redis.asyncio.Redis (see app/core/redis.py), so a sync call
+here would silently block the event loop.
 """
 
 from app.core.config import settings
@@ -57,7 +61,7 @@ def _redis_key(
     return f"{purpose}:{email}"
 
 
-def create_otp(
+async def create_otp(
     *,
     email: str,
     purpose: str,
@@ -76,7 +80,7 @@ def create_otp(
 
     otp_hash = hash_otp(otp)
 
-    redis_client.setex(
+    await redis_client.setex(
         _redis_key(
             purpose,
             email,
@@ -88,7 +92,7 @@ def create_otp(
     return otp
 
 
-def verify_otp(
+async def verify_otp(
     *,
     email: str,
     otp: str,
@@ -108,7 +112,7 @@ def verify_otp(
         email,
     )
 
-    stored_hash = redis_client.get(key)
+    stored_hash = await redis_client.get(key)
 
     if stored_hash is None:
         return False
@@ -119,12 +123,12 @@ def verify_otp(
     ):
         return False
 
-    redis_client.delete(key)
+    await redis_client.delete(key)
 
     return True
 
 
-def resend_otp(
+async def resend_otp(
     *,
     email: str,
     purpose: str,
@@ -135,20 +139,20 @@ def resend_otp(
     Old OTP is removed automatically.
     """
 
-    redis_client.delete(
+    await redis_client.delete(
         _redis_key(
             purpose,
             email,
         )
     )
 
-    return create_otp(
+    return await create_otp(
         email=email,
         purpose=purpose,
     )
 
 
-def delete_otp(
+async def delete_otp(
     *,
     email: str,
     purpose: str,
@@ -160,7 +164,7 @@ def delete_otp(
     before OTP verification.
     """
 
-    redis_client.delete(
+    await redis_client.delete(
         _redis_key(
             purpose,
             email,

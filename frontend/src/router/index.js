@@ -11,6 +11,7 @@ import StaffDashboard from '../pages/StaffDashboard.vue'
 import ComplaintUpdate from '../pages/ComplaintUpdate.vue'
 import AdminDashboard from '../pages/AdminDashboard.vue'
 import AssignmentPage from '../pages/AssignmentPage.vue'
+import NotFound from '../pages/NotFound.vue'
 
 const routes = [
   { path: '/', name: 'landing', component: LandingPage, meta: { guest: true } },
@@ -22,7 +23,8 @@ const routes = [
   { path: '/staff', name: 'staff-dashboard', component: StaffDashboard, meta: { role: 'staff' } },
   { path: '/staff/:id', name: 'complaint-update', component: ComplaintUpdate, meta: { role: 'staff' } },
   { path: '/admin', name: 'admin-dashboard', component: AdminDashboard, meta: { role: 'admin' } },
-  { path: '/admin/assign/:id', name: 'assignment', component: AssignmentPage, meta: { role: 'admin' } }
+  { path: '/admin/assign/:id', name: 'assignment', component: AssignmentPage, meta: { role: 'admin' } },
+  { path: '/:pathMatch(.*)*', name: 'not-found', component: NotFound }
 ]
 
 const router = createRouter({ history: createWebHistory(), routes })

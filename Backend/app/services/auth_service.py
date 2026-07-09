@@ -21,7 +21,6 @@ Routes should call these service functions.
 from __future__ import annotations
 
 from uuid import UUID
-import asyncio
 
 from jose import JWTError
 from jose.exceptions import ExpiredSignatureError
@@ -66,7 +65,6 @@ from app.services.email_service import (
 from app.services.otp_service import (
     create_otp,
     verify_otp,
-    delete_otp,
 )
 
 from app.services.token_blacklist_service import (
@@ -81,7 +79,6 @@ from app.utils.constants import (
     ROLE_CITIZEN,
     OTP_VERIFY_EMAIL,
     OTP_RESET_PASSWORD,
-    ACCESS_TOKEN,
     REFRESH_TOKEN,
 )
 

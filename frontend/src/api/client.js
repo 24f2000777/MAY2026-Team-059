@@ -28,10 +28,10 @@ function uid(prefix) {
 function seed() {
   if (!localStorage.getItem(USERS_KEY)) {
     write(USERS_KEY, [
-      { id: 'u_admin', name: 'Admin User', email: 'admin@civicreport.app', phone: '9000000001', password: 'admin123', role: 'admin' },
-      { id: 'u_staff1', name: 'Ravi Kumar', email: 'ravi.staff@civicreport.app', phone: '9000000002', password: 'staff123', role: 'staff' },
-      { id: 'u_staff2', name: 'Anita Sharma', email: 'anita.staff@civicreport.app', phone: '9000000003', password: 'staff123', role: 'staff' },
-      { id: 'u_citizen1', name: 'Demo Citizen', email: 'citizen@civicreport.app', phone: '9000000004', password: 'citizen123', role: 'citizen' }
+      { id: 'u_admin', name: 'Admin User', email: 'admin@nagrikai.app', phone: '9000000001', password: 'admin123', role: 'admin' },
+      { id: 'u_staff1', name: 'Ravi Kumar', email: 'ravi.staff@nagrikai.app', phone: '9000000002', password: 'staff123', role: 'staff' },
+      { id: 'u_staff2', name: 'Anita Sharma', email: 'anita.staff@nagrikai.app', phone: '9000000003', password: 'staff123', role: 'staff' },
+      { id: 'u_citizen1', name: 'Demo Citizen', email: 'citizen@nagrikai.app', phone: '9000000004', password: 'citizen123', role: 'citizen' }
     ])
   }
   if (!localStorage.getItem(COMPLAINTS_KEY)) {

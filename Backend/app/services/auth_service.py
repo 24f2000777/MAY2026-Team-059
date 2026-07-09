@@ -161,20 +161,15 @@ async def _send_verification_otp(
     email: str,
 ) -> None:
     """
-    Generate and send an email verification OTP.
+    Generate and enqueue an email verification OTP.
 
-    The actual SMTP call (smtplib.SMTP, inside
-    send_verification_email) is a blocking network call.
-    Running it directly inside this async function would
-    block the whole event loop — every other concurrent
-    request on this worker would stall for however long SMTP
-    takes to respond. asyncio.to_thread offloads it to a
-    separate thread, so this coroutine still waits for the
-    result (the caller gets the same success/failure
-    guarantee as before) without blocking anyone else's
-    requests while it waits.
-
-    Deletes the OTP from Redis if email delivery fails.
+    The actual SMTP call happens asynchronously in a Celery
+    worker so it does not block the web server. Since the email
+    is handed off to a background queue, we no longer catch
+    delivery failures synchronously. If the email fails to
+    send (e.g. wrong SMTP password, downstream error), the
+    OTP will simply remain in Redis until it naturally expires
+    after its short TTL.
     """
 
     otp = await create_otp(
@@ -182,29 +177,22 @@ async def _send_verification_otp(
         purpose=OTP_VERIFY_EMAIL,
     )
 
-    try:
-        await asyncio.to_thread(
-            send_verification_email,
-            recipient=email,
-            otp=otp,
-        )
-
-    except Exception:
-        await delete_otp(
-            email=email,
-            purpose=OTP_VERIFY_EMAIL,
-        )
-        raise
+    send_verification_email(
+        recipient=email,
+        otp=otp,
+    )
 
 
 async def _send_reset_password_otp(
     email: str,
 ) -> None:
     """
-    Generate and send a password reset OTP.
+    Generate and enqueue a password reset OTP.
 
-    See _send_verification_otp's docstring — same
-    asyncio.to_thread reasoning applies here.
+    See _send_verification_otp's docstring — the same
+    background Celery queueing logic applies here.
+    Delivery failures are not caught synchronously, and the
+    OTP will naturally expire if the email is undelivered.
     """
 
     otp = await create_otp(
@@ -212,19 +200,10 @@ async def _send_reset_password_otp(
         purpose=OTP_RESET_PASSWORD,
     )
 
-    try:
-        await asyncio.to_thread(
-            send_password_reset_email,
-            recipient=email,
-            otp=otp,
-        )
-
-    except Exception:
-        await delete_otp(
-            email=email,
-            purpose=OTP_RESET_PASSWORD,
-        )
-        raise
+    send_password_reset_email(
+        recipient=email,
+        otp=otp,
+    )
 
 # =====================================================
 # Register User

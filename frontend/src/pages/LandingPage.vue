@@ -75,7 +75,7 @@ const mobileNavClass = computed(() => (menuOpen.value ? 'mobile-nav open' : 'mob
       <div>
         <p style="font-size: 11px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: #E8752C; margin-bottom: 18px;">Mumbai's Civic Complaint Platform</p>
         <h1 style="font-size: 58px; font-weight: 900; line-height: 1.07; letter-spacing: -.025em; color: #1A1A1A; margin-bottom: 24px; text-wrap: pretty;">{{ heroHeadline }}</h1>
-        <p style="font-size: 18px; line-height: 1.7; color: #6E6858; margin-bottom: 40px; max-width: 510px;">File a civic issue in seconds — attach a photo, share your location. Our AI scores priority, routes it to the right BMC department, and keeps you updated until the job is done.</p>
+        <p style="font-size: 18px; line-height: 1.7; color: #6E6858; margin-bottom: 40px; max-width: 510px;">File a civic issue in seconds - attach a photo, share your location. Our AI scores priority, routes it to the right BMC department, and keeps you updated until the job is done.</p>
 
         <div style="display: flex; gap: 16px; flex-wrap: wrap; align-items: center;">
           <router-link to="/register" class="btn-o-lg">
@@ -257,7 +257,7 @@ const mobileNavClass = computed(() => (menuOpen.value ? 'mobile-nav open' : 'mob
           </svg>
         </div>
         <h3 style="font-size: 16px; font-weight: 700; margin-bottom: 8px;">Track in real time</h3>
-        <p style="font-size: 14px; color: #6E6858; line-height: 1.65;">Watch every status change — Approved, In Progress, Resolved — as it happens.</p>
+        <p style="font-size: 14px; color: #6E6858; line-height: 1.65;">Watch every status change - Approved, In Progress, Resolved - as it happens.</p>
       </div>
 
       <div>
@@ -308,7 +308,7 @@ const mobileNavClass = computed(() => (menuOpen.value ? 'mobile-nav open' : 'mob
           </svg>
         </div>
         <h3 style="font-size: 15px; font-weight: 700; margin-bottom: 8px;">AI priority scoring</h3>
-        <p style="font-size: 13px; color: #6E6858; line-height: 1.65;">Every complaint is automatically scored Low, Medium, or High — so dangerous issues skip the queue.</p>
+        <p style="font-size: 13px; color: #6E6858; line-height: 1.65;">Every complaint is automatically scored Low, Medium, or High - so dangerous issues skip the queue.</p>
       </div>
 
       <div class="fcard">
@@ -319,7 +319,7 @@ const mobileNavClass = computed(() => (menuOpen.value ? 'mobile-nav open' : 'mob
           </svg>
         </div>
         <h3 style="font-size: 15px; font-weight: 700; margin-bottom: 8px;">Real-time status tracking</h3>
-        <p style="font-size: 13px; color: #6E6858; line-height: 1.65;">Every status change — Filed, Approved, In Progress, Resolved — visible to you the moment it happens.</p>
+        <p style="font-size: 13px; color: #6E6858; line-height: 1.65;">Every status change - Filed, Approved, In Progress, Resolved - visible to you the moment it happens.</p>
       </div>
 
       <div class="fcard">
@@ -332,7 +332,7 @@ const mobileNavClass = computed(() => (menuOpen.value ? 'mobile-nav open' : 'mob
           </svg>
         </div>
         <h3 style="font-size: 15px; font-weight: 700; margin-bottom: 8px;">Nagrik Saathi AI assistant</h3>
-        <p style="font-size: 13px; color: #6E6858; line-height: 1.65;">A helpful local AI guide — answers questions, helps you file, and connects you to 1916 when you need a human.</p>
+        <p style="font-size: 13px; color: #6E6858; line-height: 1.65;">A helpful local AI guide - answers questions, helps you file, and connects you to 1916 when you need a human.</p>
       </div>
 
       <div class="fcard">
@@ -345,7 +345,7 @@ const mobileNavClass = computed(() => (menuOpen.value ? 'mobile-nav open' : 'mob
           </svg>
         </div>
         <h3 style="font-size: 15px; font-weight: 700; margin-bottom: 8px;">Department auto-routing</h3>
-        <p style="font-size: 13px; color: #6E6858; line-height: 1.65;">Complaints go directly to roads, drainage, sanitation, or electrical — no manual triage or phone tag needed.</p>
+        <p style="font-size: 13px; color: #6E6858; line-height: 1.65;">Complaints go directly to roads, drainage, sanitation, or electrical - no manual triage or phone tag needed.</p>
       </div>
 
       <div class="fcard">
@@ -405,7 +405,7 @@ const mobileNavClass = computed(() => (menuOpen.value ? 'mobile-nav open' : 'mob
                 <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="white" stroke-width="1.5" stroke-linecap="round" xmlns="http://www.w3.org/2000/svg"><path d="M1 2h11a.5.5 0 0 1 .5.5v7a.5.5 0 0 1-.5.5H4L.5 12.5V2.5A.5.5 0 0 1 1 2z"></path></svg>
               </div>
               <div style="background: white; border: 1px solid #D9D2C2; padding: 10px 14px; border-radius: 2px 12px 12px 12px; font-size: 13px; line-height: 1.55; max-width: 82%; color: #1A1A1A;">
-                Got it — pothole near Linking Road, Bandra. Can you share a quick photo so we can log the severity?
+                Got it - pothole near Linking Road, Bandra. Can you share a quick photo so we can log the severity?
               </div>
             </div>
 
@@ -455,7 +455,7 @@ const mobileNavClass = computed(() => (menuOpen.value ? 'mobile-nav open' : 'mob
       <div>
         <p style="font-size: 11px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: #E8752C; margin-bottom: 12px;">For municipal staff</p>
         <h2 style="font-size: 40px; font-weight: 900; line-height: 1.1; letter-spacing: -.015em; margin-bottom: 20px;">A clearer view of every ward's workload</h2>
-        <p style="font-size: 17px; line-height: 1.75; color: #6E6858; margin-bottom: 36px;">Officers and admins get a separate dashboard — complaint volumes by department, SLA breach alerts, field worker assignment, and resolution rate tracking across all wards.</p>
+        <p style="font-size: 17px; line-height: 1.75; color: #6E6858; margin-bottom: 36px;">Officers and admins get a separate dashboard - complaint volumes by department, SLA breach alerts, field worker assignment, and resolution rate tracking across all wards.</p>
 
         <div style="display: flex; flex-direction: column; gap: 16px; margin-bottom: 40px;">
           <div style="display: flex; align-items: flex-start; gap: 14px;">
@@ -491,7 +491,7 @@ const mobileNavClass = computed(() => (menuOpen.value ? 'mobile-nav open' : 'mob
         <div style="background: white; border: 1px solid #D9D2C2; border-radius: 4px; overflow: hidden; box-shadow: 0 2px 12px rgba(0,0,0,.06);">
 
           <div style="background: #1A1A1A; padding: 12px 20px; display: flex; align-items: center; justify-content: space-between;">
-            <p style="font-size: 12px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: white;">Ward Analytics — Andheri</p>
+            <p style="font-size: 12px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: white;">Ward Analytics - Andheri</p>
             <p style="font-size: 11px; color: rgba(255,255,255,.4);">July 2026</p>
           </div>
 

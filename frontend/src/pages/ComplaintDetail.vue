@@ -16,7 +16,7 @@ const complaint = computed(() => store.byId(route.params.id))
     <p>{{ complaint.description }}</p>
     <p>Status: {{ complaint.status }}</p>
     <ul>
-      <li v-for="(h, i) in complaint.history" :key="i">{{ h.status }} — {{ h.note }}</li>
+      <li v-for="(h, i) in complaint.history" :key="i">{{ h.status }} - {{ h.note }}</li>
     </ul>
   </div>
 </template>

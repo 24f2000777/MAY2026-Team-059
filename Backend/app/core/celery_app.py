@@ -5,6 +5,7 @@ celery_app = Celery(
     "nagrik_ai_worker",
     broker=settings.CELERY_BROKER_URL,
     backend=settings.CELERY_RESULT_BACKEND,
+    include=["app.tasks.email_tasks"],
 )
 
 celery_app.conf.update(

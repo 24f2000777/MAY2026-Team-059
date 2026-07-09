@@ -411,7 +411,19 @@ redis-cli ping   # expect: PONG
 
 # 🌐 Running the App
 
+Because email sending is processed in the background, you must run both the FastAPI server and the Celery worker in two separate terminals.
+
+**Terminal 1: Start the Celery Worker**
 ```bash
+cd Backend
+source venv/bin/activate
+celery -A app.core.celery_app worker --loglevel=info
+```
+
+**Terminal 2: Start the FastAPI Server**
+```bash
+cd Backend
+source venv/bin/activate
 uvicorn app.main:app --reload
 ```
 
@@ -508,13 +520,17 @@ core/exception_handlers.py converts it to the standard error envelope
 
 ---
 
-# 🌱 Celery — Current Status & Future Use
+# 🌱 Celery — Asynchronous Tasks
 
-*(See the end of this conversation for the full explanation — summarized here for the README.)*
+Celery is fully integrated and handles background processing to prevent long-running tasks from blocking API requests.
 
-Celery is a declared dependency and has scaffolding (`core/celery_app.py`, `tasks/email_tasks.py`, `tasks/notification_tasks.py`), but **none of it is wired up yet** — all three files are currently empty. Every email today (OTP verification, password reset) is sent **synchronously**, inline, during the API request via `smtplib` in `email_service.py`. This works, but it means the request blocks for however long SMTP takes to respond (a few hundred ms typically, longer if Gmail is slow) and any SMTP failure raises the OTP creation in the same request cycle.
+**Current Usage:**
+- **Email Dispatch:** All verification and password-reset OTP emails are dispatched asynchronously via `send_email_task`. When a user requests an OTP, FastAPI generates the code, stores the hash in Redis, drops the email job into the Celery queue, and immediately returns a 200 OK. The Celery worker picks it up and executes the slow `smtplib` network call in the background.
 
-Celery's future job is to move that (and future notification/report/ML work) off the request thread entirely.
+**Future Use:**
+- Scheduled complaint status escalations
+- Generating heavy PDF reports
+- Background AI priority scoring/RAG indexing
 
 ---
 

@@ -1,0 +1,118 @@
+:root {
+  --bg: #F3EFE7;
+  --panel: #FFFFFF;
+  --panel-alt: #F7F4EC;
+  --border: #D9D2C2;
+  --text: #1A1A1A;
+  --text-dim: #6E6858;
+  --accent: #E8752C;
+  --accent-dark: #C7601E;
+  --danger: #C0392B;
+  --ok: #3E8E5B;
+  --warn: #B8860B;
+  --radius: 4px;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: 'Segoe UI', Roboto, Arial, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.app-shell { min-height: 100vh; }
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: none;
+  border-radius: var(--radius);
+  padding: 12px 16px;
+  font-size: 14px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  cursor: pointer;
+  background: var(--accent);
+  color: #fff;
+}
+
+.btn:hover { background: var(--accent-dark); }
+.btn.block { width: 100%; }
+
+.btn.secondary {
+  background: #fff;
+  border: 2px solid #1A1A1A;
+  color: #1A1A1A;
+}
+
+.field { margin-bottom: 16px; }
+
+.field label {
+  display: block;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+  margin-bottom: 6px;
+}
+
+input, select, textarea {
+  width: 100%;
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: var(--radius);
+  padding: 11px 12px;
+  font-size: 14px;
+}
+
+input:focus, select:focus, textarea:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.error-text { color: var(--danger); font-size: 13px; margin-top: -6px; margin-bottom: 12px; }
+
+/* Auth pages */
+.auth-wrapper {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.auth-card {
+  width: 100%;
+  max-width: 380px;
+  background: var(--panel);
+  border-radius: var(--radius);
+  overflow: hidden;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+}
+
+.auth-header {
+  background: #1A1A1A;
+  color: #fff;
+  padding: 18px 20px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  font-size: 15px;
+}
+
+.auth-body { padding: 22px 20px; }
+
+.switch-link {
+  margin-top: 16px;
+  font-size: 13px;
+  text-align: center;
+  color: var(--text-dim);
+}
+
+.switch-link a { color: var(--accent); text-decoration: none; font-weight: 600; }

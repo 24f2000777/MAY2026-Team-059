@@ -7,7 +7,7 @@ const route = useRoute()
 const router = useRouter()
 const store = useComplaintStore()
 const complaint = computed(() => store.byId(route.params.id))
-const status = ref(complaint.value.status)
+const status = ref(complaint.value?.status ?? '')
 const note = ref('')
 
 function save() {
@@ -24,5 +24,9 @@ function save() {
     </select>
     <textarea v-model="note" placeholder="Add a note"></textarea>
     <button class="btn" @click="save">Save</button>
+  </div>
+  <div v-else class="app-content">
+    <p>Complaint not found.</p>
+    <router-link to="/staff" class="btn secondary">Back to my tasks</router-link>
   </div>
 </template>

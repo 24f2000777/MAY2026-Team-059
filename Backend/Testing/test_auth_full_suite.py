@@ -58,7 +58,7 @@ from app.utils.constants import (
     OTP_VERIFY_EMAIL,
     OTP_RESET_PASSWORD,
     ROLE_CITIZEN,
-    ROLE_OFFICER,
+    ROLE_STAFF,
     ROLE_ADMIN,
 )
 
@@ -288,11 +288,11 @@ async def create_verified_user_with_role(
 ) -> tuple[str, str]:
     """
     Register + verify a user via the real API (which always
-    creates citizens — there's no create-officer/admin endpoint
+    creates citizens — there's no create-staff/admin endpoint
     yet, that belongs to the future Admin module), then directly
     overwrite the role column in the DB.
 
-    This is a test-only shortcut to get an officer/admin account
+    This is a test-only shortcut to get an staff/admin account
     to test RBAC against, not something the real API supports.
     """
 
@@ -1022,17 +1022,17 @@ async def test_citizen_can_access_citizen_dashboard(client):
         await cleanup([email])
 
 
-async def test_citizen_cannot_access_officer_dashboard(client):
-    title("DASHBOARD — citizen rejected from officer dashboard")
+async def test_citizen_cannot_access_staff_dashboard(client):
+    title("DASHBOARD — citizen rejected from staff dashboard")
     email = unique_email()
     try:
         await create_verified_user_with_role(client, ROLE_CITIZEN, email=email)
         access_token, _ = await login_get_tokens(client, email)
 
         response = await client.get(
-            "/dashboard/officer", headers=auth_headers(access_token)
+            "/dashboard/staff", headers=auth_headers(access_token)
         )
-        expect_status(response, 403, "Citizen accessing /dashboard/officer")
+        expect_status(response, 403, "Citizen accessing /dashboard/staff")
     finally:
         await cleanup([email])
 
@@ -1052,22 +1052,22 @@ async def test_citizen_cannot_access_admin_dashboard(client):
         await cleanup([email])
 
 
-async def test_officer_can_access_officer_dashboard_only(client):
-    title("DASHBOARD — officer can access officer, not admin")
+async def test_staff_can_access_staff_dashboard_only(client):
+    title("DASHBOARD — staff can access staff, not admin")
     email = unique_email()
     try:
-        await create_verified_user_with_role(client, ROLE_OFFICER, email=email)
+        await create_verified_user_with_role(client, ROLE_STAFF, email=email)
         access_token, _ = await login_get_tokens(client, email)
 
-        officer_response = await client.get(
-            "/dashboard/officer", headers=auth_headers(access_token)
+        staff_response = await client.get(
+            "/dashboard/staff", headers=auth_headers(access_token)
         )
-        expect_status(officer_response, 200, "Officer accessing /dashboard/officer")
+        expect_status(staff_response, 200, "Staff accessing /dashboard/staff")
 
         admin_response = await client.get(
             "/dashboard/admin", headers=auth_headers(access_token)
         )
-        expect_status(admin_response, 403, "Officer accessing /dashboard/admin")
+        expect_status(admin_response, 403, "Staff accessing /dashboard/admin")
     finally:
         await cleanup([email])
 
@@ -1153,9 +1153,9 @@ TESTS = [
     # Dashboard / RBAC
     test_dashboard_route_resolves_by_role,
     test_citizen_can_access_citizen_dashboard,
-    test_citizen_cannot_access_officer_dashboard,
+    test_citizen_cannot_access_staff_dashboard,
     test_citizen_cannot_access_admin_dashboard,
-    test_officer_can_access_officer_dashboard_only,
+    test_staff_can_access_staff_dashboard_only,
     test_admin_can_access_admin_dashboard,
     test_dashboard_no_auth,
 ]

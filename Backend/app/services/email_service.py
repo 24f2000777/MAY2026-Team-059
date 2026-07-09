@@ -9,47 +9,8 @@ Responsible for:
 This module should contain ONLY email related logic.
 """
 
-from email.message import EmailMessage
-import smtplib
-import ssl
-
 from app.core.config import settings
-
-
-def _send_email(
-    *,
-    recipient: str,
-    subject: str,
-    body: str,
-) -> None:
-    """
-    Send an email using SMTP.
-    """
-
-    message = EmailMessage()
-
-    message["From"] = settings.SMTP_FROM_EMAIL
-    message["To"] = recipient
-    message["Subject"] = subject
-
-    message.set_content(body)
-
-    context = ssl.create_default_context()
-
-    with smtplib.SMTP(
-        settings.SMTP_HOST,
-        settings.SMTP_PORT,
-        timeout=10,
-    ) as smtp:
-
-        smtp.starttls(context=context)
-
-        smtp.login(
-            settings.SMTP_USERNAME,
-            settings.SMTP_PASSWORD,
-        )
-
-        smtp.send_message(message)
+from app.tasks.email_tasks import send_email_task
 
 
 def send_verification_email(
@@ -80,7 +41,7 @@ Regards,
 NAGRIK AI Team
 """
 
-    _send_email(
+    send_email_task.delay(
         recipient=recipient,
         subject=subject,
         body=body,
@@ -113,7 +74,7 @@ Regards,
 NAGRIK AI Team
 """
 
-    _send_email(
+    send_email_task.delay(
         recipient=recipient,
         subject=subject,
         body=body,

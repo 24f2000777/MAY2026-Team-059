@@ -36,7 +36,7 @@ def require_roles(*allowed_roles: str):
 
     Args:
         *allowed_roles: one or more role strings (see
-            app/utils/constants.py — ROLE_CITIZEN, ROLE_OFFICER,
+            app/utils/constants.py — ROLE_CITIZEN, ROLE_STAFF,
             ROLE_ADMIN) that are permitted to access the route.
 
     Raises:

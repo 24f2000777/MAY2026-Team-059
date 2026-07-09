@@ -111,6 +111,8 @@ class Settings(BaseSettings):
     ENVIRONMENT: str = "development"
 
     DEBUG: bool = False
+    
+    FRONTEND_ORIGINS: list[str] = ["http://localhost:3000", "http://localhost:5173"]
 
     # =====================================================
     # Pydantic Configuration

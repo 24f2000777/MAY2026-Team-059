@@ -102,11 +102,11 @@ async def test_database():
         fail(e)
 
 
-def test_redis():
+async def test_redis():
     divider("REDIS")
 
     try:
-        assert redis_client.ping()
+        assert await redis_client.ping()
         success("Redis connection")
     except Exception as e:
         fail(e)
@@ -178,12 +178,12 @@ def test_security_otp():
         fail("OTP hash verification")
 
 
-def test_redis_otp():
+async def test_redis_otp():
     divider("OTP SERVICE")
 
     email = "smoke_test@example.com"
 
-    otp = create_otp(
+    otp = await create_otp(
         email=email,
         purpose=VERIFY_EMAIL_PREFIX,
     )
@@ -192,12 +192,12 @@ def test_redis_otp():
 
     key = f"{VERIFY_EMAIL_PREFIX}:{email}"
 
-    if redis_client.exists(key):
+    if await redis_client.exists(key):
         success("OTP stored in Redis")
     else:
         fail("OTP not stored")
 
-    ttl = redis_client.ttl(key)
+    ttl = await redis_client.ttl(key)
 
     print("Redis TTL:", ttl)
 
@@ -206,7 +206,7 @@ def test_redis_otp():
     else:
         fail("OTP expiry")
 
-    if verify_otp(
+    if await verify_otp(
         email=email,
         otp=otp,
         purpose=VERIFY_EMAIL_PREFIX,
@@ -215,12 +215,12 @@ def test_redis_otp():
     else:
         fail("OTP verification")
 
-    if not redis_client.exists(key):
+    if not await redis_client.exists(key):
         success("OTP deleted after verification")
     else:
         fail("OTP not deleted")
 
-    otp2 = resend_otp(
+    otp2 = await resend_otp(
         email=email,
         purpose=VERIFY_EMAIL_PREFIX,
     )
@@ -230,7 +230,7 @@ def test_redis_otp():
     else:
         fail("OTP resend")
 
-    delete_otp(
+    await delete_otp(
         email=email,
         purpose=VERIFY_EMAIL_PREFIX,
     )
@@ -241,7 +241,7 @@ def test_redis_otp():
 from app.services.email_service import send_verification_email
 
 
-def test_otp_flow():
+async def test_otp_flow():
 
     divider("OTP FLOW TEST")
 
@@ -249,7 +249,7 @@ def test_otp_flow():
 
     print("\nCreating OTP...")
 
-    otp = create_otp(
+    otp = await create_otp(
         email=email,
         purpose=VERIFY_EMAIL_PREFIX,
     )
@@ -275,12 +275,12 @@ def test_otp_flow():
 
     key = f"{VERIFY_EMAIL_PREFIX}:{email}"
 
-    if redis_client.exists(key):
+    if await redis_client.exists(key):
         success("OTP stored in Redis")
     else:
         fail("OTP not stored")
 
-    ttl = redis_client.ttl(key)
+    ttl = await redis_client.ttl(key)
 
     print(f"\nRedis TTL: {ttl} seconds")
 
@@ -291,7 +291,7 @@ def test_otp_flow():
 
     print("\nVerifying OTP...")
 
-    if verify_otp(
+    if await verify_otp(
         email=email,
         otp=otp,
         purpose=VERIFY_EMAIL_PREFIX,
@@ -302,7 +302,7 @@ def test_otp_flow():
 
     print("\nChecking Redis cleanup...")
 
-    if not redis_client.exists(key):
+    if not await redis_client.exists(key):
         success("OTP deleted")
     else:
         fail("OTP still exists")
@@ -334,13 +334,13 @@ async def main():
 
     await test_database()
 
-    test_redis()
+    await test_redis()
 
     test_password_hashing()
 
     test_jwt()
 
-    test_otp_flow()
+    await test_otp_flow()
 
     # test_email()
 

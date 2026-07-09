@@ -22,7 +22,7 @@ from app.dependencies.auth import get_current_user
 from app.dependencies.roles import require_roles
 from app.model import User
 from app.schemas.common import SuccessResponse
-from app.utils.constants import ROLE_ADMIN, ROLE_CITIZEN, ROLE_OFFICER
+from app.utils.constants import ROLE_ADMIN, ROLE_CITIZEN, ROLE_STAFF
 
 
 router = APIRouter(
@@ -79,25 +79,25 @@ async def citizen_dashboard(
 
 
 @router.get(
-    "/officer",
+    "/staff",
     response_model=SuccessResponse[dict],
-    summary="Officer dashboard (placeholder)",
+    summary="Staff dashboard (placeholder)",
 )
-async def officer_dashboard(
-    current_user: User = Depends(require_roles(ROLE_OFFICER)),
+async def staff_dashboard(
+    current_user: User = Depends(require_roles(ROLE_STAFF)),
 ) -> SuccessResponse[dict]:
     """
-    Placeholder. Will show complaints assigned to this officer
-    and ward-level complaint views once the Complaint/Officer
+    Placeholder. Will show complaints assigned to this staff member
+    and ward-level complaint views once the Staff/Officer
     APIs exist.
     """
 
     return SuccessResponse[dict](
-        message="Officer dashboard.",
+        message="Staff dashboard.",
         data={
             "name": current_user.name,
             "note": "Placeholder — assigned complaints and "
-            "ward views land here once the Officer module is built.",
+            "ward views land here once the Staff module is built.",
         },
     )
 

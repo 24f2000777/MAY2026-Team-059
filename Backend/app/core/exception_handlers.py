@@ -203,8 +203,9 @@ async def handle_integrity_error(
     """
     
     error_str = str(exc.orig).lower() if exc.orig else str(exc).lower()
+    constraint = getattr(getattr(exc.orig, "diag", None), "constraint_name", "") or ""
     
-    if "phone" in error_str:
+    if "users_phone_key" in error_str or "phone" in constraint:
         return JSONResponse(
             status_code=status.HTTP_409_CONFLICT,
             content={

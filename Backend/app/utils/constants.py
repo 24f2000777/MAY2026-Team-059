@@ -9,7 +9,7 @@ Avoid hardcoding strings across the project.
 # =====================================================
 
 ROLE_CITIZEN = "citizen"
-ROLE_OFFICER = "officer"
+ROLE_STAFF = "staff"
 ROLE_ADMIN = "admin"
 
 # =====================================================

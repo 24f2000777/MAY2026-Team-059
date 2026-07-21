@@ -26,7 +26,7 @@ const routes = [
   { path: '/admin', name: 'admin-dashboard', component: AdminDashboard, meta: { role: 'admin' } },
   { path: '/admin/assign/:id', name: 'assignment', component: AssignmentPage, meta: { role: 'admin' } },
   { path: '/admin/analytics', name: 'analytics', component: AnalyticsPage, meta: { role: 'admin' } },
-  { path: '/:pathMatch(.*)*', name: 'not-found', component: NotFound, meta: { guest: true }}
+  { path: '/:pathMatch(.*)*', name: 'not-found', component: NotFound}
 ]
 
 const router = createRouter({ history: createWebHistory(), routes })

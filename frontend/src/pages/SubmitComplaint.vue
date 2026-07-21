@@ -19,6 +19,16 @@ const error = ref('')
 function onPhotoChange(e) {
   const file = e.target.files[0]
   if (!file) return
+
+  const MAX_SIZE = 2 * 1024 * 1024 // 2 MB
+
+  if (file.size > MAX_SIZE) {
+    error.value = 'Please upload an image smaller than 2 MB.'
+    e.target.value = ''
+    photoPreview.value = null
+    return
+  }
+
   const reader = new FileReader()
   reader.onload = () => (photoPreview.value = reader.result)
   reader.readAsDataURL(file)

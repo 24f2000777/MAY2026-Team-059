@@ -1,4 +1,4 @@
-# All 6 database tables for NAGRIK AI
+# All 7 database tables for NAGRIK AI
 from sqlalchemy.orm import relationship
 from sqlalchemy import Text, Integer, String, Column, Boolean, ForeignKey, DateTime
 from sqlalchemy.dialects.postgresql import UUID, JSONB
@@ -62,6 +62,12 @@ class Complaint(Base):
         lazy=True,
         cascade="all, delete-orphan",
     )
+    images = relationship(
+        "ComplaintImage",
+        backref="complaint",
+        lazy=True,
+        cascade="all, delete-orphan",
+    )
     rating = relationship("Rating", backref="complaint", uselist=False)
 
 
@@ -81,7 +87,20 @@ class ComplaintUpdate(Base):
     created_at = Column(DateTime, server_default=func.now())
 
 
-# ─── TABLE 4: NOTIFICATIONS ─────────────────────────────
+# ─── TABLE 4: COMPLAINT_IMAGES ──────────────────────────
+# photos a citizen attaches to a complaint at submission time
+class ComplaintImage(Base):
+    __tablename__ = "complaint_images"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    complaint_id = Column(
+        UUID(as_uuid=True), ForeignKey("complaints.id", ondelete="CASCADE"), nullable=False
+    )
+    image_url = Column(String(500), nullable=False)
+    created_at = Column(DateTime, server_default=func.now())
+
+
+# ─── TABLE 5: NOTIFICATIONS ─────────────────────────────
 class Notification(Base):
     __tablename__ = "notifications"
 
@@ -99,7 +118,7 @@ class Notification(Base):
     created_at = Column(DateTime, server_default=func.now())
 
 
-# ─── TABLE 5: RATINGS ───────────────────────────────────
+# ─── TABLE 6: RATINGS ───────────────────────────────────
 # one rating per complaint (unique constraint on complaint_id)
 class Rating(Base):
     __tablename__ = "ratings"
@@ -115,7 +134,7 @@ class Rating(Base):
     created_at = Column(DateTime, server_default=func.now())
 
 
-# ─── TABLE 6: CHAT_SESSIONS ─────────────────────────────
+# ─── TABLE 7: CHAT_SESSIONS ─────────────────────────────
 # stores RAG chatbot messages, both user and assistant
 class ChatSession(Base):
     __tablename__ = "chat_sessions"

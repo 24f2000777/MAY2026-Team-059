@@ -5,8 +5,11 @@ const router = useRouter()
 
 <template>
   <div class="app-content">
-    <h2>Page not found</h2>
-    <p>The page you're looking for doesn't exist.</p>
-    <button class="btn" @click="router.push('/')">Go home</button>
+    <h4 style="text-align: center; font-size: 28px;">NAGRIK AI</h4>
+    <div class="card empty-state">
+      <h2>Page not found</h2>
+      <p>The page you're looking for doesn't exist.</p>
+      <button class="btn" style="margin-top: 12px;" @click="router.push('/')">Go home</button>
+    </div>
   </div>
 </template>

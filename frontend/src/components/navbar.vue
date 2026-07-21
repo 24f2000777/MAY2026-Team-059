@@ -31,6 +31,10 @@ function logout() {
       Dashboard
     </router-link>
 
+    <router-link v-if="auth.role === 'admin'" to="/admin/analytics">
+      Analytics
+    </router-link>
+
     <span class="spacer"></span>
 
     <span class="user-name">

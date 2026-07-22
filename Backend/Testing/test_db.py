@@ -1,4 +1,4 @@
-# Run this to create all 7 tables and verify they exist
+# Run this to create all 8 tables and verify they exist
 import os
 import sys
 
@@ -9,6 +9,7 @@ from app.core.config import settings
 from app.core.database import Base
 from app.model import (
     User,
+    Department,
     Complaint,
     ComplaintUpdate,
     ComplaintImage,

@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useComplaintStore } from '../stores/complaintStore'
+import StatusBadge from '../components/StatusBadge.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -10,13 +11,36 @@ const complaint = computed(() => store.byId(route.params.id))
 </script>
 
 <template>
-  <div class="app-content" v-if="complaint">
-    <button class="btn secondary" @click="router.push('/citizen')">Back</button>
-    <h2>{{ complaint.category }}</h2>
-    <p>{{ complaint.description }}</p>
-    <p>Status: {{ complaint.status }}</p>
-    <ul>
-      <li v-for="(h, i) in complaint.history" :key="i">{{ h.status }} - {{ h.note }}</li>
-    </ul>
+  <div class="app-content">
+  <div v-if="complaint">
+    <button class="btn secondary" @click="router.push('/citizen')">&larr; Back</button>
+    <div class="card">
+      <div class="header-row">
+        <div><h2>{{ complaint.category }}</h2><p class="location">{{ complaint.location }}</p></div>
+        <div class="badges"><StatusBadge :value="complaint.status" /><StatusBadge :value="complaint.severity" kind="severity" /></div>
+      </div>
+      <p class="desc">{{ complaint.description }}</p>
+      <img v-if="complaint.photo" :src="complaint.photo" class="photo" />
+    </div>
+    <div class="card">
+      <h3>Status History</h3>
+      <ul class="timeline">
+        <li v-for="(h, i) in complaint.history" :key="i">
+          <strong>{{ h.status }}</strong>
+          <p class="note">{{ h.note }}</p>
+          <span class="ts">{{ new Date(h.at).toLocaleString() }}</span>
+        </li>
+      </ul>
+    </div>
+  </div>
   </div>
 </template>
+<style scoped>
+.header-row { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+.location { color: var(--text-dim); font-size: 13px; margin: 4px 0 0 0; }
+.badges { display: flex; gap: 8px; }
+.desc { color: var(--text-dim); }
+.photo { max-width: 100%; max-height: 260px; border-radius: var(--radius); border: 1px solid var(--border); margin-top: 10px; }
+.note { color: var(--text-dim); font-size: 13px; margin: 4px 0; }
+.ts { font-size: 12px; color: var(--text-dim); }
+</style>

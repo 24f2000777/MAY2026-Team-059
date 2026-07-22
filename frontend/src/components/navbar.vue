@@ -31,6 +31,10 @@ function logout() {
       Dashboard
     </router-link>
 
+    <router-link v-if="auth.role === 'admin'" to="/admin/analytics">
+      Analytics
+    </router-link>
+
     <span class="spacer"></span>
 
     <span class="user-name">
@@ -74,12 +78,12 @@ function logout() {
 
 .navbar a:hover {
   color: var(--accent);
-  background: rgba(232,117,44,.08);
+  background: var(--accent-glow);
 }
 
 .navbar .router-link-active {
   color: var(--accent);
-  background: rgba(232,117,44,.14);
+  background: rgba(47,143,91,.14);
 }
 
 .spacer {

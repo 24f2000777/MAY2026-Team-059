@@ -1,9 +1,9 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '../stores/authStore'
 
-import LandingPage from '../pages/LandingPage.vue'
 import Login from '../pages/Login.vue'
 import Register from '../pages/Register.vue'
+import LandingPage from '../pages/LandingPage.vue'
 import CitizenDashboard from '../pages/CitizenDashboard.vue'
 import SubmitComplaint from '../pages/SubmitComplaint.vue'
 import ComplaintDetail from '../pages/ComplaintDetail.vue'
@@ -11,6 +11,7 @@ import StaffDashboard from '../pages/StaffDashboard.vue'
 import ComplaintUpdate from '../pages/ComplaintUpdate.vue'
 import AdminDashboard from '../pages/AdminDashboard.vue'
 import AssignmentPage from '../pages/AssignmentPage.vue'
+import AnalyticsPage from '../pages/AnalyticsPage.vue'
 import NotFound from '../pages/NotFound.vue'
 
 const routes = [
@@ -24,7 +25,8 @@ const routes = [
   { path: '/staff/:id', name: 'complaint-update', component: ComplaintUpdate, meta: { role: 'staff' } },
   { path: '/admin', name: 'admin-dashboard', component: AdminDashboard, meta: { role: 'admin' } },
   { path: '/admin/assign/:id', name: 'assignment', component: AssignmentPage, meta: { role: 'admin' } },
-  { path: '/:pathMatch(.*)*', name: 'not-found', component: NotFound }
+  { path: '/admin/analytics', name: 'analytics', component: AnalyticsPage, meta: { role: 'admin' } },
+  { path: '/:pathMatch(.*)*', name: 'not-found', component: NotFound}
 ]
 
 const router = createRouter({ history: createWebHistory(), routes })

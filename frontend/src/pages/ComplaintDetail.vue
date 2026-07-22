@@ -33,6 +33,18 @@ const complaint = computed(() => store.byId(route.params.id))
       </ul>
     </div>
   </div>
+  <div v-if="complaint.status === 'Resolved'" class="card" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+  <div>
+    <p style="margin: 0; font-weight: 700;">{{ complaint.rating ? 'You rated this resolution' : 'How was the resolution?' }}</p>
+    <p class="page-intro" style="margin: 4px 0 0 0;">
+      <template v-if="complaint.rating">{{ complaint.rating }} / 5 stars<span v-if="complaint.review"> &mdash; "{{ complaint.review }}"</span></template>
+      <template v-else>Let us know how it went.</template>
+    </p>
+  </div>
+  <button class="btn secondary" @click="router.push(`/citizen/${complaint.id}/rate`)">
+    {{ complaint.rating ? 'Edit Rating' : 'Rate Resolution' }}
+  </button>
+  </div>
   </div>
 </template>
 <style scoped>

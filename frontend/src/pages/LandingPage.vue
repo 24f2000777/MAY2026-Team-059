@@ -620,37 +620,27 @@ const mobileNavClass = computed(() => (menuOpen.value ? 'mobile-nav open' : 'mob
       <div>
         <p style="font-size: 10px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: rgba(255,255,255,.3); margin-bottom: 20px;">For Citizens</p>
         <div style="display: flex; flex-direction: column; gap: 13px;">
-          <a href="#" class="flink">File a complaint</a>
-          <a href="#" class="flink">Track your complaint</a>
+          <a href="/login" class="flink">File a complaint</a>
+          <a href="/login" class="flink">Track your complaint</a>
           <router-link to="/register" class="flink">Register</router-link>
           <router-link to="/login" class="flink">Log in</router-link>
         </div>
       </div>
 
       <div>
-        <p style="font-size: 10px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: rgba(255,255,255,.3); margin-bottom: 20px;">For Officials</p>
-        <div style="display: flex; flex-direction: column; gap: 13px;">
-          <router-link to="/login" class="flink">Staff login</router-link>
-          <a href="#" class="flink">Admin dashboard</a>
-          <a href="#" class="flink">Ward analytics</a>
-          <a href="#" class="flink">Field worker app</a>
-        </div>
-      </div>
-
-      <div>
         <p style="font-size: 10px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: rgba(255,255,255,.3); margin-bottom: 20px;">Help &amp; Legal</p>
         <div style="display: flex; flex-direction: column; gap: 13px;">
-          <a href="#" class="flink">FAQ</a>
-          <a href="#" class="flink">Privacy policy</a>
-          <a href="#" class="flink">Terms of service</a>
-          <a href="#" class="flink">Contact us</a>
+          <router-link to="/faq" class="flink">FAQ</router-link>
+          <router-link to="/privacy" class="flink">Privacy policy</router-link>
+          <router-link to="/terms" class="flink">Terms of service</router-link>
+          <router-link to="/contact" class="flink">Contact us</router-link>
         </div>
       </div>
     </div>
 
     <div style="padding: 20px 0; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
       <p style="font-size: 12px; color: rgba(255,255,255,.28);">© 2026 Nagrik AI. Built for Mumbai's residents.</p>
-      <p style="font-size: 12px; color: rgba(255,255,255,.28);">Part of the BMC Digital Services ecosystem.</p>
+      <p style="font-size: 12px; color: rgba(255,255,255,.28);">IIT Madras SE Project</p>
     </div>
   </div>
 </footer>

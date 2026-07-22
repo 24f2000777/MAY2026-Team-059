@@ -1,5 +1,8 @@
 import { defineStore } from 'pinia'
-import { getSession, loginUser, logoutUser, registerUser } from '../api/client'
+import {
+  getSession, loginUser, logoutUser, registerUser,
+  requestPasswordReset, resetPassword, updateProfile, changePassword
+} from '../api/client'
 
 export const useAuthStore = defineStore('auth', {
   state: () => ({
@@ -22,6 +25,20 @@ export const useAuthStore = defineStore('auth', {
     logout() {
       logoutUser()
       this.user = null
+    },
+    requestReset(email) {
+      return requestPasswordReset(email)
+    },
+    completeReset(email, newPassword) {
+      return resetPassword(email, newPassword)
+    },
+    updateProfile(details) {
+      this.user = updateProfile(this.user.id, details)
+      return this.user
+    },
+    changePassword(currentPassword, newPassword) {
+      this.user = changePassword(this.user.id, currentPassword, newPassword)
+      return this.user
     }
   }
 })

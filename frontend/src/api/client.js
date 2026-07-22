@@ -142,3 +142,64 @@ export function assignComplaint(id, staffId) {
   write(COMPLAINTS_KEY, complaints)
   return complaint
 }
+
+export function rateComplaint(id, rating, review) {
+  const complaints = getComplaints()
+  const complaint = complaints.find((c) => c.id === id)
+  if (!complaint) throw new Error('Complaint not found.')
+  complaint.rating = rating
+  complaint.review = review || ''
+  write(COMPLAINTS_KEY, complaints)
+  return complaint
+}
+
+// ---- Feedback (general app feedback, not tied to a complaint) ----
+
+const FEEDBACK_KEY = 'cr_feedback'
+
+export function submitFeedback({ userId, userName, subject, message, rating }) {
+  const feedback = read(FEEDBACK_KEY, [])
+  const entry = { id: uid('f'), userId, userName, subject, message, rating, createdAt: Date.now() }
+  feedback.unshift(entry)
+  write(FEEDBACK_KEY, feedback)
+  return entry
+}
+
+// Password reset / profile
+
+export function requestPasswordReset(email) {
+  const user = read(USERS_KEY, []).find((u) => u.email === email)
+  if (!user) throw new Error('No account found with that email.')
+  return true
+}
+
+export function resetPassword(email, newPassword) {
+  const users = read(USERS_KEY, [])
+  const user = users.find((u) => u.email === email)
+  if (!user) throw new Error('No account found with that email.')
+  user.password = newPassword
+  write(USERS_KEY, users)
+  return true
+}
+
+export function updateProfile(userId, { name, phone }) {
+  const users = read(USERS_KEY, [])
+  const user = users.find((u) => u.id === userId)
+  if (!user) throw new Error('User not found.')
+  user.name = name
+  user.phone = phone
+  write(USERS_KEY, users)
+  write(SESSION_KEY, user)
+  return user
+}
+
+export function changePassword(userId, currentPassword, newPassword) {
+  const users = read(USERS_KEY, [])
+  const user = users.find((u) => u.id === userId)
+  if (!user) throw new Error('User not found.')
+  if (user.password !== currentPassword) throw new Error('Current password is incorrect.')
+  user.password = newPassword
+  write(USERS_KEY, users)
+  write(SESSION_KEY, user)
+  return user
+}

@@ -1,9 +1,7 @@
 <script setup>
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { useAuthStore } from '../stores/authStore'
 
-const auth = useAuthStore()
 const router = useRouter()
 
 const name = ref('')
@@ -29,14 +27,17 @@ function submit() {
   }
 
   loading.value = true
-  try {
-    auth.register({ name: name.value, email: email.value, phone: phone.value, password: password.value })
-    router.push('/login')
-  } catch (e) {
-    error.value = e.message
-  } finally {
-    loading.value = false
+  const otp = String(Math.floor(100000 + Math.random() * 900000))
+  const pending = {
+    name: name.value,
+    email: email.value,
+    phone: phone.value,
+    password: password.value,
+    otp
   }
+  sessionStorage.setItem('cr_pending_registration', JSON.stringify(pending))
+  loading.value = false
+  router.push('/verify-otp')
 }
 </script>
 
@@ -54,7 +55,7 @@ function submit() {
       </router-link>
 
       <div class="auth-panel-copy">
-        <h1>File it once. Track it always!</h1>
+        <h1>File it once. Track it always.</h1>
         <p>Create an account to report civic issues with a photo and location, and follow every one through to resolution.</p>
       </div>
 
@@ -97,7 +98,7 @@ function submit() {
           <p v-if="error" class="error-text">{{ error }}</p>
 
           <button class="btn block" type="submit" :disabled="loading">
-            {{ loading ? 'Creating account...' : 'Register' }}
+            {{ loading ? 'Sending code...' : 'Continue' }}
           </button>
         </form>
 

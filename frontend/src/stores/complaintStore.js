@@ -1,7 +1,8 @@
 import { defineStore } from 'pinia'
 import {
   assignComplaint, createComplaint, getComplaintById, getComplaints,
-  getComplaintsForCitizen, getComplaintsForStaff, getStaffList, updateComplaintStatus
+  getComplaintsForCitizen, getComplaintsForStaff, getStaffList, updateComplaintStatus,
+  rateComplaint
 } from '../api/client'
 
 export const useComplaintStore = defineStore('complaints', {
@@ -16,6 +17,7 @@ export const useComplaintStore = defineStore('complaints', {
     byId(id) { return getComplaintById(id) },
     submit(data) { const c = createComplaint(data); this.refresh(); return c },
     updateStatus(id, status, note) { const c = updateComplaintStatus(id, status, note); this.refresh(); return c },
-    assign(id, staffId) { const c = assignComplaint(id, staffId); this.refresh(); return c }
+    assign(id, staffId) { const c = assignComplaint(id, staffId); this.refresh(); return c },
+    rate(id, rating, review) { const c = rateComplaint(id, rating, review); this.refresh(); return c }
   }
 })

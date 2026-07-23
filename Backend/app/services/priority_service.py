@@ -19,6 +19,7 @@ from sqlalchemy import func, select
 from app.chatbot.extractor import extract_complaint_info
 from app.ml.priority_scorer.predict import predict_priority
 from app.model import Complaint, ComplaintImage
+from app.services.risk_alert_service import flag_if_high_risk
 
 logger = logging.getLogger(__name__)
 
@@ -121,13 +122,15 @@ async def rescore_all_complaints(db) -> int:
     """
     Recomputes and saves priority_score for every complaint. Shared by the
     POST /ml/rescore-all endpoint and the nightly Celery Beat job, so both
-    call one place instead of keeping the same loop in two files.
+    call one place instead of keeping the same loop in two files. Also
+    flags any complaint that crosses the high-risk threshold (#24).
     """
     result = await db.execute(select(Complaint))
     complaints = result.scalars().all()
 
     for complaint in complaints:
         complaint.priority_score = round(await score_complaint(complaint, db))
+        await flag_if_high_risk(complaint, db)
 
     await db.commit()
     return len(complaints)

@@ -1,6 +1,7 @@
 <script setup>
 import { useAuthStore } from './stores/authStore'
 import Navbar from './components/navbar.vue'
+import Footer from './components/footer.vue'
 const auth = useAuthStore()
 </script>
 
@@ -9,6 +10,7 @@ const auth = useAuthStore()
     <Navbar v-if="auth.isLoggedIn" />
     <main>
       <router-view />
+      <Footer />
     </main>
   </div>
 </template>

@@ -28,7 +28,7 @@ const avgResolutionHours = computed(() => {
     if (!entry) return
     hours.push((entry.at - c.createdAt) / (1000 * 60 * 60))
   })
-  if (hours.length === 0) return '—'
+  if (hours.length === 0) return '-'
   return Math.round(hours.reduce((a, b) => a + b, 0) / hours.length) + 'h'
 })
 

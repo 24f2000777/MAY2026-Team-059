@@ -28,7 +28,13 @@ function submit() {
   <div class="auth-shell">
     <div class="auth-panel-left">
       <router-link to="/" class="auth-logo">
-        <span style="font-size: 20px; font-weight: 900;">Nagrik<span style="color: var(--accent);">AI</span></span>
+        <svg width="30" height="30" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
+        <rect x="1" y="1" width="30" height="30" rx="9" fill="#16301F" />
+        <circle cx="16" cy="12.5" r="5" fill="white" />
+        <path d="M7 26c0-5.5 4-9 9-9s9 3.5 9 9" fill="white" />
+        <circle cx="24.5" cy="8" r="3" fill="#2F8F5B" stroke="#16301F" stroke-width="1.5" />
+        </svg>
+        <span>NAGRIK AI</span>
       </router-link>
       <div class="auth-panel-copy">
         <h1>Forgot your password?</h1>

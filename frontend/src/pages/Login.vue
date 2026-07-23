@@ -66,7 +66,9 @@ function submit() {
             <label>Password</label>
             <input v-model="password" type="password" placeholder="Password" required autocomplete="current-password" />
           </div>
-
+          <p style="text-align: right; margin: -8px 0 16px 0;">
+          <router-link to="/forgot-password" style="font-size: 12px; color: var(--accent); text-decoration: none; font-weight: 600;">Forgot password?</router-link>
+          </p>
           <p v-if="error" class="error-text">{{ error }}</p>
 
           <button class="btn block" type="submit" :disabled="loading">

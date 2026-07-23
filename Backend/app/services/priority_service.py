@@ -115,3 +115,19 @@ async def score_complaint(complaint: Complaint, db) -> float:
         has_gps_location=0,  # no latitude/longitude column on Complaint yet
         **UNKNOWN_WARD_FIELDS,
     )
+
+
+async def rescore_all_complaints(db) -> int:
+    """
+    Recomputes and saves priority_score for every complaint. Shared by the
+    POST /ml/rescore-all endpoint and the nightly Celery Beat job, so both
+    call one place instead of keeping the same loop in two files.
+    """
+    result = await db.execute(select(Complaint))
+    complaints = result.scalars().all()
+
+    for complaint in complaints:
+        complaint.priority_score = round(await score_complaint(complaint, db))
+
+    await db.commit()
+    return len(complaints)

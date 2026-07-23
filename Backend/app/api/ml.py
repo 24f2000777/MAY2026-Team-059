@@ -1,7 +1,6 @@
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.database import get_db
@@ -9,7 +8,7 @@ from ..dependencies.auth import get_current_user
 from ..dependencies.roles import require_roles
 from ..model import Complaint, User
 from ..schemas.common import SuccessResponse
-from ..services.priority_service import score_complaint
+from ..services.priority_service import rescore_all_complaints, score_complaint
 from ..utils.constants import ROLE_ADMIN, ROLE_STAFF
 
 router = APIRouter(
@@ -60,16 +59,8 @@ async def rescore_all(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles(ROLE_ADMIN)),
 ):
-    """Recomputes priority_score for every complaint. Meant for the nightly batch job."""
-    result = await db.execute(select(Complaint))
-    complaints = result.scalars().all()
-
-    rescored = 0
-    for complaint in complaints:
-        complaint.priority_score = round(await score_complaint(complaint, db))
-        rescored += 1
-
-    await db.commit()
+    """Recomputes priority_score for every complaint. Also runs nightly via Celery Beat."""
+    rescored = await rescore_all_complaints(db)
     return SuccessResponse[dict](
         message="Rescored all complaints.",
         data={"count": rescored},

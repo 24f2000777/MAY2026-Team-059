@@ -17,15 +17,15 @@ from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import func, select
 
 from app.chatbot.extractor import extract_complaint_info
-from app.ml.priority_scorer.predict import predict_priority
+from app.ml.priority_scorer.predict import ComplaintFeatures, predict_priority
 from app.model import Complaint, ComplaintImage
 from app.services.risk_alert_service import flag_if_high_risk
 
 logger = logging.getLogger(__name__)
 
 # Our ComplaintCategory enum (schemas/complaint.py) uses a different, smaller
-# taxonomy than the 13 categories the model was trained on (formula.py /
-# predict.py's valid_categories). Mapped to the closest match; category is
+# taxonomy than the 13 categories the model was trained on
+# (formula.py's VALID_CATEGORIES). Mapped to the closest match; category is
 # only a "distant second" factor behind severity per the model's feature
 # importance, so an imperfect mapping here doesn't skew scores much.
 CATEGORY_MAP = {
@@ -106,7 +106,7 @@ async def score_complaint(complaint: Complaint, db) -> float:
     )
     has_photo_evidence = 1 if photo_count_result.scalar_one() > 0 else 0
 
-    return predict_priority(
+    return predict_priority(ComplaintFeatures(
         complaint_category=CATEGORY_MAP.get(complaint.category, "Noise / Air Pollution"),
         severity=severity,
         is_monsoon_season=1 if date.today().month in MONSOON_MONTHS else 0,
@@ -115,7 +115,7 @@ async def score_complaint(complaint: Complaint, db) -> float:
         has_photo_evidence=has_photo_evidence,
         has_gps_location=0,  # no latitude/longitude column on Complaint yet
         **UNKNOWN_WARD_FIELDS,
-    )
+    ))
 
 
 async def rescore_all_complaints(db) -> int:

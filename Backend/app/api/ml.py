@@ -9,7 +9,9 @@ from ..dependencies.auth import get_current_user
 from ..dependencies.roles import require_roles
 from ..model import Complaint, Department, User
 from ..schemas.common import SuccessResponse
+from ..schemas.duplicate import DuplicateCheckRequest
 from ..services.category_service import predict_category
+from ..services.duplicate_service import find_duplicates_for_text
 from ..services.priority_service import rescore_all_complaints, score_complaint
 from ..services.risk_alert_service import HIGH_RISK_THRESHOLD, flag_if_high_risk
 from ..services.routing_service import route_complaint
@@ -26,6 +28,18 @@ async def _get_complaint_or_404(complaint_id: uuid.UUID, db: AsyncSession) -> Co
     if complaint is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Complaint not found.")
     return complaint
+
+
+def _serialize_matches(matches: list[dict]) -> list[dict]:
+    return [
+        {
+            "id": str(m["complaint"].id),
+            "title": m["complaint"].title,
+            "category": m["complaint"].category,
+            "similarity": round(m["similarity"], 4),
+        }
+        for m in matches
+    ]
 
 
 @router.get("/priority/{complaint_id}")
@@ -173,4 +187,39 @@ async def list_high_risk_complaints(
                 for c in complaints
             ],
         },
+    )
+
+
+@router.post("/check-duplicate")
+async def check_duplicate(
+    body: DuplicateCheckRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Checks whether a not-yet-submitted complaint (title + description)
+    looks like an existing one, so a citizen can be warned before filing
+    a duplicate.
+    """
+    matches = await find_duplicates_for_text(f"{body.title}. {body.description}", db)
+    return SuccessResponse[dict](
+        message="Duplicate check complete.",
+        data={"count": len(matches), "matches": _serialize_matches(matches)},
+    )
+
+
+@router.get("/duplicates/{complaint_id}")
+async def get_duplicates(
+    complaint_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles(ROLE_STAFF, ROLE_ADMIN)),
+):
+    """Lists existing complaints that look like duplicates of this one."""
+    complaint = await _get_complaint_or_404(complaint_id, db)
+    matches = await find_duplicates_for_text(
+        f"{complaint.title}. {complaint.description}", db, exclude_id=complaint.id
+    )
+    return SuccessResponse[dict](
+        message="Duplicates retrieved.",
+        data={"count": len(matches), "matches": _serialize_matches(matches)},
     )

@@ -56,5 +56,12 @@ async def flag_if_high_risk(complaint: Complaint, db) -> bool:
             )
         )
 
-    await db.commit()
+    # flush, not commit: transaction boundaries belong to the get_db
+    # dependency at the router layer, which commits once at the end of the
+    # request. Committing here would break atomicity, if a caller does this
+    # mid-request and something later in the same request fails, these
+    # notifications would already be permanently saved while everything
+    # else rolls back. flush() still makes them visible to the
+    # already_flagged check above on a later call within the same session.
+    await db.flush()
     return True

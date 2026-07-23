@@ -1,4 +1,5 @@
 # Database engine and session setup
+import uuid
 from collections.abc import AsyncGenerator
 
 from sqlalchemy.ext.asyncio import (
@@ -15,10 +16,21 @@ engine = create_async_engine(
     echo=settings.DEBUG,
     pool_size=5,
     max_overflow=10,
-    # Supabase's transaction pooler (PgBouncer) doesn't support asyncpg's
-    # prepared-statement cache — without this, queries start failing
-    # intermittently with "prepared statement already exists" errors.
-    connect_args={"statement_cache_size": 0},
+    # Supabase's transaction pooler (PgBouncer) hands out the same backend
+    # connection to different client sessions without resetting it, so
+    # asyncpg's default auto-incrementing statement names (__asyncpg_stmt_1__,
+    # _2__, ...) can collide with a statement a *different* session already
+    # prepared on that same backend connection ("prepared statement already
+    # exists" / "DuplicatePreparedStatementError"). statement_cache_size=0
+    # disables asyncpg's own client-side cache, but SQLAlchemy's asyncpg
+    # dialect still calls .prepare() with its own name generator, so it also
+    # needs prepared_statement_cache_size=0 and a globally-unique name
+    # function (SQLAlchemy dialect-level options, not raw asyncpg ones).
+    connect_args={
+        "statement_cache_size": 0,
+        "prepared_statement_cache_size": 0,
+        "prepared_statement_name_func": lambda: f"__asyncpg_{uuid.uuid4()}__",
+    },
 )
 
 AsyncSessionLocal = async_sessionmaker(

@@ -49,7 +49,7 @@ async def predict_category(text: str) -> str:
         logger.warning("category extraction failed, defaulting to 'other'", exc_info=True)
         return "other"
 
-    bmc_category = extracted["complaint_category"]
+    bmc_category = extracted.get("complaint_category")
     if bmc_category is None:
         return "other"
 

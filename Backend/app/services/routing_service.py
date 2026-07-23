@@ -78,4 +78,21 @@ async def route_complaint(complaint, db) -> Department | None:
         department_name = "General Administration Department"
 
     result = await db.execute(select(Department).where(Department.name == department_name))
-    return result.scalar_one_or_none()
+    department = result.scalar_one_or_none()
+
+    if department is None:
+        # predict_department already validates its own output against
+        # DEPARTMENT_NAMES (Literal-typed schema plus its own check), so it
+        # can't return a name outside that list, this branch means the
+        # departments table hasn't been seeded yet, not a bad LLM response.
+        # Same safe default either way.
+        logger.warning(
+            "department '%s' not found in table (not seeded yet?), falling back to General Administration",
+            department_name,
+        )
+        result = await db.execute(
+            select(Department).where(Department.name == "General Administration Department")
+        )
+        department = result.scalar_one_or_none()
+
+    return department

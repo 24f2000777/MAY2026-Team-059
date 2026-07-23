@@ -58,7 +58,7 @@ function iconFor(status) {
       <div v-for="(item, i) in feed" :key="i" class="card notif-card" @click="goTo(item.complaintId)">
         <span class="notif-icon" :class="`accent-${item.status.toLowerCase().replace(/\s+/g,'-')}`">{{ iconFor(item.status) }}</span>
         <div class="notif-body">
-          <p class="notif-title"><strong>{{ item.category }}</strong> &mdash; {{ item.status }}</p>
+          <p class="notif-title"><strong>{{ item.category }}</strong> - {{ item.status }}</p>
           <p class="notif-note">{{ item.note }}</p>
           <span class="notif-time">{{ new Date(item.at).toLocaleString() }}</span>
         </div>

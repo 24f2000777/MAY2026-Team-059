@@ -96,7 +96,7 @@ const filingTrend = computed(() => {
     </div>
 
     <div class="card chart-anim" style="animation-delay: .05s;">
-      <h3>Complaints Filed &mdash; Last 14 Days</h3>
+      <h3>Complaints Filed - Last 14 Days</h3>
       <LineChart :points="filingTrend" />
     </div>
 

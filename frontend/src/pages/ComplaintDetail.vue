@@ -37,7 +37,7 @@ const complaint = computed(() => store.byId(route.params.id))
   <div>
     <p style="margin: 0; font-weight: 700;">{{ complaint.rating ? 'You rated this resolution' : 'How was the resolution?' }}</p>
     <p class="page-intro" style="margin: 4px 0 0 0;">
-      <template v-if="complaint.rating">{{ complaint.rating }} / 5 stars<span v-if="complaint.review"> &mdash; "{{ complaint.review }}"</span></template>
+      <template v-if="complaint.rating">{{ complaint.rating }} / 5 stars<span v-if="complaint.review"> - "{{ complaint.review }}"</span></template>
       <template v-else>Let us know how it went.</template>
     </p>
   </div>

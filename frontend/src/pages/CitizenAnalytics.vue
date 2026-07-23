@@ -20,7 +20,7 @@ const statusSegments = computed(() => [
 ])
 
 const resolveRate = computed(() => {
-  if (myComplaints.value.length === 0) return '—'
+  if (myComplaints.value.length === 0) return '-'
   return Math.round((resolvedCount.value / myComplaints.value.length) * 100) + '%'
 })
 

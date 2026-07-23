@@ -3,7 +3,7 @@ import { ref, computed } from 'vue'
 
 const menuOpen = ref(false)
 const showChatbot = ref(true)
-const heroHeadline = ref('Your complaint, heard and actually resolved.')
+const heroHeadline = ref('Your complaint, heard and actually resolved!')
 const statsResolved = ref((24800).toLocaleString('en-IN') + '+')
 
 function toggleMenu() {

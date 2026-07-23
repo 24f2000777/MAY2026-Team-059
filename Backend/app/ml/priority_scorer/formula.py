@@ -5,6 +5,25 @@ import pandas as pd
 
 severity_scores = {"Low": 20, "Medium": 45, "High": 70, "Critical": 90}
 
+# the full set of complaint categories - single source of truth, predict.py
+# imports this instead of keeping its own separate copy (they used to drift,
+# see PR #89 review)
+VALID_CATEGORIES = [
+    "Pothole / Road Damage",
+    "Water Supply Disruption",
+    "Solid Waste / Garbage",
+    "Drainage Overflow / Flooding",
+    "Street Light Failure",
+    "Illegal Construction",
+    "Encroachment",
+    "Tree Fallen / Dangerous Tree",
+    "Water Leakage / Pipe Burst",
+    "Public Toilet Condition",
+    "Noise / Air Pollution",
+    "Stray Animal Menace",
+    "Health / Epidemic",
+]
+
 # rough risk tiers by category, higher = more urgent
 high_risk = ["Health / Epidemic", "Drainage Overflow / Flooding", "Tree Fallen / Dangerous Tree"]
 medium_high_risk = ["Water Supply Disruption", "Water Leakage / Pipe Burst", "Illegal Construction"]
@@ -49,6 +68,16 @@ def calculate_priority_vectorized(df):
     # same formula as calculate_priority, just done column-wise with pandas
     # instead of row-by-row - way faster on large datasets (used by train.py)
     category = df["complaint_category"]
+
+    # .map() silently returns NaN for any severity value not in severity_scores,
+    # which would then poison every downstream sum (NaN + anything = NaN) and
+    # crash deep inside sklearn with a cryptic error at training time instead
+    # of a clear one here
+    unmapped_severities = set(df["severity"].unique()) - set(severity_scores)
+    if unmapped_severities:
+        raise ValueError(
+            f"dataset contains severity values with no formula mapping: {unmapped_severities}"
+        )
 
     score = df["severity"].map(severity_scores).astype(float)
     score += category.isin(high_risk) * 10

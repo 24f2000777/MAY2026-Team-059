@@ -17,6 +17,14 @@ const dateFilter = ref('')
 
 const categories = computed(() => ['All', ...new Set(store.complaints.map((c) => c.category))])
 
+function localDate(date) {
+  const d = new Date(date)
+  const year = d.getFullYear()
+  const month = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
 const unassignedCount = computed(() => store.complaints.filter((c) => !c.assignedStaffId).length)
 const openCount = computed(() => store.complaints.filter((c) => c.status !== 'Resolved').length)
 const resolvedCount = computed(() => store.complaints.filter((c) => c.status === 'Resolved').length)
@@ -31,7 +39,7 @@ const filtered = computed(() =>
     .filter((c) => statusFilter.value === 'All' || c.status === statusFilter.value)
     .filter((c) => categoryFilter.value === 'All' || c.category === categoryFilter.value)
     .filter((c) => !areaFilter.value || c.location.toLowerCase().includes(areaFilter.value.toLowerCase()))
-    .filter((c) => !dateFilter.value || new Date(c.createdAt).toISOString().slice(0, 10) === dateFilter.value)
+    .filter((c) => !dateFilter.value || localDate(c.createdAt) === dateFilter.value)
     .sort((a, b) => b.createdAt - a.createdAt)
 )
 

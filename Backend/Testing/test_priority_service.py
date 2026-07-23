@@ -22,7 +22,7 @@ import uuid
 import pytest
 
 from app.core.database import AsyncSessionLocal
-from app.ml.priority_scorer.predict import valid_categories
+from app.ml.priority_scorer.formula import VALID_CATEGORIES
 from app.model import Complaint, ComplaintImage, User
 from app.services import priority_service
 from app.services.priority_service import (
@@ -75,7 +75,7 @@ async def complaint(db, citizen):
 class TestCategoryMap:
     def test_every_mapped_value_is_a_valid_model_category(self):
         for our_category, bmc_category in CATEGORY_MAP.items():
-            assert bmc_category in valid_categories, (
+            assert bmc_category in VALID_CATEGORIES, (
                 f"CATEGORY_MAP['{our_category}'] = '{bmc_category}' "
                 f"is not one of the model's trained categories"
             )
@@ -83,7 +83,7 @@ class TestCategoryMap:
     def test_fallback_for_unmapped_category_is_valid(self):
         # score_complaint() falls back to this exact string via .get()'s
         # default when a category isn't in CATEGORY_MAP at all
-        assert "Noise / Air Pollution" in valid_categories
+        assert "Noise / Air Pollution" in VALID_CATEGORIES
 
 
 class TestSeverityFallback:
@@ -106,8 +106,8 @@ class TestScoreComplaintWiring:
 
         captured = {}
 
-        def fake_predict(**kwargs):
-            captured.update(kwargs)
+        def fake_predict(features):
+            captured["features"] = features
             return 77.0
 
         monkeypatch.setattr(priority_service, "predict_priority", fake_predict)
@@ -115,8 +115,8 @@ class TestScoreComplaintWiring:
         score = await score_complaint(complaint, db)
 
         assert score == 77.0
-        assert captured["severity"] == "Critical"
-        assert captured["complaint_category"] == CATEGORY_MAP["pothole"]
+        assert captured["features"].severity == "Critical"
+        assert captured["features"].complaint_category == CATEGORY_MAP["pothole"]
 
     async def test_has_photo_evidence_reflects_complaint_images(self, monkeypatch, db, complaint):
         monkeypatch.setattr(
@@ -127,18 +127,18 @@ class TestScoreComplaintWiring:
         captured = {}
         monkeypatch.setattr(
             priority_service, "predict_priority",
-            lambda **kwargs: captured.update(kwargs) or 0.0,
+            lambda features: captured.update(features=features) or 0.0,
         )
 
         await score_complaint(complaint, db)
-        assert captured["has_photo_evidence"] == 0
+        assert captured["features"].has_photo_evidence == 0
 
         image = ComplaintImage(complaint_id=complaint.id, image_url="https://example.com/test.jpg")
         db.add(image)
         await db.flush()
 
         await score_complaint(complaint, db)
-        assert captured["has_photo_evidence"] == 1
+        assert captured["features"].has_photo_evidence == 1
 
         await db.delete(image)
         await db.commit()
@@ -151,12 +151,12 @@ class TestScoreComplaintWiring:
         captured = {}
         monkeypatch.setattr(
             priority_service, "predict_priority",
-            lambda **kwargs: captured.update(kwargs) or 0.0,
+            lambda features: captured.update(features=features) or 0.0,
         )
 
         await score_complaint(complaint, db)
-        assert captured["prior_complaints_count"] == 0
-        assert captured["repeat_complainant"] == 0
+        assert captured["features"].prior_complaints_count == 0
+        assert captured["features"].repeat_complainant == 0
 
         earlier = Complaint(
             citizen_id=citizen.id, title="Earlier complaint",
@@ -167,8 +167,8 @@ class TestScoreComplaintWiring:
         await db.flush()
 
         await score_complaint(complaint, db)
-        assert captured["prior_complaints_count"] == 1
-        assert captured["repeat_complainant"] == 1
+        assert captured["features"].prior_complaints_count == 1
+        assert captured["features"].repeat_complainant == 1
 
         await db.delete(earlier)
         await db.commit()
@@ -180,7 +180,7 @@ class TestRescoreAllComplaints:
             priority_service, "extract_complaint_info",
             lambda description: {"severity": "Low", "complaint_category": None, "location": None},
         )
-        monkeypatch.setattr(priority_service, "predict_priority", lambda **kwargs: 42.0)
+        monkeypatch.setattr(priority_service, "predict_priority", lambda features: 42.0)
 
         count = await rescore_all_complaints(db)
         assert count >= 1

@@ -24,6 +24,8 @@ automatically without duplicating error-handling logic anywhere.
 
 from __future__ import annotations
 
+import re
+
 from fastapi import FastAPI, Request, status
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
@@ -176,6 +178,31 @@ async def handle_authentication_error(
     return _error_response(status.HTTP_400_BAD_REQUEST, exc)
 
 
+# Matches the "CODE: message" shape a custom validator's ValueError
+# subclass raises (see app/schemas/complaint.py's LocationValidationError),
+# preserved by pydantic in each error's ctx.error as the exception's own
+# str(), unprefixed by pydantic's own "Value error, " wrapping of msg.
+_STRUCTURED_ERROR_CODE = re.compile(r"^(VAL_\d{3}): ")
+
+
+def _validation_error_code(exc: RequestValidationError) -> str:
+    """
+    Most request validation failures (missing field, wrong type, an
+    out-of-range Field constraint) have no more specific code than the
+    generic VAL_001. But a validator that raises its own CODE-prefixed
+    ValueError subclass (e.g. ComplaintLocation's VAL_001/VAL_002 split)
+    wants that specific code surfaced instead of being collapsed into
+    VAL_001 for every kind of location error alike.
+    """
+    for error in exc.errors():
+        message = error.get("ctx", {}).get("error")
+        if message:
+            match = _STRUCTURED_ERROR_CODE.match(str(message))
+            if match:
+                return match.group(1)
+    return "VAL_001"
+
+
 async def handle_validation_error(
     request: Request,
     exc: RequestValidationError,
@@ -194,7 +221,7 @@ async def handle_validation_error(
         content={
             "success": False,
             "message": "Request validation failed.",
-            "error_code": "VAL_001",
+            "error_code": _validation_error_code(exc),
             "details": {"errors": jsonable_encoder(exc.errors())},
         },
     )

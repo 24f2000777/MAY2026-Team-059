@@ -4,6 +4,38 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+# Location error codes, distinct from the generic VAL_001 every other
+# request-validation failure gets in app/core/exception_handlers.py.
+# Raised as LocationValidationError (a ValueError subclass) so pydantic's
+# model_validator still catches and wraps it normally; the handler then
+# recovers the specific code from the message instead of collapsing every
+# validation failure into VAL_001.
+VAL_001 = "VAL_001"
+VAL_002 = "VAL_002"
+
+LOCATION_ERROR_MESSAGES = {
+    VAL_001: "Either latitude and longitude or address must be provided.",
+    VAL_002: "Latitude and longitude must be provided together.",
+}
+
+
+class LocationValidationError(ValueError):
+    """
+    Raised by ComplaintLocation.validate_location for a specific,
+    identifiable location error. Subclasses ValueError (not Exception)
+    so pydantic's model_validator(mode="after") catches and wraps it the
+    same way it wraps any other ValueError, str(self) is "CODE: message",
+    which app/core/exception_handlers.py's handle_validation_error parses
+    back out of pydantic's ctx.error field to assign the right error_code
+    instead of the generic VAL_001 fallback.
+    """
+
+    def __init__(self, error_code: str, message: str, field: str = "location"):
+        self.error_code = error_code
+        self.message = message
+        self.field = field
+        super().__init__(f"{error_code}: {message}")
+
 
 class ComplaintCategory(str, Enum):
     ROAD = "road"
@@ -69,10 +101,10 @@ class ComplaintLocation(BaseModel):
         has_address = bool(self.address and self.address.strip())
 
         if has_latitude != has_longitude:
-            raise ValueError("Latitude and longitude must be provided together.")
+            raise LocationValidationError(VAL_002, LOCATION_ERROR_MESSAGES[VAL_002])
 
         if not has_address and not (has_latitude and has_longitude):
-            raise ValueError("Either latitude and longitude or address must be provided.")
+            raise LocationValidationError(VAL_001, LOCATION_ERROR_MESSAGES[VAL_001])
 
         return self
 

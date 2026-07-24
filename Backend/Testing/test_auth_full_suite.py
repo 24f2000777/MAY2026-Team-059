@@ -43,6 +43,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 from uuid import uuid4
 
 import httpx
+import pytest
 from jose import jwt as jose_jwt
 from sqlalchemy import delete, select
 
@@ -80,6 +81,26 @@ def _capture_reset_email(*, recipient: str, otp: str) -> None:
 
 auth_service_module.send_verification_email = _capture_verification_email
 auth_service_module.send_password_reset_email = _capture_reset_email
+
+
+# ==========================================================
+# Pytest fixture
+# ==========================================================
+
+@pytest.fixture
+async def client():
+    """
+    Real ASGI-level HTTP client for the actual FastAPI app, no
+    socket/uvicorn needed. Every test function below takes this as
+    its first argument; without a matching fixture, pytest can't
+    collect them at all ("fixture 'client' not found"), which is why
+    this suite used to only run via `python test_auth_full_suite.py`
+    calling main() directly. Same transport main() builds by hand,
+    just wired in so `pytest` can drive it too.
+    """
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as c:
+        yield c
 
 
 def get_otp(purpose: str, email: str) -> str:
@@ -155,10 +176,14 @@ def expect_status(response: httpx.Response, expected: int, label: str) -> bool:
         passed(f"{label} -> {response.status_code} as expected")
         return True
 
-    failed(
-        f"{label} -> expected {expected}, got {response.status_code}: "
-        f"{response.text}"
-    )
+    message = f"{label} -> expected {expected}, got {response.status_code}: {response.text}"
+    failed(message)
+    # Raise so pytest actually records this as a failure. Previously this
+    # function only printed a red X and returned False, so under pytest
+    # (once the fixture above made these collectible at all) every one of
+    # these checks would silently "pass" regardless of the real response,
+    # only an unrelated crash would ever fail a test.
+    assert response.status_code == expected, message
     return False
 
 
@@ -167,6 +192,7 @@ def expect(condition: bool, success_msg: str, failure_msg: str):
         passed(success_msg)
     else:
         failed(failure_msg)
+    assert condition, failure_msg
 
 
 # ==========================================================

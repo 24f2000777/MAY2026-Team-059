@@ -114,3 +114,14 @@ class AccountAlreadyVerifiedError(AuthenticationError):
 class RateLimitExceededError(AuthenticationError):
     """Raised when a rate-limited action is attempted too often."""
     error_code = "RTE_001"
+
+
+class ChatSessionAccessDeniedError(AuthenticationError):
+    """
+    Raised when a caller tries to send a message into or read the
+    history of a chat_sessions session_id that already belongs to a
+    different user. Not covered by the doc's Appendix C table, so
+    assigned the next AUTH_0xx code following the same convention as
+    the other auth-module cases the doc doesn't enumerate.
+    """
+    error_code = "AUTH_012"

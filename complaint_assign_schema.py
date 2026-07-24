@@ -3,7 +3,7 @@ Complaint Assignment Schema Design
 
 This module defines the request and response schemas for the
 PATCH /complaints/{id}/assign endpoint, which allows admins to assign
-complaints to officers.
+complaints to staff members.
 
 Security: Only users with 'admin' role can call this endpoint.
 """
@@ -15,11 +15,11 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from enum import Enum
 
-
+# In production, import ROLE_CITIZEN, ROLE_STAFF, ROLE_ADMIN from app.utils.constants
 class UserRole(str, Enum):
     """User roles in the NAGRIK AI system."""
     CITIZEN = "citizen"
-    OFFICER = "officer"
+    STAFF = "staff"
     ADMIN = "admin"
 
 
@@ -27,21 +27,21 @@ class ComplaintAssignRequest(BaseModel):
     """
     Request schema for PATCH /complaints/{id}/assign
     
-    This schema is used when an admin assigns a complaint to an officer.
+    Used when an admin assigns a complaint to a staff member.
     
     Security Requirements:
     - Only users with role='admin' can call this endpoint
-    - The assigned officer must exist and have role='officer'
+    - The assigned staff must exist and have role='staff'
     - The complaint must exist and be in an assignable state
     
     Validation Rules:
-    - assigned_to is required (UUID of the officer)
+    - assigned_to is required (UUID of the staff member)
     - assigned_to must be a valid UUID
     """
     
     assigned_to: UUID = Field(
         ...,
-        description="UUID of the officer to assign the complaint to",
+        description="UUID of the staff member to assign the complaint to",
     )
     
     notes: Optional[str] = Field(
@@ -50,25 +50,10 @@ class ComplaintAssignRequest(BaseModel):
         description="Optional notes about the assignment (e.g., priority, special instructions)",
     )
     
-    @field_validator('assigned_to')
-    @classmethod
-    def validate_assigned_to(cls, v: UUID) -> UUID:
-        """
-        Validate that assigned_to is a valid UUID.
-        
-        Additional validation should be performed at the service layer:
-        - Check if the user exists in the database
-        - Check if the user has role='officer'
-        - Check if the officer is active
-        """
-        if v.version != 4:
-            raise ValueError("assigned_to must be a valid UUID v4")
-        return v
-    
     @field_validator('notes')
     @classmethod
     def validate_notes(cls, v: Optional[str]) -> Optional[str]:
-        """Validate notes field if provided."""
+        """Normalize notes field if provided."""
         if v is not None:
             stripped = v.strip()
             if not stripped:
@@ -81,7 +66,7 @@ class ComplaintAssignRequest(BaseModel):
             "examples": [
                 {
                     "assigned_to": "550e8400-e29b-41d4-a716-446655440000",
-                    "notes": "High priority - assign senior officer"
+                    "notes": "High priority - assign senior staff"
                 },
                 {
                     "assigned_to": "550e8400-e29b-41d4-a716-446655440001"
@@ -93,18 +78,18 @@ class ComplaintAssignRequest(BaseModel):
 
 class OfficerSummary(BaseModel):
     """
-    Summary information about the assigned officer.
+    Summary information about the assigned staff member.
     
-    This is included in the response to provide context about
-    who the complaint has been assigned to.
+    Note: User model has department_id (UUID FK). Populating department
+    requires a join to Department.name, not a direct attribute.
     """
     
-    id: UUID = Field(..., description="Officer's user ID")
-    name: str = Field(..., description="Officer's full name")
-    role: UserRole = Field(..., description="User role (should be 'officer')")
+    id: UUID = Field(..., description="Staff user ID")
+    name: str = Field(..., description="Staff member's full name")
+    role: UserRole = Field(..., description="User role (should be 'staff')")
     department: Optional[str] = Field(
         default=None,
-        description="Officer's department (e.g., 'roads', 'sanitation')"
+        description="Staff member's department name (requires join)"
     )
     
     model_config = ConfigDict(
@@ -113,7 +98,7 @@ class OfficerSummary(BaseModel):
             "example": {
                 "id": "550e8400-e29b-41d4-a716-446655440000",
                 "name": "Rajesh Kumar",
-                "role": "officer",
+                "role": "staff",
                 "department": "roads"
             }
         }
@@ -125,6 +110,8 @@ class ComplaintAssignResponse(BaseModel):
     Response schema for PATCH /complaints/{id}/assign
     
     Returns the updated complaint with assignment details populated.
+    Assignment events should be logged in ComplaintUpdate, not as new
+    columns in Complaint.
     """
     
     id: UUID = Field(..., description="Complaint ID")
@@ -136,25 +123,15 @@ class ComplaintAssignResponse(BaseModel):
     
     assigned_to: Optional[UUID] = Field(
         default=None,
-        description="UUID of the assigned officer (populated after assignment)"
+        description="UUID of the assigned staff member"
     )
     
     officer_details: Optional[OfficerSummary] = Field(
         default=None,
-        description="Details of the assigned officer (populated after assignment)"
+        description="Details of the assigned staff member"
     )
     
     citizen_id: UUID = Field(..., description="UUID of the citizen who created the complaint")
-    
-    assigned_at: Optional[datetime] = Field(
-        default=None,
-        description="Timestamp when the complaint was assigned"
-    )
-    
-    assigned_by: Optional[UUID] = Field(
-        default=None,
-        description="UUID of the admin who performed the assignment"
-    )
     
     created_at: datetime = Field(..., description="Complaint creation timestamp")
     updated_at: datetime = Field(..., description="Last update timestamp")
@@ -173,146 +150,12 @@ class ComplaintAssignResponse(BaseModel):
                 "officer_details": {
                     "id": "550e8400-e29b-41d4-a716-446655440000",
                     "name": "Rajesh Kumar",
-                    "role": "officer",
+                    "role": "staff",
                     "department": "roads"
                 },
                 "citizen_id": "999e8877-e66b-21d3-b456-526614174999",
-                "assigned_at": "2026-07-24T00:30:00Z",
-                "assigned_by": "111e2222-e33b-44d3-c556-626614174111",
                 "created_at": "2026-07-23T21:00:00Z",
                 "updated_at": "2026-07-24T00:30:00Z"
             }
         }
     )
-
-
-class AssignmentValidationError(Exception):
-    """Custom exception for assignment validation failures."""
-    
-    def __init__(self, error_code: str, message: str, field: Optional[str] = None):
-        self.error_code = error_code
-        self.message = message
-        self.field = field
-        super().__init__(message)
-
-
-class AssignmentErrorCodes:
-    """Error codes for assignment operations."""
-    
-    # Validation errors
-    INVALID_OFFICER_ID = "ASSIGN_001"
-    OFFICER_NOT_FOUND = "ASSIGN_002"
-    OFFICER_NOT_ACTIVE = "ASSIGN_003"
-    OFFICER_NOT_OFFICER_ROLE = "ASSIGN_004"
-    
-    # Complaint errors
-    COMPLAINT_NOT_FOUND = "ASSIGN_005"
-    COMPLAINT_ALREADY_ASSIGNED = "ASSIGN_006"
-    COMPLAINT_NOT_ASSIGNABLE = "ASSIGN_007"
-    
-    # Permission errors
-    FORBIDDEN_NON_ADMIN = "ASSIGN_008"
-    
-    @classmethod
-    def get_error_details(cls, error_code: str, message: str, field: Optional[str] = None) -> dict:
-        """
-        Get standardized error response details.
-        
-        Args:
-            error_code: The error code from this class
-            message: Human-readable error message
-            field: Optional field name that caused the error
-            
-        Returns:
-            dict: Error details in standard API format
-        """
-        error_dict = {
-            "error": {
-                "code": error_code,
-                "message": message,
-                "details": []
-            }
-        }
-        
-        if field:
-            error_dict["error"]["details"].append({
-                "field": field,
-                "message": message
-            })
-        
-        return error_dict
-
-
-# Example usage and validation
-if __name__ == "__main__":
-    print("Complaint Assignment Schema Examples\n")
-    print("=" * 60)
-    
-    # Example 1: Valid assignment request
-    print("\n1. Valid Assignment Request:")
-    assign_request = ComplaintAssignRequest(
-        assigned_to=UUID("550e8400-e29b-41d4-a716-446655440000"),
-        notes="High priority - assign senior officer"
-    )
-    print(f"   assigned_to: {assign_request.assigned_to}")
-    print(f"   notes: {assign_request.notes}")
-    
-    # Example 2: Valid assignment request without notes
-    print("\n2. Valid Assignment Request (without notes):")
-    assign_request2 = ComplaintAssignRequest(
-        assigned_to=UUID("550e8400-e29b-41d4-a716-446655440001")
-    )
-    print(f"   assigned_to: {assign_request2.assigned_to}")
-    print(f"   notes: {assign_request2.notes}")
-    
-    # Example 3: Valid assignment response
-    print("\n3. Valid Assignment Response:")
-    response = ComplaintAssignResponse(
-        id=UUID("123e4567-e89b-12d3-a456-426614174000"),
-        title="Large pothole on main road",
-        description="There is a dangerous pothole near the school gate.",
-        category="pothole",
-        status="in_progress",
-        priority_score=85,
-        assigned_to=UUID("550e8400-e29b-41d4-a716-446655440000"),
-        officer_details=OfficerSummary(
-            id=UUID("550e8400-e29b-41d4-a716-446655440000"),
-            name="Rajesh Kumar",
-            role=UserRole.OFFICER,
-            department="roads"
-        ),
-        citizen_id=UUID("999e8877-e66b-21d3-b456-526614174999"),
-        assigned_at=datetime.now(),
-        assigned_by=UUID("111e2222-e33b-44d3-c556-626614174111"),
-        created_at=datetime.now(),
-        updated_at=datetime.now()
-    )
-    print(f"   Complaint ID: {response.id}")
-    print(f"   Assigned to: {response.officer_details.name if response.officer_details else 'N/A'}")
-    print(f"   Status: {response.status}")
-    
-    # Example 4: Error response examples
-    print("\n4. Error Response Examples:")
-    
-    error1 = AssignmentErrorCodes.get_error_details(
-        AssignmentErrorCodes.OFFICER_NOT_FOUND,
-        "Officer with specified ID not found",
-        "assigned_to"
-    )
-    print(f"   Officer Not Found: {error1}")
-    
-    error2 = AssignmentErrorCodes.get_error_details(
-        AssignmentErrorCodes.FORBIDDEN_NON_ADMIN,
-        "Only admin users can assign complaints"
-    )
-    print(f"   Forbidden (Non-Admin): {error2}")
-    
-    error3 = AssignmentErrorCodes.get_error_details(
-        AssignmentErrorCodes.COMPLAINT_ALREADY_ASSIGNED,
-        "Complaint is already assigned to an officer",
-        "assigned_to"
-    )
-    print(f"   Already Assigned: {error3}")
-    
-    print("\n" + "=" * 60)
-    print("Schema validation complete.")

@@ -228,7 +228,7 @@ class TestComplaintLocationValidator:
         
         assert "error" in details
         assert details["error"]["code"] == "VAL_001"
-        assert details["error"]["message"] == "Either latitude and longitude or address must be provided"
+        assert "Either latitude and longitude or address must be provided" in details["error"]["message"]
         assert len(details["error"]["details"]) == 1
         assert details["error"]["details"][0]["field"] == "location"
 

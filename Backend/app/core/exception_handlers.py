@@ -42,6 +42,7 @@ from app.utils.exceptions import (
     InvalidOTPError,
     RateLimitExceededError,
     InsufficientPermissionsError,
+    ChatSessionAccessDeniedError,
 )
 
 
@@ -148,6 +149,13 @@ async def handle_rate_limit_exceeded(
 async def handle_insufficient_permissions(
     request: Request,
     exc: InsufficientPermissionsError,
+) -> JSONResponse:
+    return _error_response(status.HTTP_403_FORBIDDEN, exc)
+
+
+async def handle_chat_session_access_denied(
+    request: Request,
+    exc: ChatSessionAccessDeniedError,
 ) -> JSONResponse:
     return _error_response(status.HTTP_403_FORBIDDEN, exc)
 
@@ -294,6 +302,11 @@ def register_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(
         InsufficientPermissionsError,
         handle_insufficient_permissions,
+    )
+
+    app.add_exception_handler(
+        ChatSessionAccessDeniedError,
+        handle_chat_session_access_denied,
     )
 
     # Catch-all fallback for any other AuthenticationError subclass.

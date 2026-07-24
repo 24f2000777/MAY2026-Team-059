@@ -7,3 +7,7 @@ __pycache__/
 .DS_Store
 *.egg-info/
 .vscode/
+
+# FAISS docstore metadata for the chatbot's knowledge base - small and
+# needed for the index to load at all, exception to the *.pkl rule above
+!Backend/app/chatbot/faiss_index/index.pkl

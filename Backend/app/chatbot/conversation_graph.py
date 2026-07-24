@@ -1,3 +1,4 @@
+import logging
 from typing import TypedDict, Optional, Annotated
 
 from langgraph.graph import StateGraph, START, END
@@ -8,6 +9,8 @@ from langchain_core.messages import AIMessage, HumanMessage
 from extractor import extract_complaint_info
 from knowledge_base import load_knowledge_base
 from providers import safe_chat_call, SAFE_FALLBACK_REPLY
+
+logger = logging.getLogger(__name__)
 
 BOT_NAME = "Nagrik Saathi"
 
@@ -31,9 +34,17 @@ PERSONA = (
     "instead of guessing."
 )
 
-# loaded once when this module is imported, not on every question, since building
-# the faiss index and embedding model takes a moment
-knowledge_base_store = load_knowledge_base()
+# Loaded lazily on first use rather than at import time, so importing this
+# module (e.g. under pytest, or before it's actually needed) doesn't pay the
+# cost of loading the faiss index and embedding model.
+_knowledge_base_store = None
+
+
+def _get_knowledge_base_store():
+    global _knowledge_base_store
+    if _knowledge_base_store is None:
+        _knowledge_base_store = load_knowledge_base()
+    return _knowledge_base_store
 
 
 MAX_LOCATION_ATTEMPTS = 2
@@ -215,8 +226,8 @@ def handle_complaint(state):
 
     try:
         extracted_info = extract_complaint_info(last_message)
-    except Exception as e:
-        print(f"extraction failed: {e}")
+    except Exception:
+        logger.warning("extraction failed", exc_info=True)
         reply = "Hmm, I didn't quite catch that. Could you describe the problem again, in a sentence or two?"
         return {"messages": [AIMessage(content=reply)]}
 
@@ -260,10 +271,10 @@ def handle_question(state):
     last_message = state["messages"][-1].content
 
     try:
-        results = knowledge_base_store.similarity_search(last_message, k=5)
+        results = _get_knowledge_base_store().similarity_search(last_message, k=5)
         context = "\n\n".join(doc.page_content for doc in results)
-    except Exception as e:
-        print(f"knowledge base search failed: {e}")
+    except Exception:
+        logger.warning("knowledge base search failed", exc_info=True)
         context = ""
 
     prompt = (
@@ -357,6 +368,13 @@ def safe_send_message(message, thread_id):
     should actually call. Guarantees a reply string no matter what, even if
     something inside the graph itself throws an unexpected error, so a live demo
     never crashes on stage.
+
+    Every LLM call this makes (extraction, classification, retrieval-backed
+    reply generation) is synchronous. Calling this directly from an async
+    FastAPI route would block the event loop for the length of an LLM round
+    trip; wrap the call in fastapi.concurrency.run_in_threadpool from an
+    async caller instead (this is exactly what app/services/chat_service.py
+    does once this module is wired into the API).
     """
     config = {"configurable": {"thread_id": thread_id}}
     try:
@@ -365,6 +383,6 @@ def safe_send_message(message, thread_id):
             config=config,
         )
         return result["messages"][-1].content
-    except Exception as e:
-        print(f"conversation graph itself failed: {e}")
+    except Exception:
+        logger.warning("conversation graph itself failed", exc_info=True)
         return SAFE_FALLBACK_REPLY

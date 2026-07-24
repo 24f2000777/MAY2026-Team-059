@@ -1,5 +1,6 @@
 import os
 import json
+import logging
 import re
 
 from dotenv import load_dotenv
@@ -13,6 +14,8 @@ from prompts import extraction_prompt, ComplaintInfo
 
 load_dotenv()
 
+logger = logging.getLogger(__name__)
+
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 HUGGINGFACE_API_KEY = os.getenv("HUGGINGFACE_API_KEY")
@@ -22,7 +25,13 @@ SAFE_FALLBACK_REPLY = "Sorry, I'm having trouble with that right now. Please try
 # groq's free tier allows 30 requests a minute and well over a thousand a day,
 # far more generous than gemini or huggingface right now, so it's the primary
 # provider, still throttle a little as a courtesy and to fail fast if it ever
-# does hit a limit
+# does hit a limit.
+#
+# This bucket lives in-process, so it only throttles calls made by this one
+# worker. Running this behind multiple workers/processes multiplies the
+# effective rate by however many are running; fine at this project's scale,
+# but worth lowering per-worker or moving to a shared (e.g. Redis-backed)
+# limiter before scaling out to more than one worker process.
 groq_rate_limiter = InMemoryRateLimiter(
     requests_per_second=20 / 60,  # comfortably under the 30/minute cap
     check_every_n_seconds=0.5,
@@ -84,18 +93,18 @@ def safe_chat_call(prompt, default_reply=SAFE_FALLBACK_REPLY):
     """
     try:
         return groq_chat_llm.invoke(prompt).content
-    except Exception as e:
-        print(f"groq chat call failed, falling back to huggingface: {e}")
+    except Exception:
+        logger.warning("groq chat call failed, falling back to huggingface", exc_info=True)
 
     try:
         return huggingface_llm.invoke(prompt).content
-    except Exception as e:
-        print(f"huggingface chat call failed, falling back to gemini: {e}")
+    except Exception:
+        logger.warning("huggingface chat call failed, falling back to gemini", exc_info=True)
 
     try:
         return gemini_chat_llm.invoke(prompt).content
-    except Exception as e:
-        print(f"gemini chat call also failed: {e}")
+    except Exception:
+        logger.warning("gemini chat call also failed", exc_info=True)
 
     return default_reply
 

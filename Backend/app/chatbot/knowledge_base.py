@@ -58,6 +58,11 @@ def build_knowledge_base():
 
 
 def load_knowledge_base():
+    # allow_dangerous_deserialization is required by langchain_community's FAISS
+    # loader itself (it pickles its docstore); safe here because INDEX_DIR is
+    # built by build_knowledge_base() above and committed to this repo by the
+    # team, never a user-supplied or externally downloaded file, so there's no
+    # untrusted input reaching this pickle load.
     embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
     return FAISS.load_local(str(INDEX_DIR), embeddings, allow_dangerous_deserialization=True)
 

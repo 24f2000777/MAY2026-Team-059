@@ -1,6 +1,8 @@
-from typing import Optional
+from typing import Literal, Optional
 from pydantic import BaseModel, Field
 from langchain_core.prompts import ChatPromptTemplate
+
+from app.utils.constants import DEPARTMENT_NAMES
 
 CATEGORIES = [
     "Pothole / Road Damage",
@@ -50,4 +52,26 @@ extraction_prompt = ChatPromptTemplate.from_messages([
      "no bullet points, no extra words before or after it:\n"
      '{{"location": "..." or null, "complaint_category": "..." or null, "severity": "..."}}'),
     ("human", "{user_query}"),
+])
+
+
+class DepartmentRouting(BaseModel):
+    department: Literal[tuple(DEPARTMENT_NAMES)] = Field(
+        description="exactly one department name, copied exactly from the given list, no changes"
+    )
+
+
+departments_text = "\n".join(f"- {d}" for d in DEPARTMENT_NAMES)
+
+routing_prompt = ChatPromptTemplate.from_messages([
+    ("system",
+     "You assign a citizen's civic complaint to exactly one municipal department, based "
+     "on its category and description.\n\n"
+     f"Pick exactly one department from this list, copied exactly, no changes:\n{departments_text}\n\n"
+     "If nothing else fits, use General Administration Department, never invent a "
+     "department name that isn't in the list above.\n\n"
+     "Reply with only a JSON object in exactly this shape, nothing else, no explanation, "
+     "no bullet points, no extra words before or after it:\n"
+     '{{"department": "..."}}'),
+    ("human", "Category: {category}\nDescription: {description}"),
 ])

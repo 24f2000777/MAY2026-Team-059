@@ -8,9 +8,11 @@ from app.api.complaints import router as complaint_router
 from app.api.notifications import router as notification_router
 from app.api.dashboard import router as dashboard_router
 from app.api.ml import router as ml_router
+from app.core.database import AsyncSessionLocal
 from app.core.redis import check_redis_connection
 from app.core.exception_handlers import register_exception_handlers
 from app.schemas.common import SuccessResponse
+from app.services.routing_service import seed_departments
 
 
 @asynccontextmanager
@@ -24,6 +26,8 @@ async def lifespan(app: FastAPI):
 
     # Startup
     await check_redis_connection()
+    async with AsyncSessionLocal() as db:
+        await seed_departments(db)
     """
     # connect_to_vector_db()
     # start_scheduler()

@@ -1,4 +1,4 @@
-# All 6 database tables for NAGRIK AI
+# All 8 database tables for NAGRIK AI
 from sqlalchemy.orm import relationship
 from sqlalchemy import Text, Integer, String, Column, Boolean, ForeignKey, DateTime
 from sqlalchemy.dialects.postgresql import UUID, JSONB
@@ -18,7 +18,8 @@ class User(Base):
     role = Column(String(20), nullable=False)
     hashed_password = Column(String(255), nullable=False)
     is_active = Column(Boolean, default=False)
-    
+    department_id = Column(UUID(as_uuid=True), ForeignKey("departments.id"), nullable=True)
+
     created_at = Column(
         DateTime(timezone=True),
         server_default=func.now()
@@ -39,13 +40,29 @@ class User(Base):
     )
 
 
-# ─── TABLE 2: COMPLAINTS ────────────────────────────────
+# ─── TABLE 2: DEPARTMENTS ───────────────────────────────
+# municipal departments (roads, water supply, sanitation, ...)
+# staff belong to one, complaints route to one
+class Department(Base):
+    __tablename__ = "departments"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name = Column(String(100), unique=True, nullable=False)
+    description = Column(Text, nullable=True)
+    created_at = Column(DateTime, server_default=func.now())
+
+    staff = relationship("User", backref="department", lazy=True)
+    complaints = relationship("Complaint", backref="department", lazy=True)
+
+
+# ─── TABLE 3: COMPLAINTS ────────────────────────────────
 class Complaint(Base):
     __tablename__ = "complaints"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     citizen_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     assigned_to = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    department_id = Column(UUID(as_uuid=True), ForeignKey("departments.id"), nullable=True)
     title = Column(String(200), nullable=False)
     description = Column(Text, nullable=False)
     category = Column(String(20), nullable=False)
@@ -62,10 +79,16 @@ class Complaint(Base):
         lazy=True,
         cascade="all, delete-orphan",
     )
+    images = relationship(
+        "ComplaintImage",
+        backref="complaint",
+        lazy=True,
+        cascade="all, delete-orphan",
+    )
     rating = relationship("Rating", backref="complaint", uselist=False)
 
 
-# ─── TABLE 3: COMPLAINT_UPDATES ─────────────────────────
+# ─── TABLE 4: COMPLAINT_UPDATES ─────────────────────────
 # audit log — every status change gets a row here
 class ComplaintUpdate(Base):
     __tablename__ = "complaint_updates"
@@ -81,7 +104,20 @@ class ComplaintUpdate(Base):
     created_at = Column(DateTime, server_default=func.now())
 
 
-# ─── TABLE 4: NOTIFICATIONS ─────────────────────────────
+# ─── TABLE 5: COMPLAINT_IMAGES ──────────────────────────
+# photos a citizen attaches to a complaint at submission time
+class ComplaintImage(Base):
+    __tablename__ = "complaint_images"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    complaint_id = Column(
+        UUID(as_uuid=True), ForeignKey("complaints.id", ondelete="CASCADE"), nullable=False
+    )
+    image_url = Column(String(500), nullable=False)
+    created_at = Column(DateTime, server_default=func.now())
+
+
+# ─── TABLE 6: NOTIFICATIONS ─────────────────────────────
 class Notification(Base):
     __tablename__ = "notifications"
 
@@ -99,7 +135,7 @@ class Notification(Base):
     created_at = Column(DateTime, server_default=func.now())
 
 
-# ─── TABLE 5: RATINGS ───────────────────────────────────
+# ─── TABLE 7: RATINGS ───────────────────────────────────
 # one rating per complaint (unique constraint on complaint_id)
 class Rating(Base):
     __tablename__ = "ratings"
@@ -115,7 +151,7 @@ class Rating(Base):
     created_at = Column(DateTime, server_default=func.now())
 
 
-# ─── TABLE 6: CHAT_SESSIONS ─────────────────────────────
+# ─── TABLE 8: CHAT_SESSIONS ─────────────────────────────
 # stores RAG chatbot messages, both user and assistant
 class ChatSession(Base):
     __tablename__ = "chat_sessions"

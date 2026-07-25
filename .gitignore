@@ -72,6 +72,9 @@ Thumbs.db
 
 *.pkl
 
+# priority scorer training data - large files, not committed
+Backend/app/ml/priority_scorer/data/*.csv
+
 # ======================================================
 # Local Notes (Do NOT Track)
 # ======================================================

@@ -10,6 +10,8 @@ Example:
     print(settings.SECRET_KEY)
 """
 
+from typing import Optional
+
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -103,6 +105,13 @@ class Settings(BaseSettings):
     # =====================================================
 
     GROQ_API_KEY: str
+
+    # Backup LLM providers for the complaint-severity extraction chain,
+    # used only if Groq's call fails. Optional since the app should still
+    # run without them, just with one fewer fallback available.
+    GEMINI_API_KEY: Optional[str] = None
+
+    HUGGINGFACE_API_KEY: Optional[str] = None
 
     # =====================================================
     # Application

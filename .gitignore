@@ -75,6 +75,10 @@ Thumbs.db
 # priority scorer training data - large files, not committed
 Backend/app/ml/priority_scorer/data/*.csv
 
+# FAISS docstore metadata for the chatbot's knowledge base - small and
+# needed for the index to load at all, exception to the *.pkl rule above
+!Backend/app/chatbot/faiss_index/index.pkl
+
 # ======================================================
 # Local Notes (Do NOT Track)
 # ======================================================

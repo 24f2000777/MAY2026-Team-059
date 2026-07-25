@@ -22,10 +22,10 @@
 
 This repository has two parts, developed in parallel and documented separately below:
 
-- **`frontend/`** — a Vue 3 app, currently running on mock `localStorage` data (see [Frontend](#-frontend) below)
+- **`frontend/`** — a Vue 3 app (see [Frontend](#-frontend) below)
 - **`Backend/`** — a FastAPI backend (see [Backend](#-backend) below)
 
-They are not yet wired together. Connecting them is the next major integration step.
+**Integration status (branch `feature/frontend-auth-integration`, not yet in `develop`):** login and signup (register → verify OTP → login → logout) now call the real backend. Everything else on the frontend — complaints, profile, notifications, password reset — is still on the `localStorage` mock. See **Frontend § Connecting to the Real Backend** below for exactly what that means and how to run both sides together.
 
 ---
 
@@ -33,7 +33,7 @@ They are not yet wired together. Connecting them is the next major integration s
 
 A civic issue-reporting platform for citizens, municipal staff, and administrators, built with Vue 3. Citizens file complaints with photos and location pins, staff manage assigned tasks, and admins oversee everything with filters and analytics.
 
-This is the **frontend only**. It currently runs on mock data stored in the browser's `localStorage`, no backend is connected yet.
+**Login and signup now talk to the real FastAPI backend** (see **Connecting to the Real Backend** below — you need the backend running for those two flows to work). Everything else — complaints, profile, notifications — still runs on mock data stored in the browser's `localStorage`.
 
 ## Tech Stack
 
@@ -47,6 +47,7 @@ This is the **frontend only**. It currently runs on mock data stored in the brow
 
 ### Requirements
 - [Node.js](https://nodejs.org) 18 or later
+- The backend running locally (see the Backend section's **Getting Started** further down this file) — **required for login/register to work**, everything else still works without it
 
 ### Install and run
 
@@ -56,7 +57,7 @@ npm install
 npm run dev
 ```
 
-Open the URL Vite prints (usually `http://localhost:5173`).
+Open the URL Vite prints (usually `http://localhost:5173`). By default the app calls the backend at `http://localhost:8000`; copy `.env.example` to `.env` and set `VITE_API_URL` if yours runs somewhere else.
 
 ### Build for production
 
@@ -67,7 +68,9 @@ npm run preview   # serve the production build locally
 
 ## Demo Logins
 
-Accounts are seeded automatically into `localStorage` the first time the app runs.
+**Login and registration now go through the real backend**, not `localStorage` — the accounts below no longer work for logging in. Register a real citizen account instead using the app's own signup form, or create a staff/admin account directly in Postgres (there's no signup UI for those roles yet, same as the backend itself).
+
+The seeded accounts below are still used by the *rest* of the app (complaints, notifications, etc.), which remain on the mock — they just won't get you past the login screen anymore.
 
 | Role    | Email                        | Password    |
 |---------|-------------------------------|--------------|
@@ -75,9 +78,7 @@ Accounts are seeded automatically into `localStorage` the first time the app run
 | Staff   | ravi.staff@nagrikai.app    | staff123     |
 | Admin   | admin@nagrikai.app         | admin123     |
 
-You can also register a new citizen account from scratch (see **Auth Flow** below).
-
-If login ever fails with correct-looking credentials after pulling new code, clear stale local data: DevTools → Application → Local Storage → delete `cr_users` and `cr_session` → refresh.
+If login ever fails unexpectedly, clear stale local data: DevTools → Application → Local Storage → delete `nagrik_session` (the real auth session) and `cr_users`/`cr_session` (the mock, used by the rest of the app) → refresh.
 
 ## Features
 
@@ -87,11 +88,12 @@ If login ever fails with correct-looking credentials after pulling new code, cle
 - Public pages reachable without login: **FAQ**, **Privacy Policy**, **Terms of Service**, **Contact Us**
 - A live demo of **Nagrik Saathi**
 
-### Authentication
-- **Register** — name, email, phone, password + confirm, with phone format validation and minimum password length
-- **OTP verification** — a second step after registering; a demo one-time code is generated and shown on screen (no real SMS backend exists yet)
-- **Login** — email + password, redirects to the correct dashboard by role
-- **Forgot / Reset Password** — email lookup, then set a new password (mocked — no real email delivery)
+### Authentication — real backend
+- **Register** — name, email, phone, password + confirm, with phone format validation and minimum password length. Calls the real `POST /auth/register`, which emails an actual OTP.
+- **OTP verification** — enter the code from your email. Calls the real `POST /auth/verify-otp`, then logs you straight in. "Resend code" re-registers, which the backend treats as a resend for a pending account rather than a duplicate error.
+- **Login** — email + password against the real `POST /auth/login`, redirects to the correct dashboard by role. Stores a real JWT (see `nagrik_session` in localStorage).
+- **Logout** — revokes the token server-side via `POST /auth/logout`, not just a client-side clear.
+- **Forgot / Reset Password** — still mocked (email lookup, no real email delivery) — not part of this integration pass yet.
 
 ### Citizen
 - Dashboard with a personalized greeting, quick-action tiles, and KPI cards (Total / Submitted / In Progress / Resolved)
@@ -135,19 +137,36 @@ frontend/src/
 │   ├── Navbar.vue / DashboardHero.vue / ActionTile.vue / footer.vue
 │   ├── ComplaintCard.vue / StatusBadge.vue / StatCard.vue
 │   └── DonutChart.vue / LineChart.vue
-├── stores/          Pinia: authStore.js, complaintStore.js
-├── api/client.js    Mock data layer (see below)
-├── router/index.js  All routes + role-based guards
-└── assets/style.css Global styling
+├── stores/            Pinia: authStore.js, complaintStore.js
+├── api/
+│   ├── client.js      Mock data layer, everything except auth (see below)
+│   ├── httpClient.js  Real fetch wrapper — unwraps the backend's response envelope
+│   └── authApi.js     Real register/verifyOtp/login/logout calls
+├── router/index.js   All routes + role-based guards
+└── assets/style.css  Global styling
 ```
 
-## About the Mock Data Layer
+## 🔌 Connecting to the Real Backend (auth only, so far)
 
-`src/api/client.js` simulates a backend using `localStorage`. It is clearly commented as mock-only at the top of the file. Every exported function (`registerUser`, `loginUser`, `getComplaints`, `createComplaint`, etc.) is written to match what a real REST endpoint would expect, so connecting a real backend later means rewriting the function bodies in this one file. No other file needs to change.
+`authStore.js`'s `login`/`register`/`logout` actions call `api/authApi.js`, which calls the real FastAPI backend through `api/httpClient.js`. Everything else in the app (complaints, profile, notifications) is still on the mock in `api/client.js` — this was done in two separate, deliberate passes rather than all at once, so the auth piece could be verified end-to-end on its own first.
 
-Things that are explicitly **not real** right now, by design:
-- Passwords are stored in plaintext in `localStorage`
-- OTP codes are generated client-side and displayed on screen, not sent via SMS/email
+**To run it:**
+1. Start the backend first (see the Backend section's **Getting Started** further down this file) — `uvicorn app.main:app --reload`, plus Redis running.
+2. `cd frontend && npm run dev` as usual.
+3. The frontend defaults to `http://localhost:8000` for the API. If your backend runs elsewhere, copy `.env.example` to `.env` and set `VITE_API_URL`.
+4. CORS is already configured for this on the backend side (`FRONTEND_ORIGINS` in `Backend/.env` includes `http://localhost:5173`) — no backend change needed for local dev on the default port.
+
+**What actually changed in the auth pages**, if you're picking up where this left off:
+- `Register.vue` calls the real `/auth/register` immediately, then stashes the submitted name/email/phone/password in `sessionStorage` (not a fake OTP anymore) so `VerifyOtp.vue` can auto-login right after a successful verify, and so "resend" can re-register.
+- `VerifyOtp.vue` calls the real `/auth/verify-otp`, no more client-side OTP comparison or on-screen demo code.
+- `Login.vue`/`authStore.js` — `login`/`register`/`logout` are async now; session (user + access/refresh tokens) persists under `localStorage['nagrik_session']`, kept separate from the mock's `cr_session` on purpose, so a leftover mock session in a browser's storage can't get misread as a real logged-in state.
+- `authStore.logout()` clears local state *before* awaiting the server revoke call — `navbar.vue` calls `auth.logout()` without awaiting it and navigates immediately after, so the state needs to already be cleared by the time that happens or the router guard can see a stale "still logged in" state.
+
+**Not done yet, if extending this further:**
+- `requestReset`/`completeReset` (forgot/reset password) and `updateProfile`/`changePassword` in `authStore.js` still call the mock — same shape of work as above, just not done in this pass.
+- Token refresh (`POST /auth/refresh`) isn't wired up — a token currently just expires (30 min) with no automatic renewal, the user would need to log in again.
+
+Things still explicitly **not real**, by design, in the parts that remain mocked:
 - Password reset has no email/token step — reaching the reset screen is treated as proof of ownership
 - Nagrik Saathi is a scripted, keyword-matched demo, not a real AI, till backend with relevant functionality is connected.
 

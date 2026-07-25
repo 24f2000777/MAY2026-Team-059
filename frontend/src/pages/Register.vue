@@ -1,8 +1,10 @@
 <script setup>
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { useAuthStore } from '../stores/authStore'
 
 const router = useRouter()
+const auth = useAuthStore()
 
 const name = ref('')
 const email = ref('')
@@ -14,7 +16,7 @@ const loading = ref(false)
 
 const phonePattern = /^[0-9]{10}$/
 
-function submit() {
+async function submit() {
   error.value = ''
 
   if (!phonePattern.test(phone.value)) {
@@ -27,17 +29,28 @@ function submit() {
   }
 
   loading.value = true
-  const otp = String(Math.floor(100000 + Math.random() * 900000))
-  const pending = {
-    name: name.value,
-    email: email.value,
-    phone: phone.value,
-    password: password.value,
-    otp
+  try {
+    await auth.register({
+      name: name.value,
+      email: email.value,
+      phone: phone.value,
+      password: password.value
+    })
+    // The backend emails the real OTP, we only need to remember the
+    // email/password here so verify-otp can log the user straight in
+    // once the code is confirmed (and so "resend" can re-register).
+    sessionStorage.setItem('cr_pending_registration', JSON.stringify({
+      name: name.value,
+      email: email.value,
+      phone: phone.value,
+      password: password.value
+    }))
+    router.push('/verify-otp')
+  } catch (e) {
+    error.value = e.message
+  } finally {
+    loading.value = false
   }
-  sessionStorage.setItem('cr_pending_registration', JSON.stringify(pending))
-  loading.value = false
-  router.push('/verify-otp')
 }
 </script>
 

@@ -13,11 +13,11 @@ const loading = ref(false)
 
 const homeForRole = { citizen: '/citizen', staff: '/staff', admin: '/admin' }
 
-function submit() {
+async function submit() {
   error.value = ''
   loading.value = true
   try {
-    const user = auth.login({ email: email.value, password: password.value })
+    const user = await auth.login({ email: email.value, password: password.value })
     router.push(homeForRole[user.role])
   } catch (e) {
     error.value = e.message

@@ -1,0 +1,86 @@
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+from app.api.auth import router as auth_router
+from app.api.complaints import router as complaint_router
+from app.api.notifications import router as notification_router
+from app.api.dashboard import router as dashboard_router
+from app.core.redis import check_redis_connection
+from app.core.exception_handlers import register_exception_handlers
+from app.schemas.common import SuccessResponse
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    Application lifespan.
+
+    Runs once when the application starts and
+    once again when it shuts down.
+    """
+
+    # Startup
+    await check_redis_connection()
+    """
+    # connect_to_vector_db()
+    # start_scheduler()
+    # initialize_ml_model()
+    """
+    yield
+
+    # Shutdown
+    # (Nothing to clean up for now)
+    """
+    close_vector_db()
+    stop_scheduler()
+    """
+
+
+app = FastAPI(
+    title="NAGRIK AI",
+    version="1.0.0",
+    description="AI Powered Civic Complaint Management System",
+    lifespan=lifespan,
+)
+
+from app.core.config import settings
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.FRONTEND_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+register_exception_handlers(app)
+
+app.include_router(auth_router)
+app.include_router(complaint_router)
+app.include_router(notification_router)
+app.include_router(dashboard_router)
+
+
+@app.get(
+    "/",
+    response_model=SuccessResponse[None],
+    tags=["Root"],
+)
+async def root():
+    return SuccessResponse[None](
+        message="Welcome to NAGRIK AI API",
+    )
+
+
+@app.get(
+    "/health",
+    response_model=SuccessResponse[dict],
+    tags=["Health"],
+)
+async def health_check():
+    return SuccessResponse[dict](
+        message="Service is healthy.",
+        data={"status": "ok"},
+    )

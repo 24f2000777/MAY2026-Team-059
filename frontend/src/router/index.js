@@ -58,8 +58,10 @@ const routes = [
   { path: '/notifications', name: 'notifications', component: Notifications },
   { path: '/profile', name: 'profile', component: Profile },
   { path: '/feedback', name: 'feedback', component: FeedbackReport },
+  // Requires login: the real chat API needs a Bearer token, an
+  // unauthenticated visitor can't get a reply at all.
+  { path: '/nagrik-saathi', name: 'nagrik-saathi', component: NagrikSaathi },
 
-  { path: '/nagrik-saathi', name: 'nagrik-saathi', component: NagrikSaathi, meta: { public: true } },
   { path: '/faq', name: 'faq', component: Faqs, meta: { public: true } },
   { path: '/privacy', name: 'privacy', component: PrivacyPolicy, meta: { public: true } },
   { path: '/terms', name: 'terms', component: TermsOfService, meta: { public: true } },

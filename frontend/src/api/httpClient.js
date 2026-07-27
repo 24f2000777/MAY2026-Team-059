@@ -30,6 +30,7 @@ export async function request(path, { method = 'GET', body, token } = {}) {
     const error = new Error(payload?.message || 'Something went wrong. Please try again.')
     error.code = payload?.error_code
     error.details = payload?.details
+    error.status = response.status
     throw error
   }
 

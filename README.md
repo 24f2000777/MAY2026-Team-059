@@ -570,6 +570,12 @@ git push -u origin feature/your-feature-name
 - RAG Chatbot
 - Dashboards & Analytics
 - Docker / CI-CD
+- **Module 11: Pre-Launch Security Audit**
+  - Secret Leak Prevention
+  - Personal Data Flow Audit
+  - Pre-Deploy Production Audit
+  - Deep Security Audit for Complex Logic
+  - Attacker's Perspective Review
 
 ---
 

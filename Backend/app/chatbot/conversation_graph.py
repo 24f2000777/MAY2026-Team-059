@@ -224,6 +224,12 @@ def handle_complaint(state):
         reply = build_not_a_bmc_issue_reply()
         return {"messages": [AIMessage(content=reply)]}
 
+    # Carried forward through pending_complaint into finalize_complaint,
+    # whichever turn actually finalizes it, this turn or a later
+    # location-followup one, so create_complaint has real complaint text
+    # to store rather than just "near <location>" from a followup turn.
+    extracted_info["description"] = last_message
+
     if not extracted_info.get("location"):
         reply = "Got it, that sounds annoying. Just one more thing, which area or landmark is this near?"
         return {
@@ -368,3 +374,33 @@ def safe_send_message(message, thread_id):
     except Exception as e:
         print(f"conversation graph itself failed: {e}")
         return SAFE_FALLBACK_REPLY
+
+
+def send_message_and_extract(message, thread_id):
+    """
+    Like safe_send_message, but also returns the info finalize_complaint
+    extracted on this specific turn (category/severity/location/
+    description), or None if this turn didn't just finish filing a
+    complaint. For a caller (chat_service.py) that wants to actually
+    persist a real Complaint row from what the chatbot extracted.
+
+    extracted_info lives in the checkpointed graph state, which persists
+    across turns for this thread_id. Once read here, it's immediately
+    cleared via update_state so a later, unrelated turn (chitchat, a
+    new question) never re-reads this same value as if it were fresh,
+    it's meant to be consumed exactly once, on the turn it was produced.
+    """
+    config = {"configurable": {"thread_id": thread_id}}
+    try:
+        result = conversation_graph.invoke(
+            {"messages": [HumanMessage(content=message)]},
+            config=config,
+        )
+        reply = result["messages"][-1].content
+        extracted_info = result.get("extracted_info")
+        if extracted_info is not None:
+            conversation_graph.update_state(config, {"extracted_info": None})
+        return reply, extracted_info
+    except Exception as e:
+        print(f"conversation graph itself failed: {e}")
+        return SAFE_FALLBACK_REPLY, None

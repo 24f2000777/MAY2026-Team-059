@@ -18,9 +18,10 @@ Requirements
 import uuid
 
 import pytest
+from sqlalchemy import select
 
 from app.core.database import AsyncSessionLocal
-from app.model import ChatSession, User
+from app.model import ChatSession, Complaint, User
 from app.services.chat_service import get_chat_history, send_chat_message
 from app.utils.exceptions import ChatSessionAccessDeniedError
 
@@ -42,14 +43,26 @@ def _make_citizen() -> User:
     )
 
 
+async def _delete_citizen_and_complaints(db, user):
+    # Several messages in this suite ("pothole near...", "streetlight
+    # out near...") read as real complaints, chat_service now actually
+    # files one from those via the chatbot<->ML integration, so deleting
+    # the citizen without also deleting whatever got created for them
+    # would violate complaints.citizen_id's FK constraint.
+    result = await db.execute(select(Complaint).where(Complaint.citizen_id == user.id))
+    for complaint in result.scalars().all():
+        await db.delete(complaint)
+    await db.delete(user)
+    await db.commit()
+
+
 @pytest.fixture
 async def citizen(db):
     user = _make_citizen()
     db.add(user)
     await db.flush()
     yield user
-    await db.delete(user)
-    await db.commit()
+    await _delete_citizen_and_complaints(db, user)
 
 
 @pytest.fixture
@@ -58,8 +71,7 @@ async def other_citizen(db):
     db.add(user)
     await db.flush()
     yield user
-    await db.delete(user)
-    await db.commit()
+    await _delete_citizen_and_complaints(db, user)
 
 
 class TestChatService:
@@ -145,5 +157,65 @@ class TestChatService:
 
         owner_history = await get_chat_history(session_id, citizen.id, db)
         for h in owner_history:
+            await db.delete(h)
+        await db.commit()
+
+
+class TestChatCreatesRealComplaints:
+    """
+    The chatbot<->ML integration: once a conversation extracts a
+    category and a specific location, chat_service should file a real
+    Complaint from it (scored and routed the same way POST /complaints
+    does), not just reply as if it had.
+    """
+
+    async def test_a_clear_single_turn_complaint_gets_filed(self, db, citizen):
+        session_id = f"pytest-session-{uuid.uuid4()}"
+        message = (
+            "There is a big dangerous pothole on Linking Road near Bandra station, "
+            "it has been there for weeks and cars keep swerving to avoid it."
+        )
+
+        reply = await send_chat_message(session_id, citizen.id, message, db)
+        assert isinstance(reply, str) and len(reply) > 0
+
+        result = await db.execute(select(Complaint).where(Complaint.citizen_id == citizen.id))
+        complaints = result.scalars().all()
+        assert len(complaints) == 1
+
+        complaint = complaints[0]
+        assert complaint.description == message
+        assert complaint.category in {"pothole", "road", "other"}
+        assert "linking road" in complaint.location_text.lower()
+        assert isinstance(complaint.priority_score, int)
+        assert 0 <= complaint.priority_score <= 100
+
+        history = await get_chat_history(session_id, citizen.id, db)
+        for h in history:
+            await db.delete(h)
+        await db.commit()
+
+    async def test_extracted_info_does_not_leak_into_a_later_unrelated_turn(self, db, citizen):
+        # Regression check for the update_state() clearing in
+        # send_message_and_extract: without it, a complaint filed on
+        # turn 1 would get silently re-filed (duplicated) on every
+        # later turn in the same thread, since LangGraph's checkpointed
+        # state persists extracted_info across turns unless cleared.
+        session_id = f"pytest-session-{uuid.uuid4()}"
+        complaint_message = (
+            "There is a huge water leak flooding the road near Andheri station market, "
+            "it has been going on for two days."
+        )
+
+        await send_chat_message(session_id, citizen.id, complaint_message, db)
+        await send_chat_message(session_id, citizen.id, "thanks a lot!", db)
+        await send_chat_message(session_id, citizen.id, "what is the BMC helpline number", db)
+
+        result = await db.execute(select(Complaint).where(Complaint.citizen_id == citizen.id))
+        complaints = result.scalars().all()
+        assert len(complaints) == 1
+
+        history = await get_chat_history(session_id, citizen.id, db)
+        for h in history:
             await db.delete(h)
         await db.commit()

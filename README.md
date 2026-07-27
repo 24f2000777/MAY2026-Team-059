@@ -450,12 +450,16 @@ RESET_PASSWORD_OTP_EXPIRE_SECONDS=600       # optional, defaults to 600 (10 min)
 PASSWORD_RESET_RATE_LIMIT_MAX_ATTEMPTS=3    # optional, defaults to 3
 PASSWORD_RESET_RATE_LIMIT_WINDOW_SECONDS=3600  # optional, defaults to 3600 (1 hour)
 
-# SMTP (Gmail example — SMTP_PASSWORD must be a Google App Password, not your login password)
-SMTP_HOST=smtp.gmail.com
+# SMTP — a real, shared Ethereal sandbox account (see .env.example for
+# the actual values). Register locally with any fake email, then log
+# into ethereal.email with these same credentials to read the OTP it
+# "sent" — nothing ever gets delivered anywhere real, so no personal
+# Gmail account or app password is needed for local dev.
+SMTP_HOST=smtp.ethereal.email
 SMTP_PORT=587
-SMTP_USERNAME=your_email@gmail.com
-SMTP_PASSWORD=your_google_app_password
-SMTP_FROM_EMAIL=your_email@gmail.com
+SMTP_USERNAME=jarred.morissette56@ethereal.email
+SMTP_PASSWORD=n1PMcC1TBq1FUTEZ9y
+SMTP_FROM_EMAIL=jarred.morissette56@ethereal.email
 SMTP_FROM_NAME=NAGRIK AI
 
 # Redis

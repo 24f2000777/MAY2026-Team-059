@@ -66,19 +66,69 @@ npm run build
 npm run preview   # serve the production build locally
 ```
 
-## Demo Logins
+## How to Register, Verify, and Log In
 
-**Login and registration now go through the real backend**, not `localStorage` — the accounts below no longer work for logging in. Register a real citizen account instead using the app's own signup form, or create a staff/admin account directly in Postgres (there's no signup UI for those roles yet, same as the backend itself).
+Login and registration go through the real backend now, not `localStorage` — there are no working demo credentials anymore. Here's how to actually get an account and use it.
 
-The seeded accounts below are still used by the *rest* of the app (complaints, notifications, etc.), which remain on the mock — they just won't get you past the login screen anymore.
+### Register a new citizen account
 
-| Role    | Email                        | Password    |
-|---------|-------------------------------|--------------|
-| Citizen | citizen@nagrikai.app       | citizen123   |
-| Staff   | ravi.staff@nagrikai.app    | staff123     |
-| Admin   | admin@nagrikai.app         | admin123     |
+1. Have the backend running (`uvicorn app.main:app --reload`, plus Redis and Postgres up) and the frontend running (`npm run dev`).
+2. Go to `http://localhost:5173/register` and fill in name, email, a 10-digit phone number, and a password (8+ characters) + confirm.
+3. Submit. The backend creates the account (**unverified**, so it can't log in yet) and emails a real 6-digit OTP to the address you gave — this only actually arrives if `Backend/.env`'s SMTP settings are filled in with working credentials (see Backend § Environment Configuration).
+4. You land on `/verify-otp`. Check that inbox for the code.
+5. Enter it and submit. The backend verifies the OTP, activates the account, and the frontend logs you straight in and redirects to `/citizen`.
+6. Didn't get the email? "Resend code" on that page re-triggers step 3 — the backend recognizes it's the same pending account and sends a new OTP instead of rejecting it as a duplicate.
 
-If login ever fails unexpectedly, clear stale local data: DevTools → Application → Local Storage → delete `nagrik_session` (the real auth session) and `cr_users`/`cr_session` (the mock, used by the rest of the app) → refresh.
+**Don't want to set up SMTP just to test this locally?** Since the OTP is only ever sent by real email (nothing is printed to the backend's console or logged anywhere), you can capture it directly instead, right after registering through the UI as above:
+
+```bash
+# from Backend/, with the venv activated — use the SAME email/phone/password
+# you just registered with in the browser; this doesn't create a duplicate,
+# the backend treats it as a pending-account resend and gives you a fresh OTP
+python3 -c "
+import asyncio
+import app.services.auth_service as auth_service_module
+
+def capture(*, recipient, otp):
+    print(f'OTP for {recipient}: {otp}')
+
+auth_service_module.send_verification_email = capture
+
+from app.core.database import AsyncSessionLocal
+from app.services.auth_service import register_user
+from app.schemas.auth import RegisterRequest
+
+async def main():
+    async with AsyncSessionLocal() as db:
+        await register_user(db, RegisterRequest(
+            name='Your Name', phone='9123456789',
+            email='you@example.com', password='YourPass123'
+        ))
+
+asyncio.run(main())
+"
+```
+
+It prints the OTP straight to your terminal — copy it into the verify-otp form in the browser. (This is what the `test_auth_full_suite.py` pytest suite does internally too, just for one-off manual testing here instead of an automated test.)
+
+### Log in
+
+Go to `http://localhost:5173/login`, enter the email + password from an account you've already verified. On success you're redirected to `/citizen`, `/staff`, or `/admin` depending on the account's role.
+
+There's no signup UI for staff/admin accounts yet — the backend itself doesn't have one either (`POST /auth/register` always creates a `citizen`). To test as staff/admin locally, register a citizen account as above, then update that row's `role` column directly in Postgres:
+
+```sql
+UPDATE users SET role = 'staff' WHERE email = 'you@example.com';
+-- or role = 'admin'
+```
+
+### Log out
+
+Click logout from the navbar (any logged-in page). This calls the real `POST /auth/logout`, which revokes the token server-side, not just a client-side clear — the same access token can't be reused afterward even if it hasn't naturally expired yet.
+
+### Troubleshooting
+
+If login/register ever fails unexpectedly (stuck on a stale state, weird redirect loop), clear local storage: DevTools → Application → Local Storage → delete `nagrik_session` (the real auth session) and, if present, `cr_users`/`cr_session` (leftover from the mock, used by the rest of the app) → refresh.
 
 ## Features
 

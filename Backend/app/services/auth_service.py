@@ -47,6 +47,7 @@ from app.core.security import (
 from app.schemas.auth import (
     RegisterRequest,
     VerifyOTPRequest,
+    ResendOTPRequest,
     LoginRequest,
     ForgotPasswordRequest,
     ResetPasswordRequest,
@@ -332,7 +333,7 @@ async def register_user(
 async def verify_email(
     db: AsyncSession,
     request: VerifyOTPRequest,
-) -> MessageResponse:
+) -> TokenResponse:
     """
     Verify a user's email using the OTP sent to
     their registered email address.
@@ -346,7 +347,11 @@ async def verify_email(
        5-minute lifetime).
     4. Verify OTP from Redis.
     5. Activate account.
-    6. Return success message.
+    6. Issue and return real tokens, the same pair login_user
+       hands back, so the caller is authenticated immediately
+       rather than needing a separate login call right after
+       (which would otherwise require the frontend to hold onto
+       the plaintext password just to complete that second call).
     """
 
     user = await _get_user_by_email(
@@ -402,9 +407,65 @@ async def verify_email(
 
     await db.flush()
 
+    # -------------------------------------------------
+    # Issue tokens, same as a fresh login
+    # -------------------------------------------------
+
+    access_token = create_access_token(
+        user_id=str(user.id),
+        role=user.role,
+    )
+
+    refresh_token = create_refresh_token(
+        user_id=str(user.id),
+        role=user.role,
+    )
+
+    return TokenResponse(
+        access_token=access_token,
+        refresh_token=refresh_token,
+        user=UserResponse.model_validate(user),
+    )
+
+
+# =====================================================
+# Resend Verification OTP
+# =====================================================
+
+async def resend_verification_otp(
+    db: AsyncSession,
+    request: ResendOTPRequest,
+) -> MessageResponse:
+    """
+    Resends the email verification OTP for an existing, not-yet-
+    verified account. Distinct from register_user's own duplicate-
+    email branch (which does the same thing), this exists so a
+    client can resend without re-submitting name/phone/password,
+    just the email.
+    """
+
+    user = await _get_user_by_email(
+        db,
+        request.email,
+    )
+
+    if user is None:
+        raise UserNotFoundError(
+            "User does not exist."
+        )
+
+    if user.is_active:
+        raise AccountAlreadyVerifiedError(
+            "Account is already verified."
+        )
+
+    await _send_verification_otp(
+        user.email,
+    )
+
     return MessageResponse(
         message=(
-            "Email verified successfully."
+            "A new verification OTP has been sent."
         )
     )
 

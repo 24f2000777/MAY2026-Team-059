@@ -36,14 +36,14 @@ async function submit() {
       phone: phone.value,
       password: password.value
     })
-    // The backend emails the real OTP, we only need to remember the
-    // email/password here so verify-otp can log the user straight in
-    // once the code is confirmed (and so "resend" can re-register).
+    // Only the email is needed on the verify-otp page now: verify-otp
+    // itself logs the account in, and "resend" hits a dedicated
+    // endpoint, neither needs the password, so it's never written to
+    // sessionStorage (a plaintext password sitting in browser storage,
+    // even briefly, is an XSS exposure worth avoiding entirely rather
+    // than accepting).
     sessionStorage.setItem('cr_pending_registration', JSON.stringify({
-      name: name.value,
-      email: email.value,
-      phone: phone.value,
-      password: password.value
+      email: email.value
     }))
     router.push('/verify-otp')
   } catch (e) {

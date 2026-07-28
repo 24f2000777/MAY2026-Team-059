@@ -27,9 +27,14 @@ export async function request(path, { method = 'GET', body, token } = {}) {
   const payload = await response.json().catch(() => null)
 
   if (!response.ok) {
+    // .status is set regardless of whether the body parsed as JSON, so
+    // a caller can still branch on the real HTTP status (e.g. 401) even
+    // if a reverse proxy in front of the backend ever returns a non-JSON
+    // error page (a 502 from Nginx, say) instead of our own envelope.
     const error = new Error(payload?.message || 'Something went wrong. Please try again.')
     error.code = payload?.error_code
     error.details = payload?.details
+    error.status = response.status
     throw error
   }
 

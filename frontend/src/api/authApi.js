@@ -11,9 +11,18 @@ export function registerUser({ name, phone, email, password }) {
 }
 
 export function verifyOtp({ email, otp }) {
+  // Resolves to { access_token, refresh_token, token_type, user } on
+  // success, the backend logs the account in as part of verifying it.
   return request('/auth/verify-otp', {
     method: 'POST',
     body: { email, otp }
+  })
+}
+
+export function resendOtp({ email }) {
+  return request('/auth/resend-otp', {
+    method: 'POST',
+    body: { email }
   })
 }
 

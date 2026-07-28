@@ -27,11 +27,11 @@ async function verify() {
   try {
     // The backend validates the OTP itself now (correct/expired/already
     // verified all come back as a real error message), there's nothing
-    // to check client-side beforehand.
+    // to check client-side beforehand. Logs the account in as part of
+    // verifying it, no password involved on this page at all.
     await auth.verifyOtpAndLogin({
       email: pending.value.email,
-      otp: code.value,
-      password: pending.value.password
+      otp: code.value
     })
     sessionStorage.removeItem('cr_pending_registration')
     router.push('/citizen')
@@ -46,14 +46,7 @@ async function resend() {
   if (!pending.value) return
   error.value = ''
   try {
-    // Registering again with the same (still-unverified) email makes
-    // the backend resend the OTP rather than reject it as a duplicate.
-    await auth.register({
-      name: pending.value.name,
-      email: pending.value.email,
-      phone: pending.value.phone,
-      password: pending.value.password
-    })
+    await auth.resendOtp({ email: pending.value.email })
     resent.value = true
     setTimeout(() => (resent.value = false), 2500)
   } catch (e) {

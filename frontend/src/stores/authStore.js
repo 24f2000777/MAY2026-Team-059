@@ -5,6 +5,7 @@ import {
 import {
   registerUser as apiRegister,
   verifyOtp as apiVerifyOtp,
+  resendOtp as apiResendOtp,
   loginUser as apiLogin,
   logoutUser as apiLogout
 } from '../api/authApi'
@@ -43,16 +44,23 @@ export const useAuthStore = defineStore('auth', {
       // happen in verifyOtpAndLogin below.
     },
 
-    async verifyOtpAndLogin({ email, otp, password }) {
-      await apiVerifyOtp({ email, otp })
-      // verify-otp activates the account but doesn't log the user in;
-      // log in right after so the signup flow still ends up authenticated,
-      // matching the previous mock behavior.
-      return this.login({ email, password })
+    async verifyOtpAndLogin({ email, otp }) {
+      // verify-otp logs the account in as part of activating it, no
+      // separate login call (and no plaintext password) needed here.
+      const data = await apiVerifyOtp({ email, otp })
+      return this._applySession(data)
+    },
+
+    resendOtp({ email }) {
+      return apiResendOtp({ email })
     },
 
     async login({ email, password }) {
       const data = await apiLogin({ email, password })
+      return this._applySession(data)
+    },
+
+    _applySession(data) {
       this.user = data.user
       this.accessToken = data.access_token
       this.refreshToken = data.refresh_token

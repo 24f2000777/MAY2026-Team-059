@@ -124,3 +124,25 @@ async def admin_dashboard(
             "land here once the Admin module is built.",
         },
     )
+
+
+@router.get(
+    "/internal",
+    response_model=SuccessResponse[dict],
+    summary="Internal dashboard (multiple roles)",
+)
+async def internal_dashboard(
+    current_user: User = Depends(require_roles(ROLE_STAFF, ROLE_ADMIN)),
+) -> SuccessResponse[dict]:
+    """
+    Placeholder. Proves that a route can accept multiple roles.
+    Only Staff or Admins can access this. Citizens cannot.
+    """
+
+    return SuccessResponse[dict](
+        message="Internal dashboard.",
+        data={
+            "name": current_user.name,
+            "note": "Accessible by Staff or Admin.",
+        },
+    )

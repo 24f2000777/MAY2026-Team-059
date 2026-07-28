@@ -732,6 +732,12 @@ git push -u origin feature/your-feature-name
 - Complaint closure + auto-close
 - Photo evidence upload, ratings endpoint
 - Docker / CI-CD
+- **Module 11: Pre-Launch Security Audit**
+  - Secret Leak Prevention
+  - Personal Data Flow Audit
+  - Pre-Deploy Production Audit
+  - Deep Security Audit for Complex Logic
+  - Attacker's Perspective Review
 
 ---
 

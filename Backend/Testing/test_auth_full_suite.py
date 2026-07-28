@@ -86,21 +86,11 @@ auth_service_module.send_password_reset_email = _capture_reset_email
 # ==========================================================
 # Pytest fixture
 # ==========================================================
-
-@pytest.fixture
-async def client():
-    """
-    Real ASGI-level HTTP client for the actual FastAPI app, no
-    socket/uvicorn needed. Every test function below takes this as
-    its first argument; without a matching fixture, pytest can't
-    collect them at all ("fixture 'client' not found"), which is why
-    this suite used to only run via `python test_auth_full_suite.py`
-    calling main() directly. Same transport main() builds by hand,
-    just wired in so `pytest` can drive it too.
-    """
-    transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as c:
-        yield c
+#
+# The `client` fixture every test function below takes now lives in
+# Testing/conftest.py instead of here, once test_rbac_security.py
+# needed to share it too — conftest.py fixtures are visible to every
+# file under Testing/, a fixture defined inside one test module isn't.
 
 
 def get_otp(purpose: str, email: str) -> str:

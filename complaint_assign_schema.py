@@ -76,7 +76,7 @@ class ComplaintAssignRequest(BaseModel):
     )
 
 
-class OfficerSummary(BaseModel):
+class StaffSummary(BaseModel):
     """
     Summary information about the assigned staff member.
     
@@ -126,7 +126,7 @@ class ComplaintAssignResponse(BaseModel):
         description="UUID of the assigned staff member"
     )
     
-    officer_details: Optional[OfficerSummary] = Field(
+    staff_details: Optional[StaffSummary] = Field(
         default=None,
         description="Details of the assigned staff member"
     )
@@ -147,7 +147,7 @@ class ComplaintAssignResponse(BaseModel):
                 "status": "in_progress",
                 "priority_score": 85,
                 "assigned_to": "550e8400-e29b-41d4-a716-446655440000",
-                "officer_details": {
+                "staff_details": {
                     "id": "550e8400-e29b-41d4-a716-446655440000",
                     "name": "Rajesh Kumar",
                     "role": "staff",

@@ -8,6 +8,7 @@ non-empty text address.
 Error Codes:
 - VAL_001: Neither valid coordinates nor a valid address was provided.
 - VAL_002: Only one of latitude/longitude was provided (they must be given together).
+- VAL_003: Latitude and/or longitude were provided but out of valid range.
 """
 
 from typing import Optional
@@ -16,10 +17,12 @@ from pydantic import BaseModel, Field, model_validator, ConfigDict
 # Centralized error code catalog
 VAL_001 = "VAL_001"
 VAL_002 = "VAL_002"
+VAL_003 = "VAL_003"
 
 ERROR_MESSAGES = {
     VAL_001: "Either latitude and longitude or address must be provided.",
     VAL_002: "Latitude and longitude must be provided together.",
+    VAL_003: "Latitude must be between -90 and 90, and longitude between -180 and 180.",
 }
 
 
@@ -111,7 +114,13 @@ class ComplaintLocationValidator:
 
         if has_latitude != has_longitude:
             return False, VAL_002
-        if ComplaintLocationValidator.validate_coordinates(latitude, longitude) or ComplaintLocationValidator.validate_address(address):
+        if has_latitude and has_longitude:
+            if ComplaintLocationValidator.validate_coordinates(latitude, longitude):
+                return True, None
+            # Both were given, so this isn't "missing" (VAL_001) — the
+            # values themselves are out of range.
+            return False, VAL_003
+        if ComplaintLocationValidator.validate_address(address):
             return True, None
         return False, VAL_001
 
@@ -219,3 +228,8 @@ if __name__ == "__main__":
     print(ComplaintLocationValidator.validate_location_data(latitude=23.0225))
     print(ComplaintLocationValidator.get_validation_error_details())
     print(ComplaintLocationValidator.get_validation_error_details(latitude=23.0225))
+
+    # Both given but out of range: distinct from "missing" (VAL_001)
+    is_valid, code = ComplaintLocationValidator.validate_location_data(latitude=91, longitude=0)
+    print("✓ Test 10 PASSED: Out-of-range latitude reported as VAL_003" if not is_valid and code == VAL_003
+          else f"✗ Test 10 FAILED: got ({is_valid}, {code})")

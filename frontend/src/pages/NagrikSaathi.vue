@@ -39,7 +39,19 @@ const suggestions = isStaff ? [
 
 onMounted(async () => {
   chat.initSession(auth.user.id)
-  await chat.loadHistory({ accessToken: auth.accessToken })
+  try {
+    await chat.loadHistory({ accessToken: auth.accessToken })
+  } catch (e) {
+    if (e.status === 401) {
+      // Same reasoning as send()'s 401 handling below: isLoggedIn only
+      // checks that a token is present, not that it's still valid, so
+      // clear the stale session before redirecting or the guest-route
+      // guard would just bounce back here.
+      await auth.logout()
+      router.push('/login')
+      return
+    }
+  }
   chat.seedGreetingIfEmpty(greeting)
 })
 

@@ -32,14 +32,18 @@ export const useChatStore = defineStore('chat', {
     },
 
     async loadHistory({ accessToken }) {
-      // Fails soft: a failed history fetch shouldn't block the page, the
+      // Fails soft for most errors (a down backend, a hiccup) — the
       // user can still start chatting fresh (the greeting/suggestions
-      // just show as if there were no prior history).
+      // just show as if there were no prior history). A 401 specifically
+      // is re-thrown: the page is only reachable while logged in, so an
+      // expired/invalid token here means the caller should redirect to
+      // /login instead of silently showing a "fresh" conversation.
       try {
         const data = await getChatHistory({ sessionId: this.sessionId, accessToken })
         this.messages = data.messages.map(mapHistoryMessage)
       } catch (e) {
         this.error = e.message
+        if (e.status === 401) throw e
       } finally {
         this.historyLoaded = true
       }

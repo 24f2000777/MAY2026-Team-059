@@ -219,3 +219,75 @@ class TestChatCreatesRealComplaints:
         for h in history:
             await db.delete(h)
         await db.commit()
+
+    async def test_short_complaint_message_still_gets_filed(self, db, citizen):
+        # Regression test: ComplaintCreate.description requires 20-1000
+        # chars, but chat_service used to pass the raw citizen message
+        # straight through unvalidated. A short, real complaint like
+        # this one is well under 20 chars, previously the confirmation
+        # reply still claimed it was logged while the Complaint row
+        # silently never got created.
+        session_id = f"pytest-session-{uuid.uuid4()}"
+        message = "Pothole in Bandra"
+        assert len(message) < 20, "this test only proves anything if the message is short"
+
+        reply = await send_chat_message(session_id, citizen.id, message, db)
+        assert isinstance(reply, str) and len(reply) > 0
+
+        result = await db.execute(select(Complaint).where(Complaint.citizen_id == citizen.id))
+        complaints = result.scalars().all()
+        assert len(complaints) == 1, (
+            "a short complaint message must still result in a real Complaint row, "
+            "not just a confirmation reply with nothing behind it"
+        )
+        assert len(complaints[0].description) >= 20
+
+        history = await get_chat_history(session_id, citizen.id, db)
+        for h in history:
+            await db.delete(h)
+        await db.commit()
+
+    async def test_downstream_failure_does_not_commit_a_half_scored_complaint(
+        self, db, citizen, monkeypatch
+    ):
+        # Regression test: create_complaint() does db.add() + an initial
+        # flush() (assigning a real id) *before* score_complaint/
+        # route_complaint run, each a real network call that can fail.
+        # _file_complaint_from_chat swallows any exception from that call
+        # so a hiccup there doesn't surface as a chat error — but without
+        # a savepoint, the already-flushed, half-initialized Complaint
+        # (priority_score=0, no department) would still get committed by
+        # the request's own get_db() commit, since the swallowed
+        # exception never reaches it. This forces that failure and
+        # checks nothing gets left behind.
+        import app.services.complaint_service as complaint_service_module
+
+        async def _boom(*args, **kwargs):
+            raise RuntimeError("simulated priority-scoring failure")
+
+        monkeypatch.setattr(complaint_service_module, "score_complaint", _boom)
+
+        session_id = f"pytest-session-{uuid.uuid4()}"
+        message = (
+            "There is a large pile of uncollected garbage rotting near Dadar market, "
+            "it has been there for over a week and smells terrible."
+        )
+
+        reply = await send_chat_message(session_id, citizen.id, message, db)
+        assert isinstance(reply, str) and len(reply) > 0
+
+        result = await db.execute(select(Complaint).where(Complaint.citizen_id == citizen.id))
+        assert result.scalars().all() == [], (
+            "a failure inside create_complaint() must not leave a half-scored "
+            "Complaint row committed"
+        )
+
+        # the two chat messages themselves (user + assistant reply) must
+        # survive the savepoint rollback, only the complaint attempt
+        # should be undone
+        history = await get_chat_history(session_id, citizen.id, db)
+        assert len(history) == 2
+
+        for h in history:
+            await db.delete(h)
+        await db.commit()

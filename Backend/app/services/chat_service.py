@@ -20,6 +20,30 @@ from app.utils.exceptions import ChatSessionAccessDeniedError
 
 logger = logging.getLogger(__name__)
 
+# ComplaintCreate.description is 20-1000 chars. A citizen's raw chat
+# message routinely falls outside that (a quick "pothole here" is
+# under 20; a rambling multi-sentence message can run past 1000), so
+# it can't be passed straight through unchanged.
+_DESCRIPTION_MIN_LENGTH = 20
+_DESCRIPTION_MAX_LENGTH = 1000
+
+
+def _normalize_description(raw_message: str, bmc_category: str, location: str) -> str:
+    """
+    Makes the extracted description satisfy ComplaintCreate's length
+    bounds without ever inventing anything that wasn't said. Too long
+    is just truncated. Too short is extended with the category/location
+    the conversation already confirmed, real context the citizen
+    actually gave, not filler text — so the stored description stays
+    truthful even for a two-word complaint.
+    """
+    description = raw_message.strip()
+
+    if len(description) < _DESCRIPTION_MIN_LENGTH:
+        description = f"{description} (reported via Nagrik Saathi: {bmc_category} near {location})"
+
+    return description[:_DESCRIPTION_MAX_LENGTH]
+
 
 async def _check_session_ownership(session_id: str, user_id, db) -> None:
     """
@@ -43,19 +67,35 @@ async def _file_complaint_from_chat(user_id, extracted_info: dict, db) -> None:
     (priority scoring, department routing, high-risk flagging). Never
     raises: a citizen already got their confirmation reply from the
     bot, a problem here shouldn't turn that into a visible chat error.
+
+    Runs create_complaint() inside its own savepoint (db.begin_nested)
+    rather than directly in the caller's transaction. create_complaint
+    does db.add() + an initial flush() (to get a real complaint id)
+    *before* scoring/routing/risk-flagging run — each of those is a
+    real network call (LLM/embeddings) that can fail. Without a
+    savepoint, a failure there after the initial flush would still
+    leave a half-initialized Complaint (priority_score=0, no
+    department) sitting in the session, and since this function
+    swallows the exception, the outer request's own get_db() commit
+    would never know to roll it back, silently persisting a
+    half-scored complaint. The savepoint scopes the rollback to just
+    this attempt, leaving the two ChatSession rows already added in
+    the same request untouched either way.
     """
     bmc_category = extracted_info["complaint_category"]
     location = extracted_info["location"]
     title = f"{bmc_category} near {location}"[:100]
+    description = _normalize_description(extracted_info["description"], bmc_category, location)
 
     try:
-        data = ComplaintCreate(
-            title=title,
-            description=extracted_info["description"],
-            category=BMC_TO_OUR_CATEGORY.get(bmc_category, "other"),
-            location=ComplaintLocation(address=location),
-        )
-        await create_complaint(user_id, data, db)
+        async with db.begin_nested():
+            data = ComplaintCreate(
+                title=title,
+                description=description,
+                category=BMC_TO_OUR_CATEGORY.get(bmc_category, "other"),
+                location=ComplaintLocation(address=location),
+            )
+            await create_complaint(user_id, data, db)
     except Exception:
         logger.warning(
             "failed to create complaint from chat extraction for user %s",

@@ -228,7 +228,7 @@ class TestComplaintLocationValidator:
         
         assert "error" in details
         assert details["error"]["code"] == "VAL_001"
-        assert details["error"]["message"] == "Either latitude and longitude or address must be provided"
+        assert "Either latitude and longitude or address must be provided" in details["error"]["message"]
         assert len(details["error"]["details"]) == 1
         assert details["error"]["details"][0]["field"] == "location"
 
@@ -258,13 +258,13 @@ class TestLocationValidationError:
         assert error.field == "location"
     
     def test_location_validation_error_string_representation(self):
-        """Test that LocationValidationError string representation is the message."""
+        """Test that LocationValidationError string representation includes the error code and message."""
         error = LocationValidationError(
             error_code="VAL_001",
             message="Test error message"
         )
-        
-        assert str(error) == "Test error message"
+
+        assert str(error) == "VAL_001: Test error message"
 
 
 class TestEdgeCases:

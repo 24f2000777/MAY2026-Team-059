@@ -1,22 +1,28 @@
 <script setup>
-import { ref, nextTick } from 'vue'
+import { ref, nextTick, onMounted, computed, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/authStore'
+import { useChatStore } from '../stores/chatStore'
 
 const auth = useAuthStore()
+const chat = useChatStore()
+const router = useRouter()
 
 const isStaff =
   auth.user?.role === 'staff'
 
-const messages = ref([
-  {
-    from: 'bot',
-    text: isStaff ? "Hello! I'm Nagrik Saathi. I can help you manage assigned complaints, understand workflows, and answer staff-related questions."
-      : "Hi! I'm Nagrik Saathi. I can help you report civic issues or track your complaints."
-  }
-])
+const greeting = isStaff
+  ? "Hello! I'm Nagrik Saathi. I can help you manage assigned complaints, understand workflows, and answer staff-related questions."
+  : "Hi! I'm Nagrik Saathi. I can help you report civic issues or track your complaints."
+
+const messages = computed(() => chat.messages)
+const isTyping = computed(() => chat.isTyping)
+// Only offer quick-reply chips on a fresh conversation (nothing but the
+// greeting so far), a returning user with real history already knows
+// what to ask.
+const showSuggestions = computed(() => chat.messages.length <= 1)
 
 const draft = ref('')
-const isTyping = ref(false)
 const chatBody = ref(null)
 
 const suggestions = isStaff ? [
@@ -31,59 +37,11 @@ const suggestions = isStaff ? [
       'Garbage'
     ]
 
-function botReplyFor(text) {
-
-  const t = text.toLowerCase()
-
-  if (isStaff) {
-
-    if (t.includes('status') || t.includes('update')) {
-      return "Staff can update complaint progress to Submitted, In Progress or Resolved after completing field verification."
-    }
-
-    if (t.includes('priority') || t.includes('high')) {
-      return "High severity complaints such as water leaks or public safety hazards should be attended first according to departmental guidelines."
-    }
-
-    if (t.includes('check assigned complaints') || t.includes('assigned')) {
-      return "Open 'Assigned Complaints' from the staff dashboard to view all complaints allocated to you. You can filter them by status or update their progress."
-    }
-
-    if (t.includes('hello') || t.includes('hi') || t.includes('hey')) {
-      return "Hello! I can help with complaint assignment, workflow, priorities and status updates."
-    }
-
-    return "I can answer questions related to complaint management, assignment, workflow and status updates."
-  }
-
-  // citizen
-
-  if (t.includes('pothole') || t.includes('road')) {
-    return "Report the pothole using the 'Pothole' category and pin its exact location. Adding a photo helps the road department prioritise repairs."
-  }
-
-  if (t.includes('water') || t.includes('leak') || t.includes('pipe')) {
-    return "Water leak complaints are treated as high priority. Choose 'Water Leak', attach a photo if possible, and pin the location."
-  }
-
-  if (t.includes('garbage') || t.includes('waste')) {
-    return "Select 'Garbage Collection', provide the location, and our sanitation team will be notified."
-  }
-
-  if (t.includes('track') || t.includes('status')) {
-    return "Open 'My Complaints' from your dashboard. Every status update appears in the complaint timeline."
-  }
-
-  if (t.includes('hello') || t.includes('hi') || t.includes('hey')) {
-    return "Hello! You can ask me how to report potholes, water leaks, garbage issues or track an existing complaint."
-  }
-
-  if (t.includes('thank')) {
-    return "Happy to help. Stay safe!"
-  }
-
-  return "I can help you file complaints or explain complaint tracking. For emergencies, contact the BMC helpline (1916)."
-}
+onMounted(async () => {
+  chat.initSession(auth.user.id)
+  await chat.loadHistory({ accessToken: auth.accessToken })
+  chat.seedGreetingIfEmpty(greeting)
+})
 
 async function scrollBottom() {
   await nextTick()
@@ -92,6 +50,10 @@ async function scrollBottom() {
     chatBody.value.scrollTop = chatBody.value.scrollHeight
   }
 }
+
+// Scroll whenever a message is added, whether that's the user's own
+// bubble appearing immediately or the reply arriving after the API call.
+watch(() => chat.messages.length, scrollBottom)
 
 function quickPrompt(text) {
   draft.value = text
@@ -103,27 +65,22 @@ async function send() {
 
   if (!text) return
 
-  messages.value.push({
-    from: 'user',
-    text
-  })
-
   draft.value = ''
 
-  await scrollBottom()
-
-  isTyping.value = true
-
-  setTimeout(async () => {
-    messages.value.push({
-      from: 'bot',
-      text: botReplyFor(text)
-    })
-
-    isTyping.value = false
-
-    await scrollBottom()
-  }, 700)
+  try {
+    await chat.sendMessage({ text, accessToken: auth.accessToken })
+  } catch (e) {
+    if (e.status === 401) {
+      // isLoggedIn only checks that a token is present, not that it's
+      // still valid, so pushing straight to /login would get bounced
+      // right back home by the guest-route guard unless the stale auth
+      // state is cleared first.
+      await auth.logout()
+      router.push('/login')
+    }
+    // Any other failure is already reflected in chat.error and rendered
+    // below, nothing further to do here.
+  }
 }
 </script>
 
@@ -180,7 +137,11 @@ async function send() {
 
       </div>
 
-      <div class="chat-suggestions">
+      <p v-if="chat.error" class="error-text" style="margin: 0 16px 8px;">
+        {{ chat.error }}
+      </p>
+
+      <div v-if="showSuggestions" class="chat-suggestions">
 
         <button
           v-for="s in suggestions"

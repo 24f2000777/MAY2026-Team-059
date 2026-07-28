@@ -519,6 +519,28 @@ async def test_resend_otp_already_verified(client):
         await cleanup([email])
 
 
+async def test_resend_otp_rate_limited(client):
+    title("RESEND OTP — rate limited after 3 attempts per hour")
+    email, phone = unique_email(), unique_phone()
+    try:
+        await api_register(client, email, phone)
+        get_otp(OTP_VERIFY_EMAIL, email)  # drain the register-time OTP
+
+        for attempt in range(1, 4):
+            response = await client.post("/auth/resend-otp", json={"email": email})
+            expect_status(
+                response, 200, f"Resend-OTP attempt #{attempt} (within limit)"
+            )
+            get_otp(OTP_VERIFY_EMAIL, email)  # drain it so dict doesn't leak
+
+        fourth_response = await client.post("/auth/resend-otp", json={"email": email})
+        expect_status(
+            fourth_response, 429, "4th resend-otp attempt within the hour"
+        )
+    finally:
+        await cleanup([email])
+
+
 async def test_verify_otp_rate_limited(client):
     title("VERIFY OTP — rate limited after 5 attempts per 15 minutes")
     email, phone = unique_email(), unique_phone()
@@ -1207,6 +1229,7 @@ TESTS = [
     test_resend_otp_for_pending_account,
     test_resend_otp_unknown_email,
     test_resend_otp_already_verified,
+    test_resend_otp_rate_limited,
     # Login
     test_login_success,
     test_login_wrong_password,

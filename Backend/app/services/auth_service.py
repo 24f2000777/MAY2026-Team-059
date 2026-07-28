@@ -441,8 +441,25 @@ async def resend_verification_otp(
     verified account. Distinct from register_user's own duplicate-
     email branch (which does the same thing), this exists so a
     client can resend without re-submitting name/phone/password,
-    just the email.
+    just the email — which also means there's no natural friction
+    stopping this from being spammed, so it's rate-limited the same
+    way forgot_password is.
     """
+
+    # -------------------------------------------------
+    # Rate limit — checked first, before revealing whether
+    # the email is registered, same reasoning as
+    # forgot_password: this endpoint only needs an email, no
+    # other friction, so without a limit it's an easy way to
+    # spam a victim's inbox or hammer the SMTP relay.
+    # -------------------------------------------------
+
+    await enforce_rate_limit(
+        scope="resend_verification_otp",
+        identifier=request.email,
+        max_attempts=settings.OTP_RESEND_RATE_LIMIT_MAX_ATTEMPTS,
+        window_seconds=settings.OTP_RESEND_RATE_LIMIT_WINDOW_SECONDS,
+    )
 
     user = await _get_user_by_email(
         db,

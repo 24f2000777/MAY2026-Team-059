@@ -151,6 +151,9 @@ async def resend_otp_route(
     Raises:
         UserNotFoundError: 404, if the email is not registered.
         AccountAlreadyVerifiedError: 409, if already verified.
+        RateLimitExceededError: 429, if requested more than
+            OTP_RESEND_RATE_LIMIT_MAX_ATTEMPTS times within
+            OTP_RESEND_RATE_LIMIT_WINDOW_SECONDS for this email.
     """
 
     result = await resend_verification_otp(db, request)

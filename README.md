@@ -77,7 +77,7 @@ Login and registration go through the real backend now, not `localStorage` — t
 3. Submit. The backend creates the account (**unverified**, so it can't log in yet) and emails a real 6-digit OTP to the address you gave — this only actually arrives if `Backend/.env`'s SMTP settings are filled in with working credentials (see Backend § Environment Configuration).
 4. You land on `/verify-otp`. Check that inbox for the code.
 5. Enter it and submit. The backend verifies the OTP, activates the account, and the frontend logs you straight in and redirects to `/citizen`.
-6. Didn't get the email? "Resend code" on that page re-triggers step 3 — the backend recognizes it's the same pending account and sends a new OTP instead of rejecting it as a duplicate.
+6. Didn't get the email? "Resend code" on that page calls `POST /auth/resend-otp` with just your email and sends a new OTP, no need to resubmit the rest of the form.
 
 **Don't want to set up SMTP just to test this locally?** Since the OTP is only ever sent by real email (nothing is printed to the backend's console or logged anywhere), you can capture it directly instead, right after registering through the UI as above:
 
@@ -140,7 +140,7 @@ If login/register ever fails unexpectedly (stuck on a stale state, weird redirec
 
 ### Authentication — real backend
 - **Register** — name, email, phone, password + confirm, with phone format validation and minimum password length. Calls the real `POST /auth/register`, which emails an actual OTP.
-- **OTP verification** — enter the code from your email. Calls the real `POST /auth/verify-otp`, then logs you straight in. "Resend code" re-registers, which the backend treats as a resend for a pending account rather than a duplicate error.
+- **OTP verification** — enter the code from your email. Calls the real `POST /auth/verify-otp`, which activates the account and returns real access/refresh tokens directly, logging you straight in. "Resend code" calls the dedicated `POST /auth/resend-otp` (just the email, no password).
 - **Login** — email + password against the real `POST /auth/login`, redirects to the correct dashboard by role. Stores a real JWT (see `nagrik_session` in localStorage).
 - **Logout** — revokes the token server-side via `POST /auth/logout`, not just a client-side clear.
 - **Forgot / Reset Password** — still mocked (email lookup, no real email delivery) — not part of this integration pass yet.
@@ -207,8 +207,8 @@ frontend/src/
 4. CORS is already configured for this on the backend side (`FRONTEND_ORIGINS` in `Backend/.env` includes `http://localhost:5173`) — no backend change needed for local dev on the default port.
 
 **What actually changed in the auth pages**, if you're picking up where this left off:
-- `Register.vue` calls the real `/auth/register` immediately, then stashes the submitted name/email/phone/password in `sessionStorage` (not a fake OTP anymore) so `VerifyOtp.vue` can auto-login right after a successful verify, and so "resend" can re-register.
-- `VerifyOtp.vue` calls the real `/auth/verify-otp`, no more client-side OTP comparison or on-screen demo code.
+- `Register.vue` calls the real `/auth/register` immediately, then stashes only the submitted email in `sessionStorage` (not a fake OTP anymore, and never the password — `/auth/verify-otp` and `/auth/resend-otp` only ever need the email).
+- `VerifyOtp.vue` calls the real `/auth/verify-otp`, which returns tokens directly (no separate login call needed), and calls `/auth/resend-otp` for "resend" — no more client-side OTP comparison or on-screen demo code.
 - `Login.vue`/`authStore.js` — `login`/`register`/`logout` are async now; session (user + access/refresh tokens) persists under `localStorage['nagrik_session']`, kept separate from the mock's `cr_session` on purpose, so a leftover mock session in a browser's storage can't get misread as a real logged-in state.
 - `authStore.logout()` clears local state *before* awaiting the server revoke call — `navbar.vue` calls `auth.logout()` without awaiting it and navigates immediately after, so the state needs to already be cleared by the time that happens or the router guard can see a stale "still logged in" state.
 

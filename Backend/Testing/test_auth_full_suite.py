@@ -452,6 +452,95 @@ async def test_verify_otp_unknown_email(client):
     expect_status(response, 404, "Verify OTP for unregistered email")
 
 
+async def test_verify_otp_success_returns_tokens(client):
+    title("VERIFY OTP — success logs the user straight in")
+    email, phone = unique_email(), unique_phone()
+    try:
+        await api_register(client, email, phone)
+        otp = get_otp(OTP_VERIFY_EMAIL, email)
+        response = await api_verify_otp(client, email, otp)
+        expect_status(response, 200, "Verify with correct OTP")
+
+        data = response.json()["data"]
+        expect(
+            bool(data and data.get("access_token") and data.get("refresh_token")),
+            "Response includes a real access_token and refresh_token",
+            f"Response did not include tokens: {response.text}",
+        )
+        expect(
+            bool(data and data.get("user", {}).get("email") == email),
+            "Response includes the verified user's own profile",
+            f"Response user data missing/wrong: {response.text}",
+        )
+
+        # the returned access_token should actually work, not just be present
+        me_response = await api_get_me(client, data["access_token"])
+        expect_status(me_response, 200, "GET /auth/me with the token from verify-otp")
+    finally:
+        await cleanup([email])
+
+
+async def test_resend_otp_for_pending_account(client):
+    title("RESEND OTP — pending (unverified) account")
+    email, phone = unique_email(), unique_phone()
+    try:
+        await api_register(client, email, phone)
+        get_otp(OTP_VERIFY_EMAIL, email)  # consume the original
+
+        response = await client.post("/auth/resend-otp", json={"email": email})
+        expect_status(response, 200, "Resend OTP for a pending account")
+        expect(
+            (OTP_VERIFY_EMAIL, email) in CAPTURED_OTPS,
+            "A fresh OTP was captured after resend",
+            "No new OTP was captured after resend",
+        )
+
+        new_otp = get_otp(OTP_VERIFY_EMAIL, email)
+        verify_response = await api_verify_otp(client, email, new_otp)
+        expect_status(verify_response, 200, "Verify using the resent OTP")
+    finally:
+        await cleanup([email])
+
+
+async def test_resend_otp_unknown_email(client):
+    title("RESEND OTP — unknown email")
+    response = await client.post("/auth/resend-otp", json={"email": "nobody_" + unique_email()})
+    expect_status(response, 404, "Resend OTP for unregistered email")
+
+
+async def test_resend_otp_already_verified(client):
+    title("RESEND OTP — already verified account")
+    email = unique_email()
+    try:
+        await create_verified_user(client, email=email)
+        response = await client.post("/auth/resend-otp", json={"email": email})
+        expect_status(response, 409, "Resend OTP for an already-verified account")
+    finally:
+        await cleanup([email])
+
+
+async def test_resend_otp_rate_limited(client):
+    title("RESEND OTP — rate limited after 3 attempts per hour")
+    email, phone = unique_email(), unique_phone()
+    try:
+        await api_register(client, email, phone)
+        get_otp(OTP_VERIFY_EMAIL, email)  # drain the register-time OTP
+
+        for attempt in range(1, 4):
+            response = await client.post("/auth/resend-otp", json={"email": email})
+            expect_status(
+                response, 200, f"Resend-OTP attempt #{attempt} (within limit)"
+            )
+            get_otp(OTP_VERIFY_EMAIL, email)  # drain it so dict doesn't leak
+
+        fourth_response = await client.post("/auth/resend-otp", json={"email": email})
+        expect_status(
+            fourth_response, 429, "4th resend-otp attempt within the hour"
+        )
+    finally:
+        await cleanup([email])
+
+
 async def test_verify_otp_rate_limited(client):
     title("VERIFY OTP — rate limited after 5 attempts per 15 minutes")
     email, phone = unique_email(), unique_phone()
@@ -1135,6 +1224,12 @@ TESTS = [
     test_verify_otp_already_verified,
     test_verify_otp_unknown_email,
     test_verify_otp_rate_limited,
+    test_verify_otp_success_returns_tokens,
+    # Resend OTP
+    test_resend_otp_for_pending_account,
+    test_resend_otp_unknown_email,
+    test_resend_otp_already_verified,
+    test_resend_otp_rate_limited,
     # Login
     test_login_success,
     test_login_wrong_password,

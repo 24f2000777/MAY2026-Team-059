@@ -40,6 +40,7 @@ from app.schemas.common import SuccessResponse
 from app.schemas.auth import (
     RegisterRequest,
     VerifyOTPRequest,
+    ResendOTPRequest,
     LoginRequest,
     RefreshTokenRequest,
     ForgotPasswordRequest,
@@ -54,6 +55,7 @@ from app.schemas.auth import (
 from app.services.auth_service import (
     register_user,
     verify_email,
+    resend_verification_otp,
     login_user,
     refresh_access_token,
     forgot_password,
@@ -105,15 +107,19 @@ async def register(
 
 @router.post(
     "/verify-otp",
-    response_model=SuccessResponse[None],
+    response_model=SuccessResponse[TokenResponse],
     summary="Verify a registered email using the OTP sent to it",
 )
 async def verify_otp_route(
     request: VerifyOTPRequest,
     db: AsyncSession = Depends(get_db),
-) -> SuccessResponse[None]:
+) -> SuccessResponse[TokenResponse]:
     """
-    Activate a user's account once the correct OTP is supplied.
+    Activate a user's account once the correct OTP is supplied, and
+    log them straight in — returns the same access/refresh token pair
+    POST /login does, so the client doesn't need a separate login call
+    (and doesn't need to hold onto the plaintext password to make one)
+    right after verifying.
 
     Raises:
         UserNotFoundError: 404, if the email is not registered.
@@ -122,6 +128,35 @@ async def verify_otp_route(
     """
 
     result = await verify_email(db, request)
+    return SuccessResponse[TokenResponse](
+        message="Email verified successfully.",
+        data=result,
+    )
+
+
+@router.post(
+    "/resend-otp",
+    response_model=SuccessResponse[None],
+    summary="Resend the email verification OTP for a pending account",
+)
+async def resend_otp_route(
+    request: ResendOTPRequest,
+    db: AsyncSession = Depends(get_db),
+) -> SuccessResponse[None]:
+    """
+    Resends the verification OTP without needing to resubmit
+    name/phone/password, just the email, for a client that only wants
+    a fresh code (e.g. the original one expired or never arrived).
+
+    Raises:
+        UserNotFoundError: 404, if the email is not registered.
+        AccountAlreadyVerifiedError: 409, if already verified.
+        RateLimitExceededError: 429, if requested more than
+            OTP_RESEND_RATE_LIMIT_MAX_ATTEMPTS times within
+            OTP_RESEND_RATE_LIMIT_WINDOW_SECONDS for this email.
+    """
+
+    result = await resend_verification_otp(db, request)
     return SuccessResponse[None](message=result.message)
 
 

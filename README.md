@@ -4,15 +4,12 @@
 
 ### AI-Powered Civic Complaint Management Platform
 
-> An intelligent civic grievance management platform that leverages Artificial Intelligence, Retrieval-Augmented Generation (RAG), asynchronous task processing, and modern frontend/backend engineering practices to streamline complaint registration, tracking, prioritization, and resolution.
-
 [![Python](https://img.shields.io/badge/Python-3.12+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-009688?style=for-the-badge&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
 [![Vue](https://img.shields.io/badge/Vue-3-4FC08D?style=for-the-badge&logo=vuedotjs&logoColor=white)](https://vuejs.org)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-336791?style=for-the-badge&logo=postgresql&logoColor=white)](https://postgresql.org)
 [![Redis](https://img.shields.io/badge/Redis-DC382D?style=for-the-badge&logo=redis&logoColor=white)](https://redis.io)
 [![Celery](https://img.shields.io/badge/Celery-37814A?style=for-the-badge&logo=celery&logoColor=white)](https://docs.celeryq.dev)
-[![SQLAlchemy](https://img.shields.io/badge/SQLAlchemy-D71F00?style=for-the-badge&logo=sqlalchemy&logoColor=white)](https://sqlalchemy.org)
 
 **Team 059** • IIT Madras • Software Engineering • 2026
 
@@ -20,71 +17,120 @@
 
 ---
 
-This repository has two parts, developed in parallel and documented separately below:
+## 📍 You are on: `integration/auth-schema-complaint-docs`
 
-- **`frontend/`** — a Vue 3 app (see [Frontend](#-frontend) below)
-- **`Backend/`** — a FastAPI backend (see [Backend](#-backend) below)
+This branch is not a single feature — it's **7 previously-separate branches combined, tested together, and fixed where they broke each other**: real backend auth (#110), the chatbot wired to the real backend (#111), the chatbot filing real complaints (#115), complaint schema design docs (#106, #107, #88), and a security/RBAC test pass (salvaged from #117). It is currently open as [PR #118](../../pull/118) against `develop`, not merged yet.
 
-**Integration status (branch `feature/frontend-auth-integration`, not yet in `develop`):** login and signup (register → verify OTP → login → logout) now call the real backend. Everything else on the frontend — complaints, profile, notifications, password reset — is still on the `localStorage` mock. See **Frontend § Connecting to the Real Backend** below for exactly what that means and how to run both sides together.
+**If you just pulled this branch and are confused about what's real vs. mocked vs. just-a-design-doc, read this table first:**
+
+| Area | Status here | Where the code lives |
+|---|---|---|
+| Login / Register / Verify OTP / Logout | ✅ Real backend, no more mock | `frontend/src/stores/authStore.js`, `Backend/app/api/auth.py` |
+| Nagrik Saathi chatbot | ✅ Real backend, real LLM replies | `frontend/src/pages/NagrikSaathi.vue`, `Backend/app/chatbot/` |
+| Chatbot filing an actual complaint | ✅ Real — chat "I want to report a pothole" and it creates a row in `complaints` | `Backend/app/services/chat_service.py` |
+| `POST /complaints` (submit a complaint via the form) | ✅ Real, scores + routes it immediately | `Backend/app/api/complaints.py` |
+| RBAC / role-based route protection | ✅ Real, with 5 attacker-perspective tests | `Backend/app/dependencies/roles.py`, `Backend/Testing/test_rbac_security.py` |
+| Complaint assign / internal-notes schemas at repo root | 📄 **Design docs only — not wired into the running app yet.** See [§ Root-Level Design Docs](#-root-level-design-docs-not-wired-in) | `complaint_assign_schema.py`, `complaint_internal_notes_schema.py`, `api-doc.yaml`, `location_validation.py` |
+| Everything else (profile, notifications, ratings, admin assignment UI) | 🟡 Still frontend `localStorage` mock | `frontend/src/api/client.js` |
+
+---
+
+## 🚀 Quick Start (both sides, from zero)
+
+```bash
+git clone https://github.com/24f2000777/MAY2026-Team-059.git
+cd MAY2026-Team-059
+git checkout integration/auth-schema-complaint-docs
+```
+
+**1. Backend** — needs Python 3.12+, PostgreSQL 14+, Redis 7+ already installed and running.
+
+```bash
+cd Backend
+python3 -m venv venv
+source venv/bin/activate        # Windows: venv\Scripts\activate
+pip install --upgrade pip
+pip install -r requirements.txt
+cp .env.example .env             # then fill it in — see § Environment Configuration
+```
+
+Create the database once:
+```bash
+sudo -u postgres psql -c "CREATE DATABASE nagrik_ai;"
+```
+
+Run it (three terminals — email sending and the nightly priority rescore are background jobs):
+```bash
+# Terminal 1
+celery -A app.core.celery_app worker --loglevel=info
+# Terminal 2
+celery -A app.core.celery_app beat --loglevel=info
+# Terminal 3
+uvicorn app.main:app --reload
+```
+- API: http://127.0.0.1:8000 · Swagger UI: http://127.0.0.1:8000/docs · Health check: http://127.0.0.1:8000/health
+
+**2. Frontend** — needs Node.js 18+.
+
+```bash
+cd frontend
+cp .env.example .env             # only needed if your backend isn't on localhost:8000
+npm install
+npm run dev
+```
+Open the URL Vite prints (usually http://localhost:5173).
+
+**3. Try it** — register a citizen account at `/register`, verify the OTP (see [§ How to Get an OTP Without Real SMTP](#-how-to-get-an-otp-without-setting-up-real-smtp) if you don't want to configure email), log in, then either fill out "Report an Issue" or just tell Nagrik Saathi about a problem in chat — both create a real row in the `complaints` table.
 
 ---
 
 # 🖥 Frontend
 
-A civic issue-reporting platform for citizens, municipal staff, and administrators, built with Vue 3. Citizens file complaints with photos and location pins, staff manage assigned tasks, and admins oversee everything with filters and analytics.
-
-**Login and signup now talk to the real FastAPI backend** (see **Connecting to the Real Backend** below — you need the backend running for those two flows to work). Everything else — complaints, profile, notifications — still runs on mock data stored in the browser's `localStorage`.
+A Vue 3 app for citizens, municipal staff, and administrators. Citizens file complaints (via a form or by chatting with Nagrik Saathi) with photos and location pins, staff manage assigned tasks, admins oversee everything with filters and analytics.
 
 ## Tech Stack
+- **Vue 3.5** — Composition API, `<script setup>`
+- **Vue Router 5** — routing, role-based route guards
+- **Pinia 3** — state management
+- **Vite 8** — dev server and build tool
+- No UI kit, no chart library — all charts (donut, line, bar) and styling are hand-built with SVG and CSS, kept dependency-light on purpose.
 
-- **Vue 3** - Composition API, `<script setup>`
-- **Vue Router 4** - routing, role-based route guards
-- **Pinia** - state management
-- **Vite** - dev server and build tool
-- No UI kit, no chart library - all charts (donut, line, bar) and styling are hand-built with SVG and CSS, kept dependency-light on purpose.
+## What's real vs. mocked, precisely
 
-## Getting Started
+| Store / API file | Talks to | Notes |
+|---|---|---|
+| `stores/authStore.js` → `api/authApi.js` | **Real backend** | register, verifyOtpAndLogin, resendOtp, login, logout — see § Auth Flow below |
+| `stores/chatStore.js` → `api/chatApi.js` | **Real backend** | Nagrik Saathi — real LLM replies, real chat history persisted per user |
+| `stores/complaintStore.js` → `api/client.js` | **Mock (`localStorage`)** | complaints list/detail/create-via-form (the *page*, not the chatbot path), ratings |
+| Profile / notifications / password reset | **Mock (`localStorage`)** | not part of this integration pass |
 
-### Requirements
-- [Node.js](https://nodejs.org) 18 or later
-- The backend running locally (see the Backend section's **Getting Started** further down this file) — **required for login/register to work**, everything else still works without it
+`api/client.js` is clearly commented as mock-only at the top of the file. Every exported function is written to match what a real REST endpoint would expect, so wiring the real backend later means only rewriting function bodies in that one file.
 
-### Install and run
+## Auth Flow — step by step
 
-```bash
-cd frontend
-npm install
-npm run dev
+1. **Register**: `/register` — name, email, 10-digit phone, password (8+ chars) + confirm. Calls `POST /auth/register`, which creates an **unverified** account and emails a real 6-digit OTP.
+2. **Verify**: lands on `/verify-otp`. Enter the code. Calls `POST /auth/verify-otp`, which activates the account **and returns real access/refresh tokens directly** — no separate login call, and the frontend never has to hold onto the plaintext password to make one. Redirects to `/citizen`.
+3. **Didn't get the email?** "Resend code" calls the dedicated `POST /auth/resend-otp` with just the email — no need to resubmit the whole form. Rate-limited to 3 requests/hour per email.
+4. **Log in**: `/login` — email + password against `POST /auth/login`, redirects to `/citizen`, `/staff`, or `/admin` by role. Session (user + tokens) is stored under `localStorage['nagrik_session']`.
+5. **Log out**: revokes the token **server-side** via `POST /auth/logout` — the same access token can't be reused afterward even before it naturally expires.
+
+**Security note, if you're wondering why the frontend never stores your password:** `sessionStorage` only ever holds `{ email }` between register and verify — never the password, never an OTP. This was a real fix (see PR #110's review history) for a prior version that briefly kept the plaintext password around client-side to auto-login after verifying; the backend now returns tokens directly from verify-otp instead, making that unnecessary.
+
+**No signup UI for staff/admin** — the backend always creates `citizen` accounts via `/auth/register`. To test as staff/admin locally, register a citizen account, then:
+```sql
+UPDATE users SET role = 'staff' WHERE email = 'you@example.com';
+-- or role = 'admin'
 ```
 
-Open the URL Vite prints (usually `http://localhost:5173`). By default the app calls the backend at `http://localhost:8000`; copy `.env.example` to `.env` and set `VITE_API_URL` if yours runs somewhere else.
+## 🔑 How to Get an OTP Without Setting Up Real SMTP
 
-### Build for production
+The OTP is only ever sent by real email — nothing is printed to the backend console. Two options:
 
+**Option A — use the shared Ethereal sandbox** (already the default in `.env.example`): register with any email in the UI, then log into [ethereal.email](https://ethereal.email) with the SMTP credentials from `Backend/.env.example` to read the "sent" email. Nothing is delivered anywhere real, so no personal Gmail/app-password needed.
+
+**Option B — capture it directly**, right after registering through the UI with the *same* email/phone/password (this hits the same "pending account, resend OTP" path, so it's not a duplicate registration error):
 ```bash
-npm run build
-npm run preview   # serve the production build locally
-```
-
-## How to Register, Verify, and Log In
-
-Login and registration go through the real backend now, not `localStorage` — there are no working demo credentials anymore. Here's how to actually get an account and use it.
-
-### Register a new citizen account
-
-1. Have the backend running (`uvicorn app.main:app --reload`, plus Redis and Postgres up) and the frontend running (`npm run dev`).
-2. Go to `http://localhost:5173/register` and fill in name, email, a 10-digit phone number, and a password (8+ characters) + confirm.
-3. Submit. The backend creates the account (**unverified**, so it can't log in yet) and emails a real 6-digit OTP to the address you gave — this only actually arrives if `Backend/.env`'s SMTP settings are filled in with working credentials (see Backend § Environment Configuration).
-4. You land on `/verify-otp`. Check that inbox for the code.
-5. Enter it and submit. The backend verifies the OTP, activates the account, and the frontend logs you straight in and redirects to `/citizen`.
-6. Didn't get the email? "Resend code" on that page calls `POST /auth/resend-otp` with just your email and sends a new OTP, no need to resubmit the rest of the form.
-
-**Don't want to set up SMTP just to test this locally?** Since the OTP is only ever sent by real email (nothing is printed to the backend's console or logged anywhere), you can capture it directly instead, right after registering through the UI as above:
-
-```bash
-# from Backend/, with the venv activated — use the SAME email/phone/password
-# you just registered with in the browser; this doesn't create a duplicate,
-# the backend treats it as a pending-account resend and gives you a fresh OTP
+# from Backend/, with the venv activated
 python3 -c "
 import asyncio
 import app.services.auth_service as auth_service_module
@@ -109,503 +155,206 @@ asyncio.run(main())
 "
 ```
 
-It prints the OTP straight to your terminal — copy it into the verify-otp form in the browser. (This is what the `test_auth_full_suite.py` pytest suite does internally too, just for one-off manual testing here instead of an automated test.)
+## 💬 Nagrik Saathi Chatbot — how it actually works now
 
-### Log in
+`/nagrik-saathi` requires login (no `meta: { public: true }` anymore — it's gated the same way `/notifications`/`/profile` are).
 
-Go to `http://localhost:5173/login`, enter the email + password from an account you've already verified. On success you're redirected to `/citizen`, `/staff`, or `/admin` depending on the account's role.
+- Every message you send goes to `POST /chat/message`, gets a real LLM reply back (not a scripted/keyword-matched response), and both your message and the reply are saved to the `chat_sessions` table.
+- Your session id is generated once per user and persisted in `localStorage` (namespaced per user id), so reloading the page shows your same conversation — `GET /chat/history/{session_id}` loads it back in.
+- **You can actually file a complaint just by describing it in chat** — e.g. "there's a huge pothole near Patel Chowk" — the chatbot extracts the category and location from the conversation and calls the exact same `create_complaint()` pipeline `POST /complaints` uses (same priority scoring, same department routing), so a chat-filed complaint is indistinguishable from a form-filed one in the database.
+- If a 401 comes back (expired/invalid token), you're redirected to `/login` instead of silently failing.
 
-There's no signup UI for staff/admin accounts yet — the backend itself doesn't have one either (`POST /auth/register` always creates a `citizen`). To test as staff/admin locally, register a citizen account as above, then update that row's `role` column directly in Postgres:
-
-```sql
-UPDATE users SET role = 'staff' WHERE email = 'you@example.com';
--- or role = 'admin'
-```
-
-### Log out
-
-Click logout from the navbar (any logged-in page). This calls the real `POST /auth/logout`, which revokes the token server-side, not just a client-side clear — the same access token can't be reused afterward even if it hasn't naturally expired yet.
-
-### Troubleshooting
-
-If login/register ever fails unexpectedly (stuck on a stale state, weird redirect loop), clear local storage: DevTools → Application → Local Storage → delete `nagrik_session` (the real auth session) and, if present, `cr_users`/`cr_session` (leftover from the mock, used by the rest of the app) → refresh.
-
-## Features
+## Features by Role
 
 ### Public / Landing
-- Marketing landing page with hero, how-it-works, feature grid, Nagrik Saathi preview, and an "For Officials" section
-- Glassmorphism footer (blurred translucent background)
-- Public pages reachable without login: **FAQ**, **Privacy Policy**, **Terms of Service**, **Contact Us**
-- A live demo of **Nagrik Saathi**
-
-### Authentication — real backend
-- **Register** — name, email, phone, password + confirm, with phone format validation and minimum password length. Calls the real `POST /auth/register`, which emails an actual OTP.
-- **OTP verification** — enter the code from your email. Calls the real `POST /auth/verify-otp`, which activates the account and returns real access/refresh tokens directly, logging you straight in. "Resend code" calls the dedicated `POST /auth/resend-otp` (just the email, no password).
-- **Login** — email + password against the real `POST /auth/login`, redirects to the correct dashboard by role. Stores a real JWT (see `nagrik_session` in localStorage).
-- **Logout** — revokes the token server-side via `POST /auth/logout`, not just a client-side clear.
-- **Forgot / Reset Password** — still mocked (email lookup, no real email delivery) — not part of this integration pass yet.
+Marketing landing page, glassmorphism footer, **FAQ**, **Privacy Policy**, **Terms of Service**, **Contact Us** — all reachable without login.
 
 ### Citizen
-- Dashboard with a personalized greeting, quick-action tiles, and KPI cards (Total / Submitted / In Progress / Resolved)
-- **Report an Issue** — category, description, severity, photo upload, click-to-pin map
-- **My Complaints** — card list with status/severity badges
-- **Complaint Detail** — full status timeline; once resolved, **Rate & Review** the resolution (star rating + comment)
-- **My Activity (Analytics)** — status donut chart, category bar chart, resolution rate
+- Dashboard: personalized greeting, quick-action tiles, KPI cards (Total / Submitted / In Progress / Resolved)
+- **Report an Issue** — category, description, severity, photo upload, click-to-pin map *(still mock — use the chatbot path above for a real, persisted complaint today)*
+- **My Complaints**, **Complaint Detail** (status timeline, Rate & Review once resolved), **My Activity (Analytics)**
 
 ### Staff
-- Dashboard with assigned tasks sorted by priority, KPI cards
-- **Update Task** — change status, add notes, view history - guarded against crashing on an invalid complaint id
-- **My Performance (Analytics)** - status donut chart, category breakdown, average resolution time
+Dashboard with assigned tasks by priority; **Update Task** (status, notes, history); **My Performance (Analytics)**.
 
 ### Admin
-- Dashboard with KPI cards (Total / Unassigned / High Priority Open / Resolved) and a filterable data table (status, category, area, date)
-- **Assign / Reassign** complaints to staff
-- **Analytics** — KPI cards, 14-day filing trend line chart, status donut chart, category and resolution-time bar charts, complaint density heatmap by area — all with entrance animation
+Dashboard (KPI cards + filterable table); **Assign / Reassign**; **Analytics** (trend line, donut, bar charts, density heatmap).
 
 ### Shared (any logged-in role)
-- **Nagrik Saathi** - a scripted keyword-matched chatbot demo (not a real AI assistant unless functioanlity added)
-- **Notifications** - a feed of recent status changes relevant to the logged-in user's role
-- **Profile** - edit name/phone, change password
-- **Feedback** - general app feedback form with a 1–5 rating
-- Custom **404** page for any unmatched route
+**Nagrik Saathi** (real, see above), **Notifications** (mock feed), **Profile** (mock edit), **Feedback** form, custom **404**.
 
 ## Folder Structure
 
 ```
 frontend/src/
 ├── pages/
-│   ├── LandingPage.vue
-│   ├── Login.vue / Register.vue / VerifyOtp.vue
-│   ├── ForgotPassword.vue / ResetPassword.vue
-│   ├── CitizenDashboard.vue / SubmitComplaint.vue / ComplaintDetail.vue / RateReview.vue /CitizenAnalytics.vue
-│   ├── StaffDashboard.vue / ComplaintUpdate.vue / StaffAnalytics.vue
-│   ├── AdminDashboard.vue / AssignmentPage.vue / AnalyticsPage.vue
-│   ├── NagrikSaathi.vue / Notifications.vue / Profile.vue / FeedbackReport.vue
-│   ├── Faqs.vue / PrivacyPolicy.vue / TermsOfService.vue / ContactUs.vue
+│   ├── LandingPage.vue, Login.vue, Register.vue, VerifyOtp.vue
+│   ├── ForgotPassword.vue, ResetPassword.vue   (mock)
+│   ├── CitizenDashboard.vue, SubmitComplaint.vue, ComplaintDetail.vue, RateReview.vue, CitizenAnalytics.vue
+│   ├── StaffDashboard.vue, ComplaintUpdate.vue, StaffAnalytics.vue
+│   ├── AdminDashboard.vue, AssignmentPage.vue, AnalyticsPage.vue
+│   ├── NagrikSaathi.vue   (real backend), Notifications.vue, Profile.vue, FeedbackReport.vue
+│   ├── Faqs.vue, PrivacyPolicy.vue, TermsOfService.vue, ContactUs.vue
 │   └── NotFound.vue
-├── components/
-│   ├── Navbar.vue / DashboardHero.vue / ActionTile.vue / footer.vue
-│   ├── ComplaintCard.vue / StatusBadge.vue / StatCard.vue
-│   └── DonutChart.vue / LineChart.vue
-├── stores/            Pinia: authStore.js, complaintStore.js
+├── components/     Navbar.vue, DashboardHero.vue, ActionTile.vue, footer.vue,
+│                   ComplaintCard.vue, StatusBadge.vue, StatCard.vue, DonutChart.vue, LineChart.vue
+├── stores/         authStore.js (real), chatStore.js (real), complaintStore.js (mock)
 ├── api/
-│   ├── client.js      Mock data layer, everything except auth (see below)
-│   ├── httpClient.js  Real fetch wrapper — unwraps the backend's response envelope
-│   └── authApi.js     Real register/verifyOtp/login/logout calls
+│   ├── client.js       Mock data layer for everything not listed below
+│   ├── httpClient.js   Real fetch wrapper — unwraps the backend's {success, message, data} envelope
+│   ├── authApi.js      Real register/verifyOtp/resendOtp/login/logout calls
+│   └── chatApi.js       Real sendChatMessage/getChatHistory calls
 ├── router/index.js   All routes + role-based guards
 └── assets/style.css  Global styling
 ```
-
-## 🔌 Connecting to the Real Backend (auth only, so far)
-
-`authStore.js`'s `login`/`register`/`logout` actions call `api/authApi.js`, which calls the real FastAPI backend through `api/httpClient.js`. Everything else in the app (complaints, profile, notifications) is still on the mock in `api/client.js` — this was done in two separate, deliberate passes rather than all at once, so the auth piece could be verified end-to-end on its own first.
-
-**To run it:**
-1. Start the backend first (see the Backend section's **Getting Started** further down this file) — `uvicorn app.main:app --reload`, plus Redis running.
-2. `cd frontend && npm run dev` as usual.
-3. The frontend defaults to `http://localhost:8000` for the API. If your backend runs elsewhere, copy `.env.example` to `.env` and set `VITE_API_URL`.
-4. CORS is already configured for this on the backend side (`FRONTEND_ORIGINS` in `Backend/.env` includes `http://localhost:5173`) — no backend change needed for local dev on the default port.
-
-**What actually changed in the auth pages**, if you're picking up where this left off:
-- `Register.vue` calls the real `/auth/register` immediately, then stashes only the submitted email in `sessionStorage` (not a fake OTP anymore, and never the password — `/auth/verify-otp` and `/auth/resend-otp` only ever need the email).
-- `VerifyOtp.vue` calls the real `/auth/verify-otp`, which returns tokens directly (no separate login call needed), and calls `/auth/resend-otp` for "resend" — no more client-side OTP comparison or on-screen demo code.
-- `Login.vue`/`authStore.js` — `login`/`register`/`logout` are async now; session (user + access/refresh tokens) persists under `localStorage['nagrik_session']`, kept separate from the mock's `cr_session` on purpose, so a leftover mock session in a browser's storage can't get misread as a real logged-in state.
-- `authStore.logout()` clears local state *before* awaiting the server revoke call — `navbar.vue` calls `auth.logout()` without awaiting it and navigates immediately after, so the state needs to already be cleared by the time that happens or the router guard can see a stale "still logged in" state.
-
-**Not done yet, if extending this further:**
-- `requestReset`/`completeReset` (forgot/reset password) and `updateProfile`/`changePassword` in `authStore.js` still call the mock — same shape of work as above, just not done in this pass.
-- Token refresh (`POST /auth/refresh`) isn't wired up — a token currently just expires (30 min) with no automatic renewal, the user would need to log in again.
-
-Things still explicitly **not real**, by design, in the parts that remain mocked:
-- Password reset has no email/token step — reaching the reset screen is treated as proof of ownership
-- Nagrik Saathi is a scripted, keyword-matched demo, not a real AI, till backend with relevant functionality is connected.
-
-## Placeholders
-
-A few landing-page footer links intentionally go nowhere yet, since either no corresponding feature exists or login is required to use the same: "Try Nagrik Saathi" chatbot demo is wired up, but points back to login due to requirement.
 
 ---
 
 # ⚙️ Backend
 
-> An intelligent civic grievance management platform that leverages Artificial Intelligence, Retrieval-Augmented Generation (RAG), asynchronous task processing, and modern backend engineering practices to streamline complaint registration, tracking, prioritization, and resolution.
+FastAPI backend, async throughout (SQLAlchemy 2.0 async ORM, `asyncpg`), JWT auth, Redis for OTP/rate-limiting/token-blacklist, Celery for background email + nightly rescoring, LangGraph-based RAG chatbot.
 
-*A scalable backend for intelligent civic complaint management.*
+## Tech Stack
+**Framework:** FastAPI (async), Python 3.12, Pydantic v2
+**Database:** PostgreSQL 15 via SQLAlchemy 2.0 async ORM (`asyncpg`); `psycopg2` (sync) used only by `test_db.py`
+**Auth:** JWT (`python-jose`), bcrypt (`passlib`), `HTTPBearer`
+**Background:** Redis (OTP storage, token blacklist, rate limiting), Celery (email dispatch, nightly priority rescore)
+**AI:** Groq / Gemini / HuggingFace with a fallback chain, LangChain, LangGraph, FAISS, sentence-transformers
 
-## 📖 Table of Contents
+## 📡 Complete Endpoint Reference
 
-- Overview
-- Features
-- Technology Stack
-- High-Level Architecture
-- Authentication — Complete Reference
-- Standard API Response Format
-- Folder Structure
-- Getting Started
-- Environment Configuration
-- Database & Redis Setup
-- Running the App
-- Testing
-- Database Design
-- Authentication Architecture (Deep Dive)
-- Celery — Current Status & Future Use
-- Development Workflow
-- Current Project Status
-- Team & Acknowledgements
+All protected endpoints require `Authorization: Bearer <access_token>`. Access tokens expire in 30 minutes, refresh tokens in 7 days.
 
----
+### Auth — `/auth/*` (11 endpoints)
+| Method | Path | Auth | Notes |
+|---|---|---|---|
+| POST | `/register` | ✗ | Creates an unverified citizen account, emails an OTP |
+| POST | `/verify-otp` | ✗ | Activates the account, **returns real access + refresh tokens directly** |
+| POST | `/resend-otp` | ✗ | Resends the verify OTP for a pending account — email only, rate-limited 3/hour |
+| POST | `/login` | ✗ | Returns access + refresh tokens |
+| POST | `/refresh` | ✓ | Exchanges a valid refresh token for a new access token (rotates it) |
+| POST | `/logout` | ✓ | Revokes the access token (and refresh token, if supplied in the body) |
+| GET | `/me` | ✓ | Get own profile |
+| PUT | `/me` | ✓ | Update own name/phone |
+| POST | `/change-password` | ✓ | Change password while logged in |
+| POST | `/forgot-password` | ✗ | Requests a reset OTP, rate-limited 3/hour/email |
+| POST | `/reset-password` | ✗ | Completes password reset with the OTP |
 
-## 📌 Project Overview
+### Complaints — `/complaints/*`
+| Method | Path | Auth | Notes |
+|---|---|---|---|
+| POST | `` | ✓ | **Real.** Creates the complaint, then immediately scores priority, routes to a department, and flags high-risk — using the same ML services `/ml/*` exposes individually |
+| GET | `/whoami` | ✓ | Debug endpoint, returns the caller's own id/email |
 
-NAGRIK AI is an AI-powered Civic Complaint Management Platform designed to modernize the interaction between citizens and government authorities.
+### Chat (Nagrik Saathi) — `/chat/*`
+| Method | Path | Auth | Notes |
+|---|---|---|---|
+| POST | `/message` | ✓ | Sends a message, gets a real LLM reply, logs both to `chat_sessions`. If the message describes a civic issue, may create a real complaint (see § Chatbot above) |
+| GET | `/history/{session_id}` | ✓ | Returns every message in a session, scoped to the caller's own sessions (403 if it's someone else's) |
 
-Instead of manually managing complaints, the platform enables citizens to register complaints digitally, while government officials can efficiently review, assign, track, and resolve them using intelligent automation.
+### ML — `/ml/*` (already-built services, exposed individually and reused by `/complaints` and chat)
+| Method | Path | Notes |
+|---|---|---|
+| GET/POST | `/priority/{complaint_id}` | Get/recompute priority score |
+| POST | `/rescore-all` | Bulk rescore (also runs nightly via Celery beat) |
+| GET/POST | `/categorize/{complaint_id}` | Get/predict category |
+| GET/POST | `/route-department/{complaint_id}` | Get/recompute department routing |
+| GET | `/high-risk` | List flagged high-risk complaints |
+| POST | `/check-duplicate` | Check a draft complaint against existing ones |
+| GET | `/duplicates/{complaint_id}` | List known duplicates of a complaint |
 
-The platform integrates multiple backend technologies including asynchronous APIs, JWT authentication, Redis caching, Celery background jobs, and AI-powered services to provide a scalable and maintainable system.
+### Dashboard — `/dashboard/*`
+| Method | Path | Roles allowed | Notes |
+|---|---|---|---|
+| GET | `/citizen` | citizen | |
+| GET | `/staff` | staff | |
+| GET | `/admin` | admin | |
+| GET | `/internal` | staff **or** admin | Proves `require_roles()` accepts more than one role at once |
 
-This section covers the backend, implemented using **FastAPI** and following a modular service-oriented architecture.
+### Notifications — `/notifications/*`
+Router exists, no endpoints implemented yet (schema/model exist, not wired).
 
----
+## 📦 Standard Response Envelope
 
-## ✨ Features
-
-### Authentication — ✅ Complete
-- JWT Authentication (Access + Refresh tokens, each with a unique `jti`)
-- Real logout via Redis token blacklist (not just "delete the token client-side")
-- Password hashing with bcrypt
-- Email verification via OTP (HMAC-SHA256 hashed, Redis-backed, 5-minute expiry)
-- Password reset via OTP (10-minute expiry, rate-limited to 3 requests/hour/email)
-- Get / update own profile
-- Change password (while logged in, separate from the OTP reset flow)
-- Standard success/error response envelope with per-error error codes
-- Role-Based Authorization — ✅ Complete (`require_roles()` dependency factory)
-
-### AI Priority Scoring, Categorization, Routing, RAG Chatbot, Duplicate Detection — ✅ Complete
-- `/ml/priority/*`, `/ml/categorize/*`, `/ml/route-department/*`, `/ml/high-risk`, `/ml/check-duplicate`, `/ml/duplicates/*`
-- `/chat/message`, `/chat/history/{session_id}` — Nagrik Saathi RAG chatbot
-
-### Complaint Management — Upcoming
-- Register Complaint, Assign Complaint, Status Tracking, History, Resolution, Rejection, Citizen Rating
-
-### Notifications — Schema ready, endpoints upcoming
-- `Notification` model exists; `GET/PATCH /notifications` endpoints not yet implemented
-
-### Administration — Partially built
-- Admin/staff/citizen dashboards done; assignment, user management, and full analytics upcoming
-
----
-
-## 🛠 Technology Stack
-
-**Backend:** FastAPI (async), Python 3.12, SQLAlchemy 2.0 Async ORM, Pydantic v2
-**Database:** PostgreSQL 15, AsyncPG (runtime) / Psycopg2 (sync, used by `test_db.py`)
-**Authentication:** JWT (`python-jose`), bcrypt (`passlib`), `HTTPBearer`
-**Background Processing:** Redis (OTP storage, token blacklist, rate limiting), Celery (nightly priority rescore, email dispatch)
-**AI Stack:** Groq / Gemini / HuggingFace (with fallback chain), LangChain, LangGraph, FAISS, sentence-transformers
-
----
-
-## 🔐 Authentication — Complete Reference
-
-All protected endpoints require `Authorization: Bearer <access_token>`. Access tokens expire in **30 minutes**; refresh tokens in **7 days**. Every token carries a unique `jti`, which is what makes real, server-side logout possible.
-
-| Method | Endpoint                | Description                                                      | Auth |
-| ------ | ----------------------- | ---------------------------------------------------------------- | ---- |
-| POST   | `/auth/register`        | Register a new citizen account, sends verification OTP           | ✗    |
-| POST   | `/auth/verify-otp`      | Verify email using the OTP, activates the account                | ✗    |
-| POST   | `/auth/login`           | Authenticate, returns access + refresh tokens                    | ✗    |
-| POST   | `/auth/logout`          | Revoke the current access token (and refresh token, if supplied) | ✓    |
-| POST   | `/auth/refresh`         | Exchange a valid refresh token for a new access token            | ✓    |
-| GET    | `/auth/me`              | Get own profile                                                  | ✓    |
-| PUT    | `/auth/me`              | Update own name/phone                                            | ✓    |
-| POST   | `/auth/change-password` | Change password (already logged in)                              | ✓    |
-| POST   | `/auth/forgot-password` | Request a password reset OTP (rate-limited)                      | ✗    |
-| POST   | `/auth/reset-password`  | Complete password reset with OTP                                 | ✗    |
-
-**OTP details**
-- Verify-email OTP: valid 5 minutes
-- Password-reset OTP: valid 10 minutes, and `forgot-password` is rate-limited to **3 requests per hour per email** — checked before the user lookup even happens, so it also can't be used to probe which emails are registered
-
-**Logout details**
-- Always revokes the access token used to call it
-- Also revokes the refresh token if the client includes `refresh_token` in the request body — omitting it is a deliberate choice to only end the current session, not the whole login
-- A revoked token can't be reused for anything, including calling logout again
-
-**Error codes** (returned in every error response's `error_code` field)
-
-| Code       | Meaning                                      | HTTP |
-| ---------- | --------------------------------------------- | ---- |
-| `AUTH_001` | Invalid credentials                          | 401  |
-| `AUTH_002` | Token expired                                | 401  |
-| `AUTH_003` | Token invalid (malformed/wrong type/revoked) | 401  |
-| `AUTH_004` | Insufficient permissions                     | 403  |
-| `AUTH_005` | Account inactive (deactivated)               | 403 *(reserved — admin deactivation not yet implemented)* |
-| `AUTH_006` | Email not verified                           | 403  |
-| `AUTH_007` | Email already registered                     | 409  |
-| `AUTH_008` | Phone already registered                     | 409  |
-| `AUTH_009` | User not found                               | 404  |
-| `AUTH_010` | Invalid or expired OTP                       | 400  |
-| `AUTH_011` | Account already verified                     | 409  |
-| `AUTH_012` | Chat session belongs to another user         | 403  |
-| `RTE_001`  | Rate limit exceeded                          | 429  |
-| `VAL_001`  | Request validation failed                    | 422  |
-| `VAL_002`  | Location: lat/lng given without the other    | 422  |
-
----
-
-## 📦 Standard API Response Format
-
-Every endpoint returns one of these two shapes.
-
-**Success**
+**Success:**
 ```json
-{
-  "success": true,
-  "message": "Login successful.",
-  "data": {
-    "access_token": "...",
-    "refresh_token": "...",
-    "token_type": "bearer",
-    "user": { "id": "...", "email": "...", "...": "..." }
-  },
-  "meta": null
-}
+{ "success": true, "message": "Login successful.", "data": { "...": "..." }, "meta": null }
+```
+**Error:**
+```json
+{ "success": false, "message": "Invalid email or password.", "error_code": "AUTH_001", "details": null }
 ```
 
-**Error**
-```json
-{
-  "success": false,
-  "message": "Invalid email or password.",
-  "error_code": "AUTH_001",
-  "details": null
-}
+## Error Codes
+
+| Code | Meaning | HTTP |
+|---|---|---|
+| `AUTH_001` | Invalid credentials | 401 |
+| `AUTH_002` | Token expired | 401 |
+| `AUTH_003` | Token invalid (malformed/wrong type/revoked) | 401 |
+| `AUTH_004` | Insufficient permissions | 403 |
+| `AUTH_005` | Account inactive *(reserved, admin deactivation not built yet)* | 403 |
+| `AUTH_006` | Email not verified | 403 |
+| `AUTH_007` | Email already registered | 409 |
+| `AUTH_008` | Phone already registered | 409 |
+| `AUTH_009` | User not found | 404 |
+| `AUTH_010` | Invalid or expired OTP | 400 |
+| `AUTH_011` | Account already verified | 409 |
+| `AUTH_012` | Chat session belongs to another user | 403 |
+| `RTE_001` | Rate limit exceeded | 429 |
+| `VAL_001` | Neither address nor coordinates given | 422 |
+| `VAL_002` | Only one of latitude/longitude given | 422 |
+
+## Example: Submit a Complaint
+
+```bash
+curl -X POST http://localhost:8000/complaints \
+  -H "Authorization: Bearer $ACCESS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "title": "Large pothole on main road",
+    "description": "There is a dangerous pothole near the school gate causing accidents.",
+    "category": "pothole",
+    "location": { "latitude": 23.0225, "longitude": 72.5714, "address": "Near Patel Chowk, Patan" }
+  }'
 ```
-
-`data` is `null` for endpoints that only confirm an action (register, logout, change-password, etc.). `meta` is reserved for pagination on future list endpoints (complaints, notifications) and is always `null` today.
-
----
+`title` 5–100 chars, `description` 20–1000 chars, `category` one of `road/pothole/streetlight/drainage/garbage/water_supply/sewage/traffic/electricity/other`, `location` needs either `address` or both `latitude`+`longitude` (or all three).
 
 ## 📂 Backend Project Structure
 
 ```text
 Backend/
-│
 ├── app/
-│   │
 │   ├── api/
-│   │   ├── auth.py              ✅ 10 endpoints, fully wired
-│   │   ├── ml.py                ✅ 10 endpoints, priority/category/routing/duplicate detection
-│   │   ├── chat.py              ✅ 2 endpoints, Nagrik Saathi
-│   │   ├── dashboard.py         ✅ 4 endpoints, role-based views
-│   │   ├── complaints.py        stub (debug /whoami only)
-│   │   └── notifications.py     stub
-│   │
-│   ├── chatbot/                 conversation_graph.py, providers.py, extractor.py, knowledge_base.py (RAG)
-│   │
-│   ├── core/
-│   │   ├── config.py            settings (DB, JWT, OTP, rate limit, SMTP, Redis, Celery, CORS)
-│   │   ├── database.py          async SQLAlchemy session + get_db()
-│   │   ├── security.py          password hashing, JWT create/decode, HTTPBearer scheme
-│   │   ├── redis.py             Redis client singleton
-│   │   ├── exception_handlers.py   global error → standard envelope mapping
-│   │   └── celery_app.py        Celery app + nightly beat schedule
-│   │
-│   ├── dependencies/
-│   │   ├── auth.py              get_current_token_payload, get_current_user
-│   │   └── roles.py             require_roles() — role-based authorization, ✅ complete
-│   │
-│   ├── schemas/
-│   │   ├── auth.py              all auth request/response schemas
-│   │   ├── common.py            SuccessResponse[T] envelope
-│   │   ├── complaint.py         ComplaintCreate/Location/Response schemas (not yet wired to an endpoint)
-│   │   └── notification.py      stub
-│   │
-│   ├── services/
-│   │   ├── auth_service.py       all auth business logic
-│   │   ├── otp_service.py        OTP generate/verify, per-purpose expiry
-│   │   ├── email_service.py      SMTP sending
-│   │   ├── token_blacklist_service.py   Redis-backed logout/revocation
-│   │   ├── rate_limit_service.py        generic Redis fixed-window limiter
-│   │   ├── priority_service.py   ML priority scoring
-│   │   ├── category_service.py   LLM-based category prediction
-│   │   ├── routing_service.py    department routing
-│   │   ├── duplicate_service.py  embedding-based duplicate detection
-│   │   ├── chat_service.py       Nagrik Saathi persistence
-│   │   ├── risk_alert_service.py high-risk complaint flagging
-│   │   └── notification_service.py      stub
-│   │
-│   ├── tasks/
-│   │   ├── email_tasks.py        async email sending
-│   │   ├── priority_tasks.py     nightly rescore job
-│   │   └── notification_tasks.py stub
-│   │
-│   ├── utils/
-│   │   ├── constants.py          roles, OTP purposes, token types, departments
-│   │   ├── exceptions.py         all custom exceptions, each with an error_code
-│   │   └── validators.py         stub
-│   │
-│   ├── model.py                  User, Complaint, ComplaintUpdate, Notification, Rating, ChatSession, Department
-│   └── main.py                   FastAPI app, lifespan, router + exception handler registration
-│
-├── Testing/                      pytest suite — 81 passing tests
-├── docs/                         extended documentation (see below)
+│   │   ├── auth.py            ✅ 11 endpoints
+│   │   ├── complaints.py      ✅ POST + /whoami (real, scores/routes on submit)
+│   │   ├── chat.py            ✅ 2 endpoints, real LLM + real complaint filing
+│   │   ├── ml.py              ✅ 10 endpoints
+│   │   ├── dashboard.py       ✅ 5 endpoints (citizen/staff/admin/internal)
+│   │   └── notifications.py   stub, no endpoints
+│   ├── chatbot/                conversation_graph.py, extractor.py, knowledge_base.py, providers.py — LangGraph RAG
+│   ├── core/                   config.py, database.py, security.py, redis.py, exception_handlers.py, celery_app.py
+│   ├── dependencies/            auth.py (get_current_user), roles.py (require_roles — ✅ complete RBAC)
+│   ├── schemas/                 auth.py, common.py, complaint.py (real, wired), chat.py, notification.py (stub)
+│   ├── services/                auth_service.py, complaint_service.py, chat_service.py, otp_service.py,
+│   │                             email_service.py, token_blacklist_service.py, rate_limit_service.py,
+│   │                             priority_service.py, category_service.py, routing_service.py,
+│   │                             duplicate_service.py, risk_alert_service.py, notification_service.py (stub)
+│   ├── tasks/                   email_tasks.py, priority_tasks.py, notification_tasks.py (stub)
+│   ├── utils/                   constants.py, exceptions.py, validators.py (stub)
+│   ├── model.py                 User, Complaint, ComplaintUpdate, Notification, Rating, ChatSession, Department
+│   └── main.py
+├── Testing/                     97 passing tests (see § Testing)
 ├── requirements.txt
-├── .env.example
-└── openapi.yaml                  generated Swagger/OpenAPI spec (from app.openapi())
+└── .env.example
 ```
-
----
-
-## 🚀 Getting Started
-
-### Prerequisites
-
-| Software   | Version |
-| ---------- | ------- |
-| Python     | 3.12+   |
-| PostgreSQL | 14+     |
-| Redis      | 7+      |
-| Git        | Latest  |
-
-### Clone & Checkout
-
-```bash
-git clone https://github.com/24f2000777/MAY2026-Team-059.git
-cd MAY2026-Team-059
-git checkout develop
-```
-
-### Virtual Environment
-
-```bash
-cd Backend
-python3 -m venv venv
-source venv/bin/activate        # Windows: venv\Scripts\activate
-```
-
-### Install Dependencies
-
-```bash
-pip install --upgrade pip
-pip install -r requirements.txt
-```
-
----
 
 ## ⚙ Environment Configuration
 
 ```bash
 cp .env.example .env
 ```
-
-Then fill in:
-
-```env
-# Database
-DATABASE_URL=postgresql+asyncpg://postgres:YOUR_PASSWORD@127.0.0.1:5432/nagrik_ai
-SYNC_DATABASE_URL=postgresql+psycopg2://postgres:YOUR_PASSWORD@127.0.0.1:5432/nagrik_ai
-
-# JWT
-SECRET_KEY=YOUR_RANDOM_SECRET_KEY
-ALGORITHM=HS256
-ACCESS_TOKEN_EXPIRE_MINUTES=30
-REFRESH_TOKEN_EXPIRE_DAYS=7
-
-# OTP — keep OTP_SECRET_KEY different from SECRET_KEY
-OTP_SECRET_KEY=YOUR_RANDOM_OTP_SECRET
-OTP_EXPIRE_SECONDS=300                      # optional, defaults to 300 (5 min)
-RESET_PASSWORD_OTP_EXPIRE_SECONDS=600       # optional, defaults to 600 (10 min)
-PASSWORD_RESET_RATE_LIMIT_MAX_ATTEMPTS=3    # optional, defaults to 3
-PASSWORD_RESET_RATE_LIMIT_WINDOW_SECONDS=3600  # optional, defaults to 3600 (1 hour)
-
-# SMTP — a real, shared Ethereal sandbox account (see .env.example for
-# the actual values). Register locally with any fake email, then log
-# into ethereal.email with these same credentials to read the OTP it
-# "sent" — nothing ever gets delivered anywhere real, so no personal
-# Gmail account or app password is needed for local dev.
-SMTP_HOST=smtp.ethereal.email
-SMTP_PORT=587
-SMTP_USERNAME=jarred.morissette56@ethereal.email
-SMTP_PASSWORD=n1PMcC1TBq1FUTEZ9y
-SMTP_FROM_EMAIL=jarred.morissette56@ethereal.email
-SMTP_FROM_NAME=NAGRIK AI
-
-# Redis
-REDIS_URL=redis://localhost:6379/0
-
-# Celery
-CELERY_BROKER_URL=redis://localhost:6379/0
-CELERY_RESULT_BACKEND=redis://localhost:6379/0
-
-# AI providers
-GROQ_API_KEY=YOUR_GROQ_API_KEY
-GEMINI_API_KEY=YOUR_GEMINI_API_KEY
-HUGGINGFACE_API_KEY=YOUR_HUGGINGFACE_API_KEY
-
-# CORS (frontend origins allowed to call this API)
-FRONTEND_ORIGINS=["http://localhost:3000","http://localhost:5173"]
-
-# Application
-ENVIRONMENT=development
-DEBUG=True
-```
-
-Generate secrets with:
-```bash
-python -c "import secrets; print(secrets.token_hex(32))"
-```
-
----
-
-## 🐘 PostgreSQL & Redis Setup
-
-```bash
-# Postgres
-sudo systemctl start postgresql
-sudo -u postgres psql -c "CREATE DATABASE nagrik_ai;"
-
-# Redis
-sudo apt install redis-server
-sudo systemctl enable --now redis-server
-redis-cli ping   # expect: PONG
-```
-
----
-
-## 🌐 Running the App
-
-Because email sending and the nightly priority rescore are processed in the background, run both the FastAPI server and the Celery worker (plus beat, for the nightly job) in separate terminals.
-
-**Terminal 1: Celery Worker**
-```bash
-cd Backend
-source venv/bin/activate
-celery -A app.core.celery_app worker --loglevel=info
-```
-
-**Terminal 2: Celery Beat (nightly priority rescore, 2 AM IST)**
-```bash
-cd Backend
-source venv/bin/activate
-celery -A app.core.celery_app beat --loglevel=info
-```
-
-**Terminal 3: FastAPI Server**
-```bash
-cd Backend
-source venv/bin/activate
-uvicorn app.main:app --reload
-```
-
-- App: http://127.0.0.1:8000
-- Health check: http://127.0.0.1:8000/health
-- Swagger UI: http://127.0.0.1:8000/docs
-- ReDoc: http://127.0.0.1:8000/redoc
-
-**Testing auth in Swagger:** call `POST /auth/login`, copy the `access_token` from the response, click the padlock/**Authorize** button, paste just the token (no `Bearer ` prefix needed — Swagger adds it), then call any protected endpoint.
-
----
+Then fill in database credentials, a random `SECRET_KEY` and `OTP_SECRET_KEY` (keep them different — generate with `python -c "import secrets; print(secrets.token_hex(32))"`), Redis URL, and at least one AI provider key (`GROQ_API_KEY` / `GEMINI_API_KEY` / `HUGGINGFACE_API_KEY`) for the chatbot and categorization to work. SMTP defaults to a shared Ethereal sandbox already filled in — see `.env.example` for the actual values, no real personal email account needed for local dev.
 
 ## 🧪 Testing
 
@@ -614,13 +363,30 @@ cd Backend
 pytest
 ```
 
-81 passing tests across auth (50, full HTTP layer via httpx `ASGITransport`), priority scoring, categorization/routing, duplicate detection, chatbot persistence, and risk alerting. Needs Postgres and Redis running, same as the app itself. No real emails or LLM calls are mocked away where the test's whole point is proving real behavior (see each suite's own docstring).
+**97 passing tests** — 55 auth (full HTTP layer via `httpx.ASGITransport`, including token issuance, resend-otp, and rate limiting), 5 RBAC/security (forged JWT signature, tampered payload, insufficient permissions, multi-role access, expired token — all from an attacker's perspective), plus the existing priority/categorization/routing/duplicate-detection/chatbot/complaint-service suites. Needs Postgres and Redis running. No real emails or LLM calls are mocked away where the test's whole point is proving real behavior — check each suite's own docstring.
 
----
+Two standalone scripts at the repo root are also worth knowing about (**not** part of the pytest suite, run manually):
+```bash
+python3 location_validation.py       # 10 smoke-test cases for the location-validation design doc
+pytest test_location_validation.py   # 42 tests for the same file
+```
+
+## 📄 Root-Level Design Docs (not wired in)
+
+Four files at the repo root are **standalone design documents**, not connected to the running FastAPI app. They exist to design an API contract or schema before it gets integrated, and were combined from several parallel design branches — read them for design intent, don't expect them to be live endpoints:
+
+| File | What it's for | Real, wired-in equivalent (if any) |
+|---|---|---|
+| `location_validation.py` | Location validation design (lat/lng or address, `VAL_001`/`VAL_002`/`VAL_003` error codes) | `Backend/app/schemas/complaint.py`'s `ComplaintLocation` — a separate, already-integrated implementation with the same VAL_001/VAL_002 rules |
+| `api-doc.yaml` | Full OpenAPI 3.0.3 contract draft for complaints/comments/attachments | Not generated from the real app; some parts (priority as client input, structured address, comments) describe a shape the real API doesn't match yet |
+| `complaint_assign_schema.py` | Request/response schema design for `PATCH /complaints/{id}/assign` | No real endpoint yet |
+| `complaint_internal_notes_schema.py` | Request/response schema design for `POST /complaints/{id}/updates` (staff/admin internal notes) | No real endpoint yet — worth checking whether `ComplaintUpdate` (already a real table) can just be reused instead of a new one |
+
+If you're building the real assign/internal-notes endpoints, start from these two schema files — they're already reviewed and staff/admin terminology is already consistent with the real `ROLE_STAFF` constant.
 
 ## 🗄 Database Design
 
-Seven core tables: **Users**, **Complaints**, **Complaint Updates**, **Notifications**, **Ratings**, **Chat Sessions**, **Departments**.
+Seven tables: **Users**, **Complaints**, **Complaint Updates**, **Notifications**, **Ratings**, **Chat Sessions**, **Departments**.
 
 ```mermaid
 erDiagram
@@ -631,76 +397,57 @@ erDiagram
     USERS ||--o{ NOTIFICATIONS : receives
     USERS ||--o{ CHAT_SESSIONS : chats
     DEPARTMENTS ||--o{ COMPLAINTS : routed_to
-
     COMPLAINTS ||--o{ COMPLAINT_UPDATES : history
     COMPLAINTS ||--|| RATINGS : rating
     COMPLAINTS ||--o{ NOTIFICATIONS : triggers
     COMPLAINTS ||--o{ CHAT_SESSIONS : discussed
 ```
 
-**Users** — `id, name, phone, email, role, hashed_password, is_active, department_id, created_at, updated_at`. `role` is one of `citizen` / `staff` / `admin`.
+`Users.role` is one of `citizen` / `staff` / `admin`.
 
----
-
-## 🔐 Authentication Architecture (Deep Dive)
+## 🔐 Auth & Security Architecture (Deep Dive)
 
 ```
-API Route
-   │
-   ▼
-auth_service.py  (business logic — no FastAPI imports here)
-   │
-   ├── security.py       password hashing, JWT create/decode
-   ├── otp_service.py     OTP generate/verify (HMAC-SHA256, Redis, per-purpose TTL)
-   ├── email_service.py    SMTP sending
-   ├── token_blacklist_service.py   logout revocation
-   └── rate_limit_service.py         forgot-password abuse prevention
-   │
-   ▼
-Raises a custom exception on failure (utils/exceptions.py)
-   │
-   ▼
-core/exception_handlers.py converts it to the standard error envelope
+API Route → auth_service.py (business logic, no FastAPI imports)
+              ├── security.py             password hashing, JWT create/decode
+              ├── otp_service.py          OTP generate/verify (HMAC-SHA256, Redis, per-purpose TTL)
+              ├── email_service.py        SMTP sending
+              ├── token_blacklist_service.py   logout revocation
+              └── rate_limit_service.py   generic Redis fixed-window limiter (forgot-password, resend-otp, verify-otp attempts)
+              → raises a custom exception (utils/exceptions.py) on failure
+              → core/exception_handlers.py converts it to the standard error envelope
 ```
 
 **Password security:** bcrypt, never stored or logged in plaintext.
 
-**JWT:** two token types, distinguished by a `type` claim (`access` / `refresh`) so a refresh token can never be used where an access token is expected, and vice versa. Every token also carries a `jti` (unique id), enabling the logout blacklist.
+**JWT:** access/refresh distinguished by a `type` claim; every token carries a unique `jti`, enabling the logout blacklist.
 
-```json
-{
-  "sub": "user_uuid",
-  "role": "citizen",
-  "type": "access",
-  "jti": "3f9a1c2e...",
-  "exp": 1750000000
-}
-```
+**OTP:** only ever exists in plaintext long enough to be emailed — Redis stores its HMAC-SHA256 hash with a TTL (5 min verify-email, 10 min password-reset). Verifying deletes the Redis entry, so an OTP is single-use.
 
-**OTP:** generated in plaintext only to be emailed, never stored in plaintext — only its HMAC-SHA256 hash lives in Redis, with a TTL matching its purpose (5 min verify-email, 10 min password-reset). Verifying deletes the Redis entry immediately, so a given OTP can only ever be used once.
+**Rate limiting:** a generic Redis fixed-window counter (`INCR` + `EXPIRE`), applied to forgot-password (3/hour/email), resend-otp (3/hour/email), and verify-otp attempts (5 per 15 min).
 
-**Logout / revocation:** since JWTs are stateless, revoking one before its natural expiry requires a server-side record. `token_blacklist_service.py` stores `jti → revoked` in Redis with a TTL equal to the token's *remaining* lifetime, so entries clean themselves up — no manual purge job needed.
+**RBAC (Role-Based Access Control):** `require_roles(*roles)` is a dependency factory — pass one or more roles, get a dependency that 403s anyone else. `test_rbac_security.py` verifies this from an attacker's perspective: forged JWT signatures, tampered payloads with an escalated role but the wrong signature, insufficient-permission 403s, multi-role routes, and expired/invalid tokens — all rejected correctly.
 
-**Rate limiting:** `rate_limit_service.py` is a generic Redis fixed-window counter (`INCR` + `EXPIRE` on first hit), reusable later for other abuse-prone actions (e.g. login attempts) beyond just password reset.
+## 🌱 Celery — Background Jobs
 
----
+- **Email dispatch** — every OTP email goes through `send_email_task` asynchronously.
+- **Nightly priority rescore** — Celery Beat runs `rescore_all_complaints_task` at 2 AM IST.
+- Not yet used for: notification creation on status change, scheduled auto-close, PDF report generation.
 
-## 🌱 Celery — Asynchronous Tasks
+## 📌 Current Status
 
-**Current Usage:**
-- **Email Dispatch:** All verification and password-reset OTP emails are dispatched asynchronously via `send_email_task`.
-- **Nightly Priority Rescore:** Celery Beat runs `rescore_all_complaints_task` at 2 AM IST, recomputing `priority_score` for every complaint.
+### ✅ Done and tested
+Auth (11 endpoints incl. resend-otp), RBAC, complaint submission (form + chatbot, both real), ML priority/categorization/routing/duplicate-detection, RAG chatbot with real complaint filing, 4 complaint-schema design docs — 97 passing tests.
 
-**Future Use:**
-- Notification creation on complaint status change
-- Scheduled complaint auto-close (7-day window)
-- Generating heavy PDF reports
+### 🚧 Mocked / not wired yet
+Frontend profile, notifications, password reset, complaint list/detail/ratings pages (still `localStorage`); backend complaint assign/internal-notes endpoints (design docs exist, see above); notifications endpoints (model exists).
+
+### 📋 Planned
+Complaint state machine (approve/start/resolve/reject), photo evidence upload, complaint auto-close, Docker/CI-CD, Module 11 pre-launch security audit (secret-leak prevention, personal-data-flow audit, production-config review, deep JWT/role-bypass review).
 
 ---
 
 ## 👨‍💻 Development Workflow
-
-Feature-branch workflow: `feature/*` → `develop` → `main`. Never merge directly into `main`.
 
 ```bash
 git checkout develop
@@ -710,78 +457,18 @@ git checkout -b feature/your-feature-name
 git push -u origin feature/your-feature-name
 # open PR: feature/your-feature-name → develop
 ```
-
-**Before opening a PR:** code compiles, no hardcoded secrets, README updated if paths/branches changed, tests pass, new dependencies added to `requirements.txt`, no leftover debug/notes files.
-
----
-
-## 📌 Current Project Status
-
-### ✅ Completed
-- Auth (10 endpoints), RBAC, ML priority scoring, categorization, department routing, duplicate detection, RAG chatbot — 81 passing tests
-- Database schema (all 7 tables)
-- Frontend (Vue 3, all pages) — running on mock data
-
-### 🚧 In Progress / Next Up
-- Wiring the frontend to the real backend (currently on mock `localStorage` data)
-- Complaint CRUD (create/list/get) — schema exists, endpoints don't yet
-
-### 📋 Planned
-- Complaint state machine (approve/start/resolve/reject), assignment, internal notes
-- Notifications endpoints (model exists, endpoints don't)
-- Complaint closure + auto-close
-- Photo evidence upload, ratings endpoint
-- Docker / CI-CD
-- **Module 11: Pre-Launch Security Audit**
-  - Secret Leak Prevention
-  - Personal Data Flow Audit
-  - Pre-Deploy Production Audit
-  - Deep Security Audit for Complex Logic
-  - Attacker's Perspective Review
-
----
-
-## 📚 Documentation
-
-Extended docs live in `docs/`:
-
-```
-docs/
-├── 01_project_overview.md
-├── 02_architecture.md
-├── 03_database.md
-├── 04_authentication.md
-├── 05_setup_guide.md
-├── 06_api_design.md
-├── 07_deployment.md
-├── 08_git_workflow.md
-└── 09_future_roadmap.md
-```
-
----
+Never merge directly into `main`. Before opening a PR: code compiles, no hardcoded secrets, tests pass, new dependencies added to `requirements.txt`.
 
 ## Team
 
-**Team 059** • IIT Madras • Software Engineering • 2026
-
-| Name              | Responsibility                                                 |
-| ----------------- | -------------------------------------------------------------- |
+| Name | Responsibility |
+|---|---|
 | Amit Kumar Pandey | Backend Architecture, Authentication, Complaint APIs, Database |
-| Akshit            | AI Engine, ML Priority Prediction, RAG Chatbot                 |
-| Ravisha           | Testing, QA, Complaint Schema, Documentation                    |
-| Lakshay Bansal    | Frontend (Vue 3) — pages, routing, auth store                  |
-| Arubhi Bansal     | Scrum master, frontend support                                 |
-
----
+| Akshit | AI Engine, ML Priority Prediction, RAG Chatbot |
+| Ravisha | Testing, QA, Complaint Schema, Documentation |
+| Lakshay Bansal | Frontend (Vue 3) — pages, routing, auth store |
+| Arubhi Bansal | Scrum master, frontend support |
 
 ## License
 
 Academic and educational purposes as part of IIT Madras Software Engineering coursework. All rights remain with the project contributors unless otherwise specified.
-
-<div align="center">
-
-**Building smarter civic services through Artificial Intelligence.**
-
-⭐ If you found this project useful, consider giving the repository a star.
-
-</div>

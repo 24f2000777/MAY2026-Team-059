@@ -86,21 +86,11 @@ auth_service_module.send_password_reset_email = _capture_reset_email
 # ==========================================================
 # Pytest fixture
 # ==========================================================
-
-@pytest.fixture
-async def client():
-    """
-    Real ASGI-level HTTP client for the actual FastAPI app, no
-    socket/uvicorn needed. Every test function below takes this as
-    its first argument; without a matching fixture, pytest can't
-    collect them at all ("fixture 'client' not found"), which is why
-    this suite used to only run via `python test_auth_full_suite.py`
-    calling main() directly. Same transport main() builds by hand,
-    just wired in so `pytest` can drive it too.
-    """
-    transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as c:
-        yield c
+#
+# The `client` fixture every test function below takes now lives in
+# Testing/conftest.py instead of here, once test_rbac_security.py
+# needed to share it too — conftest.py fixtures are visible to every
+# file under Testing/, a fixture defined inside one test module isn't.
 
 
 def get_otp(purpose: str, email: str) -> str:
@@ -450,6 +440,95 @@ async def test_verify_otp_unknown_email(client):
     title("VERIFY OTP — unknown email")
     response = await api_verify_otp(client, "nobody_" + unique_email(), "123456")
     expect_status(response, 404, "Verify OTP for unregistered email")
+
+
+async def test_verify_otp_success_returns_tokens(client):
+    title("VERIFY OTP — success logs the user straight in")
+    email, phone = unique_email(), unique_phone()
+    try:
+        await api_register(client, email, phone)
+        otp = get_otp(OTP_VERIFY_EMAIL, email)
+        response = await api_verify_otp(client, email, otp)
+        expect_status(response, 200, "Verify with correct OTP")
+
+        data = response.json()["data"]
+        expect(
+            bool(data and data.get("access_token") and data.get("refresh_token")),
+            "Response includes a real access_token and refresh_token",
+            f"Response did not include tokens: {response.text}",
+        )
+        expect(
+            bool(data and data.get("user", {}).get("email") == email),
+            "Response includes the verified user's own profile",
+            f"Response user data missing/wrong: {response.text}",
+        )
+
+        # the returned access_token should actually work, not just be present
+        me_response = await api_get_me(client, data["access_token"])
+        expect_status(me_response, 200, "GET /auth/me with the token from verify-otp")
+    finally:
+        await cleanup([email])
+
+
+async def test_resend_otp_for_pending_account(client):
+    title("RESEND OTP — pending (unverified) account")
+    email, phone = unique_email(), unique_phone()
+    try:
+        await api_register(client, email, phone)
+        get_otp(OTP_VERIFY_EMAIL, email)  # consume the original
+
+        response = await client.post("/auth/resend-otp", json={"email": email})
+        expect_status(response, 200, "Resend OTP for a pending account")
+        expect(
+            (OTP_VERIFY_EMAIL, email) in CAPTURED_OTPS,
+            "A fresh OTP was captured after resend",
+            "No new OTP was captured after resend",
+        )
+
+        new_otp = get_otp(OTP_VERIFY_EMAIL, email)
+        verify_response = await api_verify_otp(client, email, new_otp)
+        expect_status(verify_response, 200, "Verify using the resent OTP")
+    finally:
+        await cleanup([email])
+
+
+async def test_resend_otp_unknown_email(client):
+    title("RESEND OTP — unknown email")
+    response = await client.post("/auth/resend-otp", json={"email": "nobody_" + unique_email()})
+    expect_status(response, 404, "Resend OTP for unregistered email")
+
+
+async def test_resend_otp_already_verified(client):
+    title("RESEND OTP — already verified account")
+    email = unique_email()
+    try:
+        await create_verified_user(client, email=email)
+        response = await client.post("/auth/resend-otp", json={"email": email})
+        expect_status(response, 409, "Resend OTP for an already-verified account")
+    finally:
+        await cleanup([email])
+
+
+async def test_resend_otp_rate_limited(client):
+    title("RESEND OTP — rate limited after 3 attempts per hour")
+    email, phone = unique_email(), unique_phone()
+    try:
+        await api_register(client, email, phone)
+        get_otp(OTP_VERIFY_EMAIL, email)  # drain the register-time OTP
+
+        for attempt in range(1, 4):
+            response = await client.post("/auth/resend-otp", json={"email": email})
+            expect_status(
+                response, 200, f"Resend-OTP attempt #{attempt} (within limit)"
+            )
+            get_otp(OTP_VERIFY_EMAIL, email)  # drain it so dict doesn't leak
+
+        fourth_response = await client.post("/auth/resend-otp", json={"email": email})
+        expect_status(
+            fourth_response, 429, "4th resend-otp attempt within the hour"
+        )
+    finally:
+        await cleanup([email])
 
 
 async def test_verify_otp_rate_limited(client):
@@ -1135,6 +1214,12 @@ TESTS = [
     test_verify_otp_already_verified,
     test_verify_otp_unknown_email,
     test_verify_otp_rate_limited,
+    test_verify_otp_success_returns_tokens,
+    # Resend OTP
+    test_resend_otp_for_pending_account,
+    test_resend_otp_unknown_email,
+    test_resend_otp_already_verified,
+    test_resend_otp_rate_limited,
     # Login
     test_login_success,
     test_login_wrong_password,

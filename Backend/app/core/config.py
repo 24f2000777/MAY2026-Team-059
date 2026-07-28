@@ -89,7 +89,16 @@ class Settings(BaseSettings):
     OTP_VERIFY_RATE_LIMIT_MAX_ATTEMPTS: int = 5
 
     OTP_VERIFY_RATE_LIMIT_WINDOW_SECONDS: int = 900
-    
+
+    # Caps how many times verify-email's OTP can be resent for the
+    # same pending account in a rolling window, same reasoning as
+    # PASSWORD_RESET_RATE_LIMIT_* above — /auth/resend-otp only
+    # needs an email, so without this it's an easy way to spam a
+    # victim's inbox (or hammer the SMTP relay) with no friction.
+    OTP_RESEND_RATE_LIMIT_MAX_ATTEMPTS: int = 3
+
+    OTP_RESEND_RATE_LIMIT_WINDOW_SECONDS: int = 3600
+
     OTP_SECRET_KEY: str = Field(min_length=32)
 
     # =====================================================

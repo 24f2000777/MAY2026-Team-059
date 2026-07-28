@@ -21,19 +21,17 @@ onMounted(() => {
   pending.value = JSON.parse(raw)
 })
 
-function verify() {
+async function verify() {
   error.value = ''
-  if (code.value !== pending.value.otp) {
-    error.value = 'Incorrect code. Please try again.'
-    return
-  }
   loading.value = true
   try {
-    auth.register({
-      name: pending.value.name,
+    // The backend validates the OTP itself now (correct/expired/already
+    // verified all come back as a real error message), there's nothing
+    // to check client-side beforehand. Logs the account in as part of
+    // verifying it, no password involved on this page at all.
+    await auth.verifyOtpAndLogin({
       email: pending.value.email,
-      phone: pending.value.phone,
-      password: pending.value.password
+      otp: code.value
     })
     sessionStorage.removeItem('cr_pending_registration')
     router.push('/citizen')
@@ -44,13 +42,16 @@ function verify() {
   }
 }
 
-function resend() {
+async function resend() {
   if (!pending.value) return
-  const otp = String(Math.floor(100000 + Math.random() * 900000))
-  pending.value.otp = otp
-  sessionStorage.setItem('cr_pending_registration', JSON.stringify(pending.value))
-  resent.value = true
-  setTimeout(() => (resent.value = false), 2500)
+  error.value = ''
+  try {
+    await auth.resendOtp({ email: pending.value.email })
+    resent.value = true
+    setTimeout(() => (resent.value = false), 2500)
+  } catch (e) {
+    error.value = e.message
+  }
 }
 </script>
 
@@ -76,11 +77,6 @@ function resend() {
       <div class="auth-card-new">
         <p class="auth-eyebrow">Step 2 of 2</p>
         <h2 class="auth-title">Enter Verification Code</h2>
-
-        <div class="card" style="background: var(--panel-alt); border-style: dashed; margin-bottom: 20px;">
-          <p style="font-size: 12px; color: var(--text-dim); margin: 0 0 4px 0;">Demo mode -- no real SMS is sent. Your code is:</p>
-          <p style="font-size: 24px; font-weight: 900; letter-spacing: .1em; color: var(--ink); margin: 0;">{{ pending.otp }}</p>
-        </div>
 
         <form @submit.prevent="verify">
           <div class="field">

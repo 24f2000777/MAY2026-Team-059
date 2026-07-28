@@ -1,7 +1,7 @@
 """
 Design for POST /complaints/{id}/updates (internal notes)
 
-This module defines the request and response schema for officer/admin-only
+This module defines the request and response schema for staff/admin-only
 internal notes attached to a complaint.
 
 Requirements covered:

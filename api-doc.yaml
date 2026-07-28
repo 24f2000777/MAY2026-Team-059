@@ -391,20 +391,15 @@ paths:
           story: As a complaint participant, I want to view uploaded evidence so that I can understand the complaint record.
       parameters:
         - $ref: '#/components/parameters/ComplaintId'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
       responses:
         '200':
-          description: Attachment list.
+          description: Paginated attachment list.
           content:
             application/json:
               schema:
-                type: object
-                required:
-                  - data
-                properties:
-                  data:
-                    type: array
-                    items:
-                      $ref: '#/components/schemas/Attachment'
+                $ref: '#/components/schemas/AttachmentListResponse'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
@@ -654,6 +649,19 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Comment'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+
+    AttachmentListResponse:
+      type: object
+      required:
+        - data
+        - pagination
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Attachment'
         pagination:
           $ref: '#/components/schemas/Pagination'
 

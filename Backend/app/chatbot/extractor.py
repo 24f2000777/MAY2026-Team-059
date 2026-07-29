@@ -1,11 +1,25 @@
 from app.utils.constants import DEPARTMENT_NAMES
 
 from .prompts import CATEGORIES, SEVERITY_LEVELS
-from .providers import extraction_chain, routing_chain
+from .providers import (
+    CHAIN_WITH_FALLBACKS_TIMEOUT_SECONDS,
+    _invoke_with_timeout,
+    extraction_chain,
+    routing_chain,
+)
 
 
 def extract_complaint_info(user_query):
-    result = extraction_chain.invoke({"user_query": user_query})
+    # extraction_chain has its own provider fallbacks built in (see
+    # providers.py) — up to 3 sequential provider attempts inside this one
+    # .invoke() call, only exceptions trigger the next one, a provider that
+    # just hangs would never hand control to the next. _invoke_with_timeout
+    # enforces a hard ceiling from this side regardless of what the chain's
+    # own fallback logic does, sized for 3 provider attempts
+    # (CHAIN_WITH_FALLBACKS_TIMEOUT_SECONDS), not a single one.
+    result = _invoke_with_timeout(
+        extraction_chain, {"user_query": user_query}, timeout=CHAIN_WITH_FALLBACKS_TIMEOUT_SECONDS
+    )
 
     # category being None is a valid, expected result, it means the llm decided
     # this isn't actually a BMC civic complaint, not a parsing failure
@@ -32,7 +46,11 @@ def predict_department(category, description):
     Literal-typed DepartmentRouting schema means Groq/Gemini can only
     ever return one of those exact names, never something invented.
     """
-    result = routing_chain.invoke({"category": category, "description": description})
+    result = _invoke_with_timeout(
+        routing_chain,
+        {"category": category, "description": description},
+        timeout=CHAIN_WITH_FALLBACKS_TIMEOUT_SECONDS,
+    )
     department = result.department.strip()
 
     if department not in DEPARTMENT_NAMES:

@@ -174,6 +174,16 @@ def is_location_specific_enough(location):
     return "yes" in answer
 
 
+# A single merged prompt (both questions at once, comma-separated answer) was
+# tried here to cut this to one call instead of two. Not kept: same 70B
+# model, same location ("Andheri station market", genuinely in Mumbai), the
+# merged prompt got the jurisdiction answer wrong 3 out of 5 tries — the two
+# separate prompts below got it right 5 out of 5. Asking the model two
+# things in one call measurably hurt its reasoning on the second question,
+# so this stays as two calls rather than trade correctness for a faster
+# reply.
+
+
 def finalize_complaint(info, attempts=0):
     """
     Runs the checks that need to happen once we have a category and a location,

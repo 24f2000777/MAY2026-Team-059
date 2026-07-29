@@ -1,8 +1,9 @@
 from datetime import datetime
 from enum import Enum
+from typing import Optional
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 # Location error codes, distinct from the generic VAL_001 every other
 # request-validation failure gets in app/core/exception_handlers.py.
@@ -193,6 +194,132 @@ class ComplaintResponse(BaseModel):
                 "priority_score": 85,
                 "category": "pothole",
                 "created_at": "2026-07-07T21:00:00Z",
+            }
+        },
+    )
+
+
+# =====================================================
+# Complaint Assignment
+#
+# Built from complaint_assign_schema.py (the reviewed design doc at
+# the repo root) — same shape, adapted to reuse this app's real
+# ComplaintStatus enum and plain-string User.role instead of the
+# design doc's own standalone copies of those.
+# =====================================================
+
+class ComplaintAssignRequest(BaseModel):
+    """
+    Request schema for PATCH /complaints/{id}/assign.
+
+    Only an admin can call this route (enforced by require_roles at
+    the route level, not by this schema). assigned_to must be an
+    existing user with role='staff' — checked in the service layer,
+    since that needs a database lookup this schema can't do on its
+    own.
+    """
+
+    assigned_to: UUID = Field(
+        ...,
+        description="UUID of the staff member to assign the complaint to",
+    )
+
+    notes: Optional[str] = Field(
+        default=None,
+        max_length=500,
+        description="Optional notes about the assignment, e.g. priority or special instructions",
+    )
+
+    @field_validator("notes")
+    @classmethod
+    def normalize_notes(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None:
+            stripped = v.strip()
+            return stripped or None
+        return v
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "assigned_to": "550e8400-e29b-41d4-a716-446655440000",
+                    "notes": "High priority, assign senior staff",
+                },
+                {"assigned_to": "550e8400-e29b-41d4-a716-446655440001"},
+            ]
+        }
+    )
+
+
+class StaffSummary(BaseModel):
+    """
+    Summary of the staff member a complaint was assigned to.
+    department requires a join to Department.name (User only has
+    department_id), so this is built by hand in the route rather than
+    via model_validate(staff_user) directly.
+    """
+
+    id: UUID = Field(..., description="Staff user ID")
+    name: str = Field(..., description="Staff member's full name")
+    role: str = Field(..., description="User role, should be 'staff'")
+    department: Optional[str] = Field(
+        default=None,
+        description="Staff member's department name",
+    )
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "id": "550e8400-e29b-41d4-a716-446655440000",
+                "name": "Rajesh Kumar",
+                "role": "staff",
+                "department": "Roads Department",
+            }
+        }
+    )
+
+
+class ComplaintAssignResponse(BaseModel):
+    """
+    Response schema for PATCH /complaints/{id}/assign. Assignment
+    events are logged in ComplaintUpdate (see complaint_service.py),
+    not as extra columns on Complaint itself.
+    """
+
+    id: UUID
+    title: str
+    description: str
+    category: str
+    status: str
+    priority_score: int
+
+    assigned_to: Optional[UUID] = None
+    staff_details: Optional[StaffSummary] = None
+
+    citizen_id: UUID
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_schema_extra={
+            "example": {
+                "id": "123e4567-e89b-12d3-a456-426614174000",
+                "title": "Large pothole on main road",
+                "description": "There is a dangerous pothole near the school gate causing accidents.",
+                "category": "pothole",
+                "status": "in_progress",
+                "priority_score": 85,
+                "assigned_to": "550e8400-e29b-41d4-a716-446655440000",
+                "staff_details": {
+                    "id": "550e8400-e29b-41d4-a716-446655440000",
+                    "name": "Rajesh Kumar",
+                    "role": "staff",
+                    "department": "Roads Department",
+                },
+                "citizen_id": "999e8877-e66b-21d3-b456-526614174999",
+                "created_at": "2026-07-23T21:00:00Z",
+                "updated_at": "2026-07-24T00:30:00Z",
             }
         },
     )

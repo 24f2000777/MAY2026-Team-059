@@ -66,7 +66,7 @@ export const useChatStore = defineStore('chat', {
       this.isTyping = true
       try {
         const data = await sendChatMessage({ sessionId: this.sessionId, message: text, accessToken })
-        this.messages.push({ from: 'bot', text: data.reply })
+        this.messages.push({ from: 'bot', text: data.reply, complaint: data.complaint ?? null })
       } catch (e) {
         // Don't fake a bot reply on failure. Store the message for the
         // banner, but re-throw the original error so the component's own

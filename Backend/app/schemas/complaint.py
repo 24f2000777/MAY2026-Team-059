@@ -5,6 +5,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app.utils.wards import WARDS
+
 INTERNAL_NOTE_VISIBILITY = "internal"
 
 # Location error codes, distinct from the generic VAL_001 every other
@@ -151,6 +153,23 @@ class ComplaintCreate(BaseModel):
         description="Complaint location",
     )
 
+    ward_code: Optional[str] = Field(
+        default=None,
+        description=(
+            "BMC administrative ward code (see GET /complaints/wards). Optional since not "
+            "every submission path can determine a ward yet (e.g. the chatbot), but improves "
+            "priority scoring accuracy when known — falls back to a dataset-average estimate "
+            "when omitted."
+        ),
+    )
+
+    @field_validator("ward_code")
+    @classmethod
+    def validate_ward_code(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and v not in WARDS:
+            raise ValueError(f"unknown ward_code: {v!r}. See GET /complaints/wards for valid codes.")
+        return v
+
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
@@ -162,6 +181,7 @@ class ComplaintCreate(BaseModel):
                     "longitude": 72.5714,
                     "address": "Near Patel Chowk, Patan",
                 },
+                "ward_code": "H/W",
             }
         }
     )
@@ -199,6 +219,34 @@ class ComplaintResponse(BaseModel):
             }
         },
     )
+
+
+class WardOut(BaseModel):
+    """One entry in GET /complaints/wards, the real 24 BMC administrative wards."""
+
+    code: str
+    area: str
+    zone: str
+    ward_type: str
+    population_density: str
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "code": "H/W",
+                "area": "Bandra West",
+                "zone": "Western",
+                "ward_type": "Suburban",
+                "population_density": "Medium",
+            }
+        }
+    )
+
+
+class WardListResponse(BaseModel):
+    """Response schema for GET /complaints/wards."""
+
+    wards: list[WardOut]
 
 
 # =====================================================

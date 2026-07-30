@@ -64,6 +64,9 @@ async def create_complaint(citizen_id, data: ComplaintCreate, db) -> Complaint:
         description=data.description,
         category=data.category.value,
         location_text=_location_text(data.location),
+        latitude=data.location.latitude,
+        longitude=data.location.longitude,
+        ward_code=data.ward_code,
     )
     db.add(complaint)
     await db.flush()

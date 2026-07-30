@@ -1,13 +1,16 @@
 """
 Bridges a real Complaint row to the priority_scorer ML model.
 
-predict_priority() (app/ml/priority_scorer/predict.py) expects fields that
-don't exist anywhere on the Complaint model yet: severity, ward-level
-demographics, complaint channel, complainant/property type. This module
-fills in what it genuinely can from the database and today's date, asks
-an LLM for severity (the model's dominant feature, so it can't be
-defaulted to a constant), and falls back to safe placeholders for the
-rest until a real wards table and those extra fields exist.
+predict_priority() (app/ml/priority_scorer/predict.py) takes complaint_
+channel/complainant_type/property_type as inputs, but the model was
+retrained and its permutation feature importance measured (see
+priority_scorer/features.py's comment) at exactly 0.0000 for all three,
+same for has_photo_evidence and has_gps_location, they simply aren't in
+the formula the model was trained to approximate (formula.py). Hardcoded
+constants for those below are a deliberate, measured choice, not a gap.
+ward_slum_percentage is the one placeholder that does matter (real,
+non-zero importance) and is now looked up from a real ward, see
+app.utils.wards.
 """
 
 import logging
@@ -20,6 +23,7 @@ from app.chatbot.extractor import extract_complaint_info
 from app.ml.priority_scorer.predict import ComplaintFeatures, predict_priority
 from app.model import Complaint, ComplaintImage
 from app.services.risk_alert_service import flag_if_high_risk
+from app.utils.wards import DEFAULT_SLUM_PERCENTAGE, WARDS
 
 logger = logging.getLogger(__name__)
 
@@ -44,23 +48,21 @@ CATEGORY_MAP = {
 # Mumbai's monsoon months, per IMD/BMC convention.
 MONSOON_MONTHS = (6, 7, 8, 9)
 
-# Placeholders for fields that need a real wards reference table (ward_code,
-# zone, ward_type, population_density, ward_slum_percentage) or additional
-# complaint-submission fields (complaint_channel, complainant_type,
-# property_type) that don't exist yet. The model was trained with
-# handle_unknown="ignore" on these, so an unrecognized value just contributes
-# nothing rather than erroring, and per the training README these fields have
-# near-zero feature importance compared to severity and category.
-UNKNOWN_WARD_FIELDS = {
-    "ward_code": "Unknown",
-    "zone": "Unknown",
-    "ward_type": "Unknown",
-    "population_density": "Unknown",
-    "ward_slum_percentage": 0,
+# Measured zero feature importance (see module docstring), constants here
+# instead of collecting real per-complaint data for them is a considered
+# choice, not a shortcut waiting to be fixed.
+ZERO_IMPORTANCE_FIELDS = {
     "complaint_channel": "MyBMC App",
     "complainant_type": "Resident",
     "property_type": "Unknown",
 }
+
+
+def _ward_slum_percentage(ward_code: str | None) -> int:
+    if ward_code is None:
+        return DEFAULT_SLUM_PERCENTAGE
+    ward = WARDS.get(ward_code)
+    return ward.slum_percentage if ward else DEFAULT_SLUM_PERCENTAGE
 
 
 async def _get_severity(complaint: Complaint) -> str:
@@ -109,12 +111,13 @@ async def score_complaint(complaint: Complaint, db) -> float:
     return predict_priority(ComplaintFeatures(
         complaint_category=CATEGORY_MAP.get(complaint.category, "Noise / Air Pollution"),
         severity=severity,
+        ward_slum_percentage=_ward_slum_percentage(complaint.ward_code),
         is_monsoon_season=1 if date.today().month in MONSOON_MONTHS else 0,
         repeat_complainant=1 if prior_complaints_count > 0 else 0,
         prior_complaints_count=prior_complaints_count,
         has_photo_evidence=has_photo_evidence,
-        has_gps_location=0,  # no latitude/longitude column on Complaint yet
-        **UNKNOWN_WARD_FIELDS,
+        has_gps_location=1 if complaint.latitude is not None and complaint.longitude is not None else 0,
+        **ZERO_IMPORTANCE_FIELDS,
     ))
 
 

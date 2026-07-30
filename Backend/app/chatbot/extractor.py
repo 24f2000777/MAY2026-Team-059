@@ -62,10 +62,6 @@ def predict_department(category, description):
 # every field predict_priority needs, besides complaint_category and severity which
 # come straight from extract_complaint_info above
 REQUIRED_FIELDS_FROM_ELSEWHERE = [
-    "ward_code",
-    "zone",
-    "ward_type",
-    "population_density",
     "ward_slum_percentage",
     "complaint_channel",
     "complainant_type",

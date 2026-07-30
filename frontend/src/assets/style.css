@@ -599,6 +599,29 @@ table.data-table th {
     border-bottom-right-radius:6px;
 }
 
+.filed-complaint{
+    margin-top:10px;
+    padding-top:10px;
+    border-top:1px solid #e5e7eb;
+}
+
+.filed-complaint-row{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:10px;
+    font-size:13px;
+}
+
+.filed-complaint-row + .filed-complaint-row{
+    margin-top:6px;
+}
+
+.filed-complaint .priority{
+    color:#1F6B42;
+    font-weight:700;
+}
+
 .chat-suggestions{
     display:flex;
     flex-wrap:wrap;

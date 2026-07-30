@@ -21,6 +21,8 @@ from ..schemas.complaint import (
     ComplaintStatusResponse,
     ComplaintTransitionRequest,
     StaffSummary,
+    WardListResponse,
+    WardOut,
 )
 from ..services.complaint_service import (
     add_complaint_note,
@@ -30,6 +32,7 @@ from ..services.complaint_service import (
     transition_complaint_status,
 )
 from ..utils.constants import ROLE_ADMIN, ROLE_STAFF
+from ..utils.wards import WARDS
 
 
 router = APIRouter(
@@ -40,6 +43,27 @@ router = APIRouter(
 @router.get("/whoami")
 async def whoami(current_user: User = Depends(get_current_user)):
     return {"id": str(current_user.id), "email": current_user.email}
+
+
+@router.get(
+    "/wards",
+    response_model=SuccessResponse[WardListResponse],
+    summary="List the 24 real BMC administrative wards",
+)
+async def list_wards(current_user: User = Depends(get_current_user)):
+    """
+    Static reference data (Mumbai's wards don't change at runtime), used
+    to populate a ward picker on complaint submission. Selecting a real
+    ward improves priority scoring accuracy (see priority_service.py).
+    """
+    wards = [
+        WardOut(code=w.code, area=w.area, zone=w.zone, ward_type=w.ward_type, population_density=w.population_density)
+        for w in sorted(WARDS.values(), key=lambda w: w.code)
+    ]
+    return SuccessResponse[WardListResponse](
+        message="Wards retrieved.",
+        data=WardListResponse(wards=wards),
+    )
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)

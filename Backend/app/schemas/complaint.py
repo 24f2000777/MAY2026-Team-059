@@ -283,7 +283,9 @@ class ComplaintAssignResponse(BaseModel):
     """
     Response schema for PATCH /complaints/{id}/assign. Assignment
     events are logged in ComplaintUpdate (see complaint_service.py),
-    not as extra columns on Complaint itself.
+    not as extra columns on Complaint itself. Assigning does not
+    change status, it's a separate concern from the actual
+    approve/start/resolve/reject state machine.
     """
 
     id: UUID
@@ -308,7 +310,7 @@ class ComplaintAssignResponse(BaseModel):
                 "title": "Large pothole on main road",
                 "description": "There is a dangerous pothole near the school gate causing accidents.",
                 "category": "pothole",
-                "status": "in_progress",
+                "status": "approved",
                 "priority_score": 85,
                 "assigned_to": "550e8400-e29b-41d4-a716-446655440000",
                 "staff_details": {

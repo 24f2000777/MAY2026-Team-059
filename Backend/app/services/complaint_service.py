@@ -80,10 +80,25 @@ async def assign_complaint(
     db,
 ) -> tuple[Complaint, User]:
     """
-    Assigns a complaint to a staff member, moving it into
-    "in_progress" if it wasn't already there, and logs the event as a
-    ComplaintUpdate row rather than as extra columns on Complaint
-    itself (see complaint_assign_schema.py's own note on this).
+    Assigns a complaint to a staff member. Only sets assigned_to,
+    deliberately does NOT change complaint.status.
+
+    Originally this also jumped status straight to "in_progress" on
+    assignment, but that collides with the actual status state
+    machine (approve/start/resolve/reject, see complaint_service.py's
+    transition_complaint_status): "who is responsible" and "what
+    stage the complaint is at" are orthogonal concerns, same as in
+    any real ticketing system, an admin can reassign a complaint
+    that's still just "approved," or even one that's "in_progress"
+    already, without that alone meaning work started or restarted.
+    The actual in_progress transition is now owned by /start, which
+    also requires the complaint to already be assigned before it can
+    be started.
+
+    Logs the assignment as a ComplaintUpdate row rather than as extra
+    columns on Complaint itself (see complaint_assign_schema.py's own
+    note on this) — old_status/new_status stay null here, same as an
+    internal note, since assigning doesn't change status.
 
     Returns (complaint, staff) rather than just the complaint, since
     the route needs the staff user to build StaffSummary (which needs
@@ -108,15 +123,13 @@ async def assign_complaint(
             "assigned_to must be an existing user with role 'staff'."
         )
 
-    old_status = complaint.status
     complaint.assigned_to = staff.id
-    complaint.status = ComplaintStatus.IN_PROGRESS.value
 
     db.add(ComplaintUpdate(
         complaint_id=complaint.id,
         updated_by=admin_id,
-        old_status=old_status,
-        new_status=complaint.status,
+        old_status=None,
+        new_status=None,
         notes=data.notes,
     ))
 

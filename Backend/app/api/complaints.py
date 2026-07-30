@@ -60,8 +60,11 @@ async def assign_complaint_route(
     current_user: User = Depends(require_roles(ROLE_ADMIN)),
 ):
     """
-    Assigns a complaint to a staff member and moves it into
-    "in_progress". Only admins can call this.
+    Assigns a complaint to a staff member. Only admins can call this.
+    Does not change the complaint's status, "who's responsible" and
+    "what stage it's at" are separate — see PATCH .../start for the
+    actual submitted/approved -> in_progress transition, which
+    requires the complaint to already be assigned first.
 
     Raises:
         ComplaintNotFoundError: 404, if the complaint doesn't exist.

@@ -198,7 +198,11 @@ class TestCreateComplaint:
 
 
 class TestAssignComplaint:
-    async def test_assigns_and_moves_to_in_progress(self, db, citizen, admin, staff):
+    async def test_assigns_without_changing_status(self, db, citizen, admin, staff):
+        # Assigning is a "who" concern, not a "what stage" concern —
+        # it deliberately leaves status untouched. See PATCH .../start
+        # (the actual state machine) for the submitted/approved ->
+        # in_progress transition.
         complaint = await _make_complaint(db, citizen)
         assert complaint.status == "submitted"
 
@@ -207,7 +211,7 @@ class TestAssignComplaint:
 
         assert updated.id == complaint.id
         assert updated.assigned_to == staff.id
-        assert updated.status == ComplaintStatus.IN_PROGRESS.value
+        assert updated.status == "submitted", "assigning must not change complaint status"
         assert returned_staff.id == staff.id
 
         result = await db.execute(
@@ -216,8 +220,8 @@ class TestAssignComplaint:
         updates = result.scalars().all()
         assert len(updates) == 1
         assert updates[0].updated_by == admin.id
-        assert updates[0].old_status == "submitted"
-        assert updates[0].new_status == ComplaintStatus.IN_PROGRESS.value
+        assert updates[0].old_status is None
+        assert updates[0].new_status is None
         assert updates[0].notes == "Handle urgently"
 
         await _cleanup(db, complaint)

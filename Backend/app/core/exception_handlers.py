@@ -49,6 +49,8 @@ from app.utils.exceptions import (
     ComplaintNotFoundError,
     InvalidStaffAssignmentError,
     ComplaintNotAssignableError,
+    InvalidStatusTransitionError,
+    ComplaintNotAssignedToUserError,
 )
 
 
@@ -185,6 +187,20 @@ async def handle_complaint_not_assignable(
     exc: ComplaintNotAssignableError,
 ) -> JSONResponse:
     return _error_response(status.HTTP_409_CONFLICT, exc)
+
+
+async def handle_invalid_status_transition(
+    request: Request,
+    exc: InvalidStatusTransitionError,
+) -> JSONResponse:
+    return _error_response(status.HTTP_409_CONFLICT, exc)
+
+
+async def handle_complaint_not_assigned_to_user(
+    request: Request,
+    exc: ComplaintNotAssignedToUserError,
+) -> JSONResponse:
+    return _error_response(status.HTTP_403_FORBIDDEN, exc)
 
 
 async def handle_complaint_error(
@@ -392,6 +408,16 @@ def register_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(
         ComplaintNotAssignableError,
         handle_complaint_not_assignable,
+    )
+
+    app.add_exception_handler(
+        InvalidStatusTransitionError,
+        handle_invalid_status_transition,
+    )
+
+    app.add_exception_handler(
+        ComplaintNotAssignedToUserError,
+        handle_complaint_not_assigned_to_user,
     )
 
     # Catch-all fallback for any other ComplaintError subclass.

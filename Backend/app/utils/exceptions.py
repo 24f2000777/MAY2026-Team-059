@@ -173,3 +173,23 @@ class ComplaintNotAssignableError(ComplaintError):
     no one left to hand it to at that point.
     """
     error_code = "COMP_003"
+
+
+class InvalidStatusTransitionError(ComplaintError):
+    """
+    Raised when a status transition (approve/reject/start/resolve) is
+    attempted from a complaint status that doesn't allow it, e.g.
+    trying to /start a complaint that's still "submitted" (not yet
+    approved) or resolving one that's already "resolved".
+    """
+    error_code = "COMP_004"
+
+
+class ComplaintNotAssignedToUserError(ComplaintError):
+    """
+    Raised when a staff member tries to /start or /resolve a
+    complaint that isn't assigned to them. Admins bypass this check
+    entirely (an admin can act on any complaint regardless of who
+    it's assigned to), this only restricts staff to their own work.
+    """
+    error_code = "COMP_005"

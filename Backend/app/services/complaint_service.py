@@ -1,5 +1,6 @@
 """
-Complaint submission (#41), assignment, and internal notes.
+Complaint submission (#41), assignment, internal notes, and the
+status state machine.
 
 Creates a real Complaint row from a citizen's POST /complaints request,
 then immediately runs it through the same ML pipeline the /ml/* routes
@@ -20,8 +21,10 @@ from app.services.routing_service import route_complaint
 from app.utils.constants import ROLE_STAFF
 from app.utils.exceptions import (
     ComplaintNotAssignableError,
+    ComplaintNotAssignedToUserError,
     ComplaintNotFoundError,
     InvalidStaffAssignmentError,
+    InvalidStatusTransitionError,
 )
 
 # A complaint already in one of these has nothing left to assign, work
@@ -88,9 +91,9 @@ async def assign_complaint(
     Originally this also jumped status straight to "in_progress" on
     assignment, but that collides with the actual status state
     machine (approve/start/resolve/reject, see
-    transition_complaint_status): "who is responsible" and "what
-    stage the complaint is at" are orthogonal concerns, same as in
-    any real ticketing system, an admin can reassign a complaint
+    transition_complaint_status below): "who is responsible" and
+    "what stage the complaint is at" are orthogonal concerns, same as
+    in any real ticketing system, an admin can reassign a complaint
     that's still just "approved," or even one that's "in_progress"
     already, without that alone meaning work started or restarted.
     The actual in_progress transition is now owned by /start, which
@@ -209,3 +212,102 @@ async def list_complaint_notes(complaint_id, db) -> list[tuple[ComplaintUpdate, 
         authors_by_id = {user.id: user for user in result.scalars().all()}
 
     return [(note, authors_by_id.get(note.updated_by)) for note in notes]
+
+
+# submitted --approve--> approved --start--> in_progress --resolve--> resolved
+#     \                       \
+#      \--reject--> rejected   \--reject--> rejected
+#
+# One table instead of four hand-written functions, since all four
+# transitions really are the same shape: check the current status
+# allows this move, optionally check assignment, set the new status,
+# log it. requires_assignment gates both "must already be assigned"
+# and "a staff caller must be that assignee" (see
+# transition_complaint_status below).
+TRANSITIONS = {
+    "approve": {
+        "from": {ComplaintStatus.SUBMITTED.value},
+        "to": ComplaintStatus.APPROVED.value,
+        "requires_assignment": False,
+    },
+    "reject": {
+        "from": {ComplaintStatus.SUBMITTED.value, ComplaintStatus.APPROVED.value},
+        "to": ComplaintStatus.REJECTED.value,
+        "requires_assignment": False,
+    },
+    "start": {
+        "from": {ComplaintStatus.APPROVED.value},
+        "to": ComplaintStatus.IN_PROGRESS.value,
+        "requires_assignment": True,
+    },
+    "resolve": {
+        "from": {ComplaintStatus.IN_PROGRESS.value},
+        "to": ComplaintStatus.RESOLVED.value,
+        "requires_assignment": True,
+    },
+}
+
+
+async def transition_complaint_status(complaint_id, action: str, actor, notes, db) -> Complaint:
+    """
+    Drives the status state machine off the TRANSITIONS table above.
+    action is one of "approve", "reject", "start", "resolve". notes
+    is the optional transition note for approve/start/resolve, or the
+    required rejection reason for reject (stored in
+    Complaint.reject_reason too, not just the ComplaintUpdate log).
+
+    Role enforcement (admin-only for approve/reject, staff-or-admin
+    for start/resolve) happens at the route layer via require_roles,
+    same as every other route in this app. This function only checks
+    what a role check alone can't: for start/resolve, that a staff
+    caller (not admin, admins bypass this) is the complaint's own
+    assigned staff member, not someone else's.
+
+    Locks the complaint row (SELECT ... FOR UPDATE) before checking
+    its status, so two concurrent transition requests on the same
+    complaint can't both read the same pre-transition status and both
+    succeed, the second waits for the first's transaction to commit
+    and then sees the already-updated status.
+
+    Does not commit, same convention as create_complaint above.
+    """
+    rule = TRANSITIONS[action]
+
+    result = await db.execute(
+        select(Complaint).where(Complaint.id == complaint_id).with_for_update()
+    )
+    complaint = result.scalar_one_or_none()
+    if complaint is None:
+        raise ComplaintNotFoundError("Complaint not found.")
+
+    if complaint.status not in rule["from"]:
+        raise InvalidStatusTransitionError(
+            f"Cannot {action} a complaint that is currently '{complaint.status}'."
+        )
+
+    if rule["requires_assignment"]:
+        if complaint.assigned_to is None:
+            raise InvalidStatusTransitionError(
+                f"Cannot {action} a complaint that hasn't been assigned to a staff member yet."
+            )
+        if actor.role == ROLE_STAFF and complaint.assigned_to != actor.id:
+            raise ComplaintNotAssignedToUserError("This complaint isn't assigned to you.")
+
+    old_status = complaint.status
+    complaint.status = rule["to"]
+
+    if action == "reject":
+        complaint.reject_reason = notes
+        complaint.assigned_to = None
+
+    db.add(ComplaintUpdate(
+        complaint_id=complaint.id,
+        updated_by=actor.id,
+        old_status=old_status,
+        new_status=complaint.status,
+        notes=notes,
+    ))
+
+    await db.flush()
+
+    return complaint

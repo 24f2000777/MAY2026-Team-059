@@ -125,3 +125,51 @@ class ChatSessionAccessDeniedError(AuthenticationError):
     the other auth-module cases the doc doesn't enumerate.
     """
     error_code = "AUTH_012"
+
+
+# =====================================================
+# Complaints
+# =====================================================
+
+class ComplaintError(Exception):
+    """
+    Base class for complaint-domain errors, same shape and reasoning
+    as AuthenticationError above (a default error_code every subclass
+    inherits, overridable per-instance), just scoped to its own
+    COMP_0xx code namespace instead of reusing AUTH_0xx for something
+    that isn't an auth concern.
+    """
+
+    error_code: str = "COMP_000"
+
+    def __init__(self, message: str, error_code: str | None = None):
+        super().__init__(message)
+        if error_code is not None:
+            self.error_code = error_code
+
+
+class ComplaintNotFoundError(ComplaintError):
+    """Raised when the requested complaint does not exist."""
+    error_code = "COMP_001"
+
+
+class InvalidStaffAssignmentError(ComplaintError):
+    """
+    Raised when assigning a complaint to a user who either doesn't
+    exist or doesn't have role='staff'. Deliberately doesn't
+    distinguish "no such user" from "exists but wrong role" in the
+    message, an admin picking assignees from a UI wouldn't be able to
+    select a citizen/admin id in the first place, so this is really
+    a defense against a malformed or stale request, not a case that
+    needs a finely differentiated error for a legitimate caller.
+    """
+    error_code = "COMP_002"
+
+
+class ComplaintNotAssignableError(ComplaintError):
+    """
+    Raised when trying to assign a complaint that's already in a
+    terminal state (resolved, closed, rejected, withdrawn) — there's
+    no one left to hand it to at that point.
+    """
+    error_code = "COMP_003"

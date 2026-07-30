@@ -15,11 +15,21 @@ import pytest
 from sqlalchemy import select
 
 from app.core.database import AsyncSessionLocal
-from app.model import Department, Notification, User
-from app.schemas.complaint import ComplaintCreate, ComplaintLocation
-from app.services.complaint_service import create_complaint
+from app.model import ComplaintUpdate, Department, Notification, User
+from app.schemas.complaint import (
+    ComplaintAssignRequest,
+    ComplaintCreate,
+    ComplaintLocation,
+    ComplaintStatus,
+)
+from app.services.complaint_service import assign_complaint, create_complaint
 from app.services.risk_alert_service import HIGH_RISK_NOTIFICATION_TYPE
-from app.utils.constants import ROLE_ADMIN
+from app.utils.constants import ROLE_ADMIN, ROLE_STAFF
+from app.utils.exceptions import (
+    ComplaintNotAssignableError,
+    ComplaintNotFoundError,
+    InvalidStaffAssignmentError,
+)
 
 
 @pytest.fixture
@@ -66,12 +76,39 @@ async def admin(db):
     await db.commit()
 
 
+@pytest.fixture
+async def staff(db):
+    user = User(
+        phone=f"9{uuid.uuid4().int % 10**9:09d}",
+        name="Pytest Staff",
+        email=f"pytest-staff-{uuid.uuid4()}@example.com",
+        role=ROLE_STAFF,
+        hashed_password="x",
+        is_active=True,
+    )
+    db.add(user)
+    await db.flush()
+    yield user
+    await db.delete(user)
+    await db.commit()
+
+
 async def _cleanup(db, complaint):
     result = await db.execute(select(Notification).where(Notification.complaint_id == complaint.id))
     for n in result.scalars().all():
         await db.delete(n)
     await db.delete(complaint)
     await db.commit()
+
+
+async def _make_complaint(db, citizen):
+    data = ComplaintCreate(
+        title="Large pothole on main road",
+        description="There is a dangerous pothole near the school gate causing accidents daily.",
+        category="pothole",
+        location=ComplaintLocation(address="Near Patel Chowk, Patan"),
+    )
+    return await create_complaint(citizen.id, data, db)
 
 
 class TestCreateComplaint:
@@ -156,5 +193,109 @@ class TestCreateComplaint:
             assert len(notifications) >= 1
         else:
             assert len(notifications) == 0
+
+        await _cleanup(db, complaint)
+
+
+class TestAssignComplaint:
+    async def test_assigns_without_changing_status(self, db, citizen, admin, staff):
+        # Assigning is a "who" concern, not a "what stage" concern —
+        # it deliberately leaves status untouched. See PATCH .../start
+        # (the actual state machine) for the submitted/approved ->
+        # in_progress transition.
+        complaint = await _make_complaint(db, citizen)
+        assert complaint.status == "submitted"
+
+        request = ComplaintAssignRequest(assigned_to=staff.id, notes="Handle urgently")
+        updated, returned_staff = await assign_complaint(complaint.id, admin.id, request, db)
+
+        assert updated.id == complaint.id
+        assert updated.assigned_to == staff.id
+        assert updated.status == "submitted", "assigning must not change complaint status"
+        assert returned_staff.id == staff.id
+
+        result = await db.execute(
+            select(ComplaintUpdate).where(ComplaintUpdate.complaint_id == complaint.id)
+        )
+        updates = result.scalars().all()
+        assert len(updates) == 1
+        assert updates[0].updated_by == admin.id
+        assert updates[0].old_status is None
+        assert updates[0].new_status is None
+        assert updates[0].notes == "Handle urgently"
+
+        await _cleanup(db, complaint)
+
+    async def test_can_be_reassigned_to_a_different_staff_member(self, db, citizen, admin, staff):
+        complaint = await _make_complaint(db, citizen)
+
+        first_request = ComplaintAssignRequest(assigned_to=staff.id)
+        await assign_complaint(complaint.id, admin.id, first_request, db)
+
+        second_staff = User(
+            phone=f"9{uuid.uuid4().int % 10**9:09d}",
+            name="Pytest Staff Two",
+            email=f"pytest-staff-{uuid.uuid4()}@example.com",
+            role=ROLE_STAFF,
+            hashed_password="x",
+            is_active=True,
+        )
+        db.add(second_staff)
+        await db.flush()
+
+        second_request = ComplaintAssignRequest(assigned_to=second_staff.id)
+        updated, returned_staff = await assign_complaint(complaint.id, admin.id, second_request, db)
+
+        assert updated.assigned_to == second_staff.id
+        assert returned_staff.id == second_staff.id
+
+        # complaint.assigned_to still points at second_staff, delete it
+        # first or the FK constraint rejects deleting the staff row
+        await _cleanup(db, complaint)
+        await db.delete(second_staff)
+        await db.commit()
+
+    async def test_rejects_assigning_to_a_citizen(self, db, citizen, admin):
+        complaint = await _make_complaint(db, citizen)
+
+        request = ComplaintAssignRequest(assigned_to=citizen.id)
+        with pytest.raises(InvalidStaffAssignmentError):
+            await assign_complaint(complaint.id, admin.id, request, db)
+
+        await _cleanup(db, complaint)
+
+    async def test_rejects_assigning_to_a_nonexistent_user(self, db, citizen, admin):
+        complaint = await _make_complaint(db, citizen)
+
+        request = ComplaintAssignRequest(assigned_to=uuid.uuid4())
+        with pytest.raises(InvalidStaffAssignmentError):
+            await assign_complaint(complaint.id, admin.id, request, db)
+
+        await _cleanup(db, complaint)
+
+    async def test_rejects_assigning_a_nonexistent_complaint(self, db, admin, staff):
+        request = ComplaintAssignRequest(assigned_to=staff.id)
+        with pytest.raises(ComplaintNotFoundError):
+            await assign_complaint(uuid.uuid4(), admin.id, request, db)
+
+    async def test_rejects_assigning_a_resolved_complaint(self, db, citizen, admin, staff):
+        complaint = await _make_complaint(db, citizen)
+        complaint.status = ComplaintStatus.RESOLVED.value
+        await db.flush()
+
+        request = ComplaintAssignRequest(assigned_to=staff.id)
+        with pytest.raises(ComplaintNotAssignableError):
+            await assign_complaint(complaint.id, admin.id, request, db)
+
+        await _cleanup(db, complaint)
+
+    async def test_rejects_assigning_a_withdrawn_complaint(self, db, citizen, admin, staff):
+        complaint = await _make_complaint(db, citizen)
+        complaint.status = ComplaintStatus.WITHDRAWN.value
+        await db.flush()
+
+        request = ComplaintAssignRequest(assigned_to=staff.id)
+        with pytest.raises(ComplaintNotAssignableError):
+            await assign_complaint(complaint.id, admin.id, request, db)
 
         await _cleanup(db, complaint)

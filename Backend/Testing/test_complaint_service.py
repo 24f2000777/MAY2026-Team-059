@@ -244,6 +244,19 @@ class TestComplaintStatusStateMachine:
 
         await _cleanup(db, complaint)
 
+    async def test_reject_clears_assignment(self, db, citizen, admin, staff):
+        # A rejected complaint is terminal, it shouldn't keep showing up
+        # as "assigned" to whichever staff member had it.
+        complaint = await _make_complaint(db, citizen)
+        complaint.assigned_to = staff.id
+        await db.flush()
+
+        rejected = await transition_complaint_status(complaint.id, "reject", admin, "No longer valid.", db)
+
+        assert rejected.assigned_to is None
+
+        await _cleanup(db, complaint)
+
     async def test_cannot_approve_a_non_submitted_complaint(self, db, citizen, admin):
         complaint = await _make_complaint(db, citizen)
         await transition_complaint_status(complaint.id, "approve", admin, None, db)

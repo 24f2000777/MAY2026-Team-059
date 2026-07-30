@@ -10,6 +10,8 @@ calls those endpoints. Reuses those exact services rather than
 duplicating any scoring/routing logic here.
 """
 
+from sqlalchemy import select
+
 from app.model import Complaint, ComplaintUpdate
 from app.schemas.complaint import ComplaintCreate, ComplaintStatus
 from app.services.priority_service import score_complaint
@@ -113,11 +115,20 @@ async def transition_complaint_status(complaint_id, action: str, actor, notes, d
     caller (not admin, admins bypass this) is the complaint's own
     assigned staff member, not someone else's.
 
+    Locks the complaint row (SELECT ... FOR UPDATE) before checking
+    its status, so two concurrent transition requests on the same
+    complaint can't both read the same pre-transition status and both
+    succeed, the second waits for the first's transaction to commit
+    and then sees the already-updated status.
+
     Does not commit, same convention as create_complaint above.
     """
     rule = TRANSITIONS[action]
 
-    complaint = await db.get(Complaint, complaint_id)
+    result = await db.execute(
+        select(Complaint).where(Complaint.id == complaint_id).with_for_update()
+    )
+    complaint = result.scalar_one_or_none()
     if complaint is None:
         raise ComplaintNotFoundError("Complaint not found.")
 
@@ -139,6 +150,7 @@ async def transition_complaint_status(complaint_id, action: str, actor, notes, d
 
     if action == "reject":
         complaint.reject_reason = notes
+        complaint.assigned_to = None
 
     db.add(ComplaintUpdate(
         complaint_id=complaint.id,

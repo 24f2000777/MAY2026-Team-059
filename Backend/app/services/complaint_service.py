@@ -10,6 +10,8 @@ calls those endpoints. Reuses those exact services rather than
 duplicating any scoring/routing logic here.
 """
 
+from sqlalchemy import select
+
 from app.model import Complaint, ComplaintUpdate, User
 from app.schemas.complaint import ComplaintAssignRequest, ComplaintCreate, ComplaintStatus
 from app.services.priority_service import score_complaint
@@ -106,9 +108,18 @@ async def assign_complaint(
     and re-fetching the staff row a second time in the route would be
     redundant.
 
+    Locks the complaint row (SELECT ... FOR UPDATE) before checking
+    its status, so a concurrent assign and a concurrent status
+    transition on the same complaint can't both read a stale status
+    and both go through, the second waits for the first's transaction
+    to commit and then sees the up-to-date row.
+
     Does not commit, same convention as create_complaint above.
     """
-    complaint = await db.get(Complaint, complaint_id)
+    result = await db.execute(
+        select(Complaint).where(Complaint.id == complaint_id).with_for_update()
+    )
+    complaint = result.scalar_one_or_none()
     if complaint is None:
         raise ComplaintNotFoundError("Complaint not found.")
 

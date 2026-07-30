@@ -5,6 +5,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+INTERNAL_NOTE_VISIBILITY = "internal"
+
 # Location error codes, distinct from the generic VAL_001 every other
 # request-validation failure gets in app/core/exception_handlers.py.
 # Raised as LocationValidationError (a ValueError subclass) so pydantic's
@@ -324,4 +326,94 @@ class ComplaintAssignResponse(BaseModel):
                 "updated_at": "2026-07-24T00:30:00Z",
             }
         },
+    )
+
+
+# =====================================================
+# Complaint Internal Notes
+#
+# Built from complaint_internal_notes_schema.py (the reviewed design
+# doc at the repo root), with one real change: that doc proposes a
+# brand new complaint_internal_notes table, but ComplaintUpdate
+# already is exactly what it's describing, a table with one row per
+# note/event on a complaint rather than one overwritable field. Notes
+# added here are ComplaintUpdate rows with old_status/new_status left
+# null (a pure note, no status change attached), read back through
+# ComplaintUpdate.notes. author name/role stay join-derived rather
+# than stored redundantly, which is what this doc's own response
+# schema already wanted (its "suggested columns" note contradicted
+# its own response model on this point).
+# =====================================================
+
+class ComplaintNoteCreateRequest(BaseModel):
+    """
+    Request schema for POST /complaints/{id}/updates. The author is
+    derived from the authenticated JWT (require_roles) and is never
+    accepted from the client.
+    """
+
+    note_text: str = Field(
+        ...,
+        min_length=1,
+        max_length=2000,
+        description="Internal note content added by a staff member or admin",
+    )
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "note_text": "Spoke with resident and scheduled a follow-up inspection for tomorrow.",
+            }
+        }
+    )
+
+
+class ComplaintNoteAuthor(BaseModel):
+    """Author summary, built from a join to User at read time."""
+
+    id: UUID = Field(..., description="Author's user ID")
+    name: str = Field(..., description="Author's display name")
+    role: str = Field(..., description="Author's role, staff or admin")
+
+
+class ComplaintNote(BaseModel):
+    """
+    A single internal note. Staff/admin only, must never be returned
+    by a citizen-facing endpoint.
+    """
+
+    id: UUID = Field(..., description="Note ID")
+    complaint_id: UUID = Field(..., description="Complaint this note belongs to")
+    note_text: str = Field(..., description="The note content")
+    author: ComplaintNoteAuthor = Field(..., description="The staff/admin user who wrote the note")
+    created_at: datetime = Field(..., description="Server-generated timestamp")
+    visibility: str = Field(
+        default=INTERNAL_NOTE_VISIBILITY,
+        description="Internal-only visibility marker, never exposed to citizens",
+    )
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "id": "7c1e2f3a-9b4d-4e5f-8a6b-1c2d3e4f5a6b",
+                "complaint_id": "123e4567-e89b-12d3-a456-426614174000",
+                "note_text": "Spoke with resident and scheduled a follow-up inspection for tomorrow.",
+                "author": {
+                    "id": "550e8400-e29b-41d4-a716-446655440000",
+                    "name": "Rajesh Kumar",
+                    "role": "staff",
+                },
+                "created_at": "2026-07-24T10:15:00Z",
+                "visibility": "internal",
+            }
+        }
+    )
+
+
+class ComplaintNoteListResponse(BaseModel):
+    """Response schema for GET /complaints/{id}/updates."""
+
+    notes: list[ComplaintNote] = Field(
+        default_factory=list,
+        description="Notes ordered oldest to newest",
     )

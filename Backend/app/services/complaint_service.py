@@ -1,5 +1,5 @@
 """
-Complaint submission (#41) and assignment.
+Complaint submission (#41), assignment, and internal notes.
 
 Creates a real Complaint row from a citizen's POST /complaints request,
 then immediately runs it through the same ML pipeline the /ml/* routes
@@ -87,7 +87,7 @@ async def assign_complaint(
 
     Originally this also jumped status straight to "in_progress" on
     assignment, but that collides with the actual status state
-    machine (approve/start/resolve/reject, see complaint_service.py's
+    machine (approve/start/resolve/reject, see
     transition_complaint_status): "who is responsible" and "what
     stage the complaint is at" are orthogonal concerns, same as in
     any real ticketing system, an admin can reassign a complaint
@@ -147,3 +147,65 @@ async def assign_complaint(
     await db.flush()
 
     return complaint, staff
+
+
+async def add_complaint_note(
+    complaint_id,
+    author_id,
+    note_text: str,
+    db,
+) -> tuple[ComplaintUpdate, User]:
+    """
+    Adds an internal note to a complaint, stored as a ComplaintUpdate
+    row with old_status/new_status left null (a pure note, no status
+    change attached). Returns (note, author) for the same reason
+    assign_complaint returns (complaint, staff): the route needs the
+    author's name/role to build ComplaintNoteAuthor, and re-fetching
+    the author a second time in the route would be redundant.
+
+    Does not commit, same convention as create_complaint above.
+    """
+    complaint = await db.get(Complaint, complaint_id)
+    if complaint is None:
+        raise ComplaintNotFoundError("Complaint not found.")
+
+    author = await db.get(User, author_id)
+
+    note = ComplaintUpdate(
+        complaint_id=complaint.id,
+        updated_by=author_id,
+        old_status=None,
+        new_status=None,
+        notes=note_text,
+    )
+    db.add(note)
+    await db.flush()
+
+    return note, author
+
+
+async def list_complaint_notes(complaint_id, db) -> list[tuple[ComplaintUpdate, User]]:
+    """
+    Every internal note on a complaint, oldest first, each paired
+    with its author. Only ComplaintUpdate rows that actually carry
+    note text count as a "note" here, a pure status-change row with
+    no commentary (notes IS NULL) isn't one.
+    """
+    complaint = await db.get(Complaint, complaint_id)
+    if complaint is None:
+        raise ComplaintNotFoundError("Complaint not found.")
+
+    result = await db.execute(
+        select(ComplaintUpdate)
+        .where(ComplaintUpdate.complaint_id == complaint_id, ComplaintUpdate.notes.isnot(None))
+        .order_by(ComplaintUpdate.created_at)
+    )
+    notes = result.scalars().all()
+
+    author_ids = {note.updated_by for note in notes}
+    authors_by_id = {}
+    if author_ids:
+        result = await db.execute(select(User).where(User.id.in_(author_ids)))
+        authors_by_id = {user.id: user for user in result.scalars().all()}
+
+    return [(note, authors_by_id.get(note.updated_by)) for note in notes]

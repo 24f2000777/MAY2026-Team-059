@@ -125,3 +125,49 @@ class ChatSessionAccessDeniedError(AuthenticationError):
     the other auth-module cases the doc doesn't enumerate.
     """
     error_code = "AUTH_012"
+
+
+# =====================================================
+# Complaints
+# =====================================================
+
+class ComplaintError(Exception):
+    """
+    Base class for complaint-domain errors, same shape and reasoning
+    as AuthenticationError above (a default error_code every subclass
+    inherits, overridable per-instance), just scoped to its own
+    COMP_0xx code namespace instead of reusing AUTH_0xx for something
+    that isn't an auth concern.
+    """
+
+    error_code: str = "COMP_000"
+
+    def __init__(self, message: str, error_code: str | None = None):
+        super().__init__(message)
+        if error_code is not None:
+            self.error_code = error_code
+
+
+class ComplaintNotFoundError(ComplaintError):
+    """Raised when the requested complaint does not exist."""
+    error_code = "COMP_001"
+
+
+class InvalidStatusTransitionError(ComplaintError):
+    """
+    Raised when a status transition (approve/reject/start/resolve) is
+    attempted from a complaint status that doesn't allow it, e.g.
+    trying to /start a complaint that's still "submitted" (not yet
+    approved) or resolving one that's already "resolved".
+    """
+    error_code = "COMP_004"
+
+
+class ComplaintNotAssignedToUserError(ComplaintError):
+    """
+    Raised when a staff member tries to /start or /resolve a
+    complaint that isn't assigned to them. Admins bypass this check
+    entirely (an admin can act on any complaint regardless of who
+    it's assigned to), this only restricts staff to their own work.
+    """
+    error_code = "COMP_005"

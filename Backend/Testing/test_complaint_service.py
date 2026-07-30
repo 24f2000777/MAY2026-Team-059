@@ -15,11 +15,16 @@ import pytest
 from sqlalchemy import select
 
 from app.core.database import AsyncSessionLocal
-from app.model import Department, Notification, User
+from app.model import ComplaintUpdate, Department, Notification, User
 from app.schemas.complaint import ComplaintCreate, ComplaintLocation
-from app.services.complaint_service import create_complaint
+from app.services.complaint_service import create_complaint, transition_complaint_status
 from app.services.risk_alert_service import HIGH_RISK_NOTIFICATION_TYPE
-from app.utils.constants import ROLE_ADMIN
+from app.utils.constants import ROLE_ADMIN, ROLE_STAFF
+from app.utils.exceptions import (
+    ComplaintNotAssignedToUserError,
+    ComplaintNotFoundError,
+    InvalidStatusTransitionError,
+)
 
 
 @pytest.fixture
@@ -66,12 +71,39 @@ async def admin(db):
     await db.commit()
 
 
+@pytest.fixture
+async def staff(db):
+    user = User(
+        phone=f"9{uuid.uuid4().int % 10**9:09d}",
+        name="Pytest Staff",
+        email=f"pytest-staff-{uuid.uuid4()}@example.com",
+        role=ROLE_STAFF,
+        hashed_password="x",
+        is_active=True,
+    )
+    db.add(user)
+    await db.flush()
+    yield user
+    await db.delete(user)
+    await db.commit()
+
+
 async def _cleanup(db, complaint):
     result = await db.execute(select(Notification).where(Notification.complaint_id == complaint.id))
     for n in result.scalars().all():
         await db.delete(n)
     await db.delete(complaint)
     await db.commit()
+
+
+async def _make_complaint(db, citizen):
+    data = ComplaintCreate(
+        title="Large pothole on main road",
+        description="There is a dangerous pothole near the school gate causing accidents daily.",
+        category="pothole",
+        location=ComplaintLocation(address="Near Patel Chowk, Patan"),
+    )
+    return await create_complaint(citizen.id, data, db)
 
 
 class TestCreateComplaint:
@@ -158,3 +190,135 @@ class TestCreateComplaint:
             assert len(notifications) == 0
 
         await _cleanup(db, complaint)
+
+
+class TestComplaintStatusStateMachine:
+    async def test_full_happy_path_submitted_to_resolved(self, db, citizen, admin, staff):
+        complaint = await _make_complaint(db, citizen)
+        assert complaint.status == "submitted"
+
+        approved = await transition_complaint_status(complaint.id, "approve", admin, None, db)
+        assert approved.status == "approved"
+
+        # assignment itself lives in a separate branch/PR, set it directly
+        # here rather than depend on that endpoint existing yet
+        complaint.assigned_to = staff.id
+        await db.flush()
+
+        started = await transition_complaint_status(complaint.id, "start", staff, "Heading out now.", db)
+        assert started.status == "in_progress"
+
+        resolved = await transition_complaint_status(complaint.id, "resolve", staff, "Pothole filled in.", db)
+        assert resolved.status == "resolved"
+
+        result = await db.execute(
+            select(ComplaintUpdate)
+            .where(ComplaintUpdate.complaint_id == complaint.id)
+            .order_by(ComplaintUpdate.created_at)
+        )
+        updates = result.scalars().all()
+        assert [u.new_status for u in updates] == ["approved", "in_progress", "resolved"]
+        assert updates[0].old_status == "submitted"
+
+        await _cleanup(db, complaint)
+
+    async def test_reject_from_submitted_sets_reason(self, db, citizen, admin):
+        complaint = await _make_complaint(db, citizen)
+
+        rejected = await transition_complaint_status(
+            complaint.id, "reject", admin, "Duplicate of an existing complaint.", db
+        )
+
+        assert rejected.status == "rejected"
+        assert rejected.reject_reason == "Duplicate of an existing complaint."
+
+        await _cleanup(db, complaint)
+
+    async def test_reject_from_approved_also_allowed(self, db, citizen, admin):
+        complaint = await _make_complaint(db, citizen)
+        await transition_complaint_status(complaint.id, "approve", admin, None, db)
+
+        rejected = await transition_complaint_status(complaint.id, "reject", admin, "Changed our mind.", db)
+
+        assert rejected.status == "rejected"
+
+        await _cleanup(db, complaint)
+
+    async def test_cannot_approve_a_non_submitted_complaint(self, db, citizen, admin):
+        complaint = await _make_complaint(db, citizen)
+        await transition_complaint_status(complaint.id, "approve", admin, None, db)
+
+        with pytest.raises(InvalidStatusTransitionError):
+            await transition_complaint_status(complaint.id, "approve", admin, None, db)
+
+        await _cleanup(db, complaint)
+
+    async def test_cannot_start_an_unassigned_complaint(self, db, citizen, admin, staff):
+        complaint = await _make_complaint(db, citizen)
+        await transition_complaint_status(complaint.id, "approve", admin, None, db)
+
+        with pytest.raises(InvalidStatusTransitionError):
+            await transition_complaint_status(complaint.id, "start", staff, None, db)
+
+        await _cleanup(db, complaint)
+
+    async def test_cannot_start_a_complaint_still_submitted(self, db, citizen, staff):
+        complaint = await _make_complaint(db, citizen)
+        complaint.assigned_to = staff.id
+        await db.flush()
+
+        with pytest.raises(InvalidStatusTransitionError):
+            await transition_complaint_status(complaint.id, "start", staff, None, db)
+
+        await _cleanup(db, complaint)
+
+    async def test_staff_cannot_start_someone_elses_assigned_complaint(self, db, citizen, admin, staff):
+        other_staff = User(
+            phone=f"9{uuid.uuid4().int % 10**9:09d}",
+            name="Pytest Staff Two",
+            email=f"pytest-staff-{uuid.uuid4()}@example.com",
+            role=ROLE_STAFF,
+            hashed_password="x",
+            is_active=True,
+        )
+        db.add(other_staff)
+        await db.flush()
+
+        complaint = await _make_complaint(db, citizen)
+        await transition_complaint_status(complaint.id, "approve", admin, None, db)
+        complaint.assigned_to = other_staff.id
+        await db.flush()
+
+        with pytest.raises(ComplaintNotAssignedToUserError):
+            await transition_complaint_status(complaint.id, "start", staff, None, db)
+
+        await _cleanup(db, complaint)
+        await db.delete(other_staff)
+        await db.commit()
+
+    async def test_admin_can_start_any_complaint_regardless_of_assignee(self, db, citizen, admin, staff):
+        complaint = await _make_complaint(db, citizen)
+        await transition_complaint_status(complaint.id, "approve", admin, None, db)
+        complaint.assigned_to = staff.id
+        await db.flush()
+
+        # admin, not the assigned staff member, calling /start anyway
+        started = await transition_complaint_status(complaint.id, "start", admin, None, db)
+        assert started.status == "in_progress"
+
+        await _cleanup(db, complaint)
+
+    async def test_cannot_resolve_a_complaint_not_in_progress(self, db, citizen, admin, staff):
+        complaint = await _make_complaint(db, citizen)
+        await transition_complaint_status(complaint.id, "approve", admin, None, db)
+        complaint.assigned_to = staff.id
+        await db.flush()
+
+        with pytest.raises(InvalidStatusTransitionError):
+            await transition_complaint_status(complaint.id, "resolve", staff, None, db)
+
+        await _cleanup(db, complaint)
+
+    async def test_transition_on_nonexistent_complaint_raises(self, db, admin):
+        with pytest.raises(ComplaintNotFoundError):
+            await transition_complaint_status(uuid.uuid4(), "approve", admin, None, db)

@@ -1,8 +1,9 @@
 from datetime import datetime
 from enum import Enum
+from typing import Optional
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 # Location error codes, distinct from the generic VAL_001 every other
 # request-validation failure gets in app/core/exception_handlers.py.
@@ -193,6 +194,96 @@ class ComplaintResponse(BaseModel):
                 "priority_score": 85,
                 "category": "pothole",
                 "created_at": "2026-07-07T21:00:00Z",
+            }
+        },
+    )
+
+
+# =====================================================
+# Complaint Status State Machine
+#
+# submitted --approve--> approved --start--> in_progress --resolve--> resolved
+#     \                       \
+#      \--reject--> rejected   \--reject--> rejected
+#
+# start/resolve additionally require the complaint to already be
+# assigned (see PATCH /complaints/{id}/assign in a separate PR) — a
+# staff member can only start/resolve their own assigned work, an
+# admin can act on any complaint regardless of assignee. See
+# complaint_service.py's TRANSITIONS table for the actual rules this
+# diagram summarizes.
+# =====================================================
+
+class ComplaintTransitionRequest(BaseModel):
+    """
+    Request body for PATCH /complaints/{id}/approve, /start, and
+    /resolve — all three take the same shape, an optional note about
+    the transition. /reject uses ComplaintRejectRequest instead,
+    since a rejection reason is required, not optional.
+    """
+
+    notes: Optional[str] = Field(
+        default=None,
+        max_length=500,
+        description="Optional note about this transition",
+    )
+
+    @field_validator("notes")
+    @classmethod
+    def normalize_notes(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None:
+            stripped = v.strip()
+            return stripped or None
+        return v
+
+    model_config = ConfigDict(
+        json_schema_extra={"example": {"notes": "Confirmed with the ward office, proceeding."}}
+    )
+
+
+class ComplaintRejectRequest(BaseModel):
+    """Request body for PATCH /complaints/{id}/reject. A reason is required, not optional."""
+
+    reason: str = Field(
+        ...,
+        min_length=5,
+        max_length=500,
+        description="Why this complaint is being rejected",
+    )
+
+    @field_validator("reason")
+    @classmethod
+    def strip_reason(cls, v: str) -> str:
+        return v.strip()
+
+    model_config = ConfigDict(
+        json_schema_extra={"example": {"reason": "Duplicate of an already-filed complaint in this ward."}}
+    )
+
+
+class ComplaintStatusResponse(BaseModel):
+    """
+    Response schema shared by all four transition endpoints
+    (approve/reject/start/resolve). Deliberately smaller than
+    ComplaintAssignResponse, this only needs to confirm the new state,
+    not the whole complaint record.
+    """
+
+    id: UUID
+    status: str
+    assigned_to: Optional[UUID] = None
+    reject_reason: Optional[str] = None
+    updated_at: datetime
+
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_schema_extra={
+            "example": {
+                "id": "123e4567-e89b-12d3-a456-426614174000",
+                "status": "approved",
+                "assigned_to": None,
+                "reject_reason": None,
+                "updated_at": "2026-07-24T10:15:00Z",
             }
         },
     )

@@ -1,10 +1,12 @@
 <script setup>
 import { ref, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/authStore'
 import { getWards, createComplaint } from '../api/complaintApi'
 import StatusBadge from '../components/StatusBadge.vue'
 
 const auth = useAuthStore()
+const router = useRouter()
 
 // Real ComplaintCategory enum values (app/schemas/complaint.py), not the
 // old mock's free-text category names.
@@ -41,9 +43,18 @@ onMounted(async () => {
     const data = await getWards({ accessToken: auth.accessToken })
     wards.value = data.wards
   } catch (e) {
+    if (e.status === 401) {
+      // Same reasoning as NagrikSaathi.vue's onMounted: isLoggedIn only
+      // checks that a token is present, not that it's still valid, so
+      // clear the stale session before redirecting or the guest-route
+      // guard would just bounce back here.
+      await auth.logout()
+      router.push('/login')
+      return
+    }
     // A citizen can still submit without picking a ward (it's optional,
-    // priority scoring falls back to a dataset-average estimate), so a
-    // failed wards lookup shouldn't block the whole form.
+    // priority scoring falls back to a dataset-average estimate), so any
+    // other failure shouldn't block the whole form.
     wardsError.value = 'Could not load the ward list. You can still submit without picking one.'
   }
 })
@@ -98,6 +109,11 @@ async function submit() {
     })
     filedComplaint.value = data
   } catch (e) {
+    if (e.status === 401) {
+      await auth.logout()
+      router.push('/login')
+      return
+    }
     error.value = e.message
   } finally {
     isSubmitting.value = false
@@ -147,7 +163,7 @@ function fileAnother() {
 
       <div class="field">
         <label>Describe the issue</label>
-        <textarea v-model="description" rows="4" required placeholder="At least 20 characters"></textarea>
+        <textarea v-model="description" rows="4" required maxlength="1000" placeholder="At least 20 characters"></textarea>
       </div>
 
       <div class="field">

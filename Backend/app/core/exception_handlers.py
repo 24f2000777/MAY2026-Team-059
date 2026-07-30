@@ -45,21 +45,23 @@ from app.utils.exceptions import (
     RateLimitExceededError,
     InsufficientPermissionsError,
     ChatSessionAccessDeniedError,
+    ComplaintError,
+    ComplaintNotFoundError,
 )
 
 
 def _error_response(
     status_code: int,
-    exc: AuthenticationError,
+    exc: AuthenticationError | ComplaintError,
     details: dict | None = None,
 ) -> JSONResponse:
     """
     Build the standard error envelope (Appendix B).
 
     error_code is read straight off the exception instance —
-    every AuthenticationError subclass carries a default
-    error_code, and specific raise sites can override it per
-    instance (e.g. InvalidTokenError distinguishing AUTH_002
+    every AuthenticationError/ComplaintError subclass carries a
+    default error_code, and specific raise sites can override it
+    per instance (e.g. InvalidTokenError distinguishing AUTH_002
     "expired" from AUTH_003 "invalid") — so this function never
     needs to know about individual exception types itself.
     """
@@ -160,6 +162,25 @@ async def handle_chat_session_access_denied(
     exc: ChatSessionAccessDeniedError,
 ) -> JSONResponse:
     return _error_response(status.HTTP_403_FORBIDDEN, exc)
+
+
+async def handle_complaint_not_found(
+    request: Request,
+    exc: ComplaintNotFoundError,
+) -> JSONResponse:
+    return _error_response(status.HTTP_404_NOT_FOUND, exc)
+
+
+async def handle_complaint_error(
+    request: Request,
+    exc: ComplaintError,
+) -> JSONResponse:
+    """
+    Fallback for any ComplaintError subclass that does not have a
+    more specific handler registered above, same reasoning as
+    handle_authentication_error below.
+    """
+    return _error_response(status.HTTP_400_BAD_REQUEST, exc)
 
 
 async def handle_authentication_error(
@@ -340,6 +361,17 @@ def register_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(
         AuthenticationError,
         handle_authentication_error,
+    )
+
+    app.add_exception_handler(
+        ComplaintNotFoundError,
+        handle_complaint_not_found,
+    )
+
+    # Catch-all fallback for any other ComplaintError subclass.
+    app.add_exception_handler(
+        ComplaintError,
+        handle_complaint_error,
     )
 
     # FastAPI/Pydantic's own request validation errors (422),

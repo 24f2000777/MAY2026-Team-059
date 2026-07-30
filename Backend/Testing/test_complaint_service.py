@@ -15,11 +15,12 @@ import pytest
 from sqlalchemy import select
 
 from app.core.database import AsyncSessionLocal
-from app.model import Department, Notification, User
+from app.model import ComplaintUpdate, Department, Notification, User
 from app.schemas.complaint import ComplaintCreate, ComplaintLocation
-from app.services.complaint_service import create_complaint
+from app.services.complaint_service import add_complaint_note, create_complaint, list_complaint_notes
 from app.services.risk_alert_service import HIGH_RISK_NOTIFICATION_TYPE
-from app.utils.constants import ROLE_ADMIN
+from app.utils.constants import ROLE_ADMIN, ROLE_STAFF
+from app.utils.exceptions import ComplaintNotFoundError
 
 
 @pytest.fixture
@@ -66,12 +67,39 @@ async def admin(db):
     await db.commit()
 
 
+@pytest.fixture
+async def staff(db):
+    user = User(
+        phone=f"9{uuid.uuid4().int % 10**9:09d}",
+        name="Pytest Staff",
+        email=f"pytest-staff-{uuid.uuid4()}@example.com",
+        role=ROLE_STAFF,
+        hashed_password="x",
+        is_active=True,
+    )
+    db.add(user)
+    await db.flush()
+    yield user
+    await db.delete(user)
+    await db.commit()
+
+
 async def _cleanup(db, complaint):
     result = await db.execute(select(Notification).where(Notification.complaint_id == complaint.id))
     for n in result.scalars().all():
         await db.delete(n)
     await db.delete(complaint)
     await db.commit()
+
+
+async def _make_complaint(db, citizen):
+    data = ComplaintCreate(
+        title="Large pothole on main road",
+        description="There is a dangerous pothole near the school gate causing accidents daily.",
+        category="pothole",
+        location=ComplaintLocation(address="Near Patel Chowk, Patan"),
+    )
+    return await create_complaint(citizen.id, data, db)
 
 
 class TestCreateComplaint:
@@ -158,3 +186,78 @@ class TestCreateComplaint:
             assert len(notifications) == 0
 
         await _cleanup(db, complaint)
+
+
+class TestComplaintNotes:
+    async def test_adds_a_note_without_changing_status(self, db, citizen, staff):
+        complaint = await _make_complaint(db, citizen)
+
+        note, author = await add_complaint_note(
+            complaint.id, staff.id, "Spoke with resident, scheduling a follow-up.", db
+        )
+
+        assert note.complaint_id == complaint.id
+        assert note.notes == "Spoke with resident, scheduling a follow-up."
+        assert note.updated_by == staff.id
+        assert note.old_status is None
+        assert note.new_status is None
+        assert author.id == staff.id
+        assert complaint.status == "submitted", "adding a note must not touch complaint status"
+
+        await _cleanup(db, complaint)
+
+    async def test_admin_can_also_add_a_note(self, db, citizen, admin):
+        complaint = await _make_complaint(db, citizen)
+
+        note, author = await add_complaint_note(complaint.id, admin.id, "Escalating this one.", db)
+
+        assert note.updated_by == admin.id
+        assert author.id == admin.id
+
+        await _cleanup(db, complaint)
+
+    async def test_lists_notes_oldest_first(self, db, citizen, staff, admin):
+        complaint = await _make_complaint(db, citizen)
+
+        await add_complaint_note(complaint.id, staff.id, "First note.", db)
+        await add_complaint_note(complaint.id, admin.id, "Second note.", db)
+
+        notes = await list_complaint_notes(complaint.id, db)
+
+        assert len(notes) == 2
+        assert notes[0][0].notes == "First note."
+        assert notes[0][1].id == staff.id
+        assert notes[1][0].notes == "Second note."
+        assert notes[1][1].id == admin.id
+
+        await _cleanup(db, complaint)
+
+    async def test_pure_status_change_rows_are_not_listed_as_notes(self, db, citizen, staff, admin):
+        # A ComplaintUpdate row with no note text (a bare status change,
+        # not something this endpoint ever creates itself today, but the
+        # table is shared, so this proves the filter actually excludes
+        # rows without commentary rather than showing every row).
+        complaint = await _make_complaint(db, citizen)
+        db.add(ComplaintUpdate(
+            complaint_id=complaint.id,
+            updated_by=admin.id,
+            old_status="submitted",
+            new_status="approved",
+            notes=None,
+        ))
+        await add_complaint_note(complaint.id, staff.id, "This one has real text.", db)
+
+        notes = await list_complaint_notes(complaint.id, db)
+
+        assert len(notes) == 1
+        assert notes[0][0].notes == "This one has real text."
+
+        await _cleanup(db, complaint)
+
+    async def test_rejects_adding_a_note_to_a_nonexistent_complaint(self, db, staff):
+        with pytest.raises(ComplaintNotFoundError):
+            await add_complaint_note(uuid.uuid4(), staff.id, "Doesn't matter.", db)
+
+    async def test_rejects_listing_notes_for_a_nonexistent_complaint(self, db):
+        with pytest.raises(ComplaintNotFoundError):
+            await list_complaint_notes(uuid.uuid4(), db)

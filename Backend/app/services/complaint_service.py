@@ -1,5 +1,5 @@
 """
-Complaint submission (#41).
+Complaint submission (#41) and internal notes.
 
 Creates a real Complaint row from a citizen's POST /complaints request,
 then immediately runs it through the same ML pipeline the /ml/* routes
@@ -10,11 +10,14 @@ calls those endpoints. Reuses those exact services rather than
 duplicating any scoring/routing logic here.
 """
 
-from app.model import Complaint
+from sqlalchemy import select
+
+from app.model import Complaint, ComplaintUpdate, User
 from app.schemas.complaint import ComplaintCreate
 from app.services.priority_service import score_complaint
 from app.services.risk_alert_service import flag_if_high_risk
 from app.services.routing_service import route_complaint
+from app.utils.exceptions import ComplaintNotFoundError
 
 
 def _location_text(location) -> str:
@@ -56,3 +59,65 @@ async def create_complaint(citizen_id, data: ComplaintCreate, db) -> Complaint:
     await flag_if_high_risk(complaint, db)
 
     return complaint
+
+
+async def add_complaint_note(
+    complaint_id,
+    author_id,
+    note_text: str,
+    db,
+) -> tuple[ComplaintUpdate, User]:
+    """
+    Adds an internal note to a complaint, stored as a ComplaintUpdate
+    row with old_status/new_status left null (a pure note, no status
+    change attached). Returns (note, author) for the same reason
+    assign_complaint returns (complaint, staff): the route needs the
+    author's name/role to build ComplaintNoteAuthor, and re-fetching
+    the author a second time in the route would be redundant.
+
+    Does not commit, same convention as create_complaint above.
+    """
+    complaint = await db.get(Complaint, complaint_id)
+    if complaint is None:
+        raise ComplaintNotFoundError("Complaint not found.")
+
+    author = await db.get(User, author_id)
+
+    note = ComplaintUpdate(
+        complaint_id=complaint.id,
+        updated_by=author_id,
+        old_status=None,
+        new_status=None,
+        notes=note_text,
+    )
+    db.add(note)
+    await db.flush()
+
+    return note, author
+
+
+async def list_complaint_notes(complaint_id, db) -> list[tuple[ComplaintUpdate, User]]:
+    """
+    Every internal note on a complaint, oldest first, each paired
+    with its author. Only ComplaintUpdate rows that actually carry
+    note text count as a "note" here, a pure status-change row with
+    no commentary (notes IS NULL) isn't one.
+    """
+    complaint = await db.get(Complaint, complaint_id)
+    if complaint is None:
+        raise ComplaintNotFoundError("Complaint not found.")
+
+    result = await db.execute(
+        select(ComplaintUpdate)
+        .where(ComplaintUpdate.complaint_id == complaint_id, ComplaintUpdate.notes.isnot(None))
+        .order_by(ComplaintUpdate.created_at)
+    )
+    notes = result.scalars().all()
+
+    author_ids = {note.updated_by for note in notes}
+    authors_by_id = {}
+    if author_ids:
+        result = await db.execute(select(User).where(User.id.in_(author_ids)))
+        authors_by_id = {user.id: user for user in result.scalars().all()}
+
+    return [(note, authors_by_id.get(note.updated_by)) for note in notes]

@@ -221,6 +221,37 @@ class ComplaintResponse(BaseModel):
     )
 
 
+class MyComplaintOut(BaseModel):
+    """
+    One entry in GET /complaints/mine. Deliberately not the same shape as
+    ComplaintResponse (that's for the create-response, minimal on
+    purpose) — this needs enough for a citizen's own list/dashboard view.
+    No severity field: severity isn't persisted anywhere on Complaint,
+    it's computed transiently by the LLM each time priority is scored
+    and never stored, so it can't be surfaced here without a schema
+    change to store it, out of scope for this endpoint.
+    """
+
+    id: UUID
+    title: str
+    description: str
+    category: ComplaintCategory
+    status: ComplaintStatus
+    priority_score: int
+    location_text: Optional[str] = None
+    ward_code: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class MyComplaintListResponse(BaseModel):
+    """Response schema for GET /complaints/mine."""
+
+    complaints: list[MyComplaintOut]
+
+
 class WardOut(BaseModel):
     """One entry in GET /complaints/wards, the real 24 BMC administrative wards."""
 

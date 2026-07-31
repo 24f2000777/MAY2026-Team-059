@@ -3,25 +3,11 @@ import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/authStore'
 import { getWards, createComplaint } from '../api/complaintApi'
+import { CATEGORIES, categoryLabel } from '../constants/categories'
 import StatusBadge from '../components/StatusBadge.vue'
 
 const auth = useAuthStore()
 const router = useRouter()
-
-// Real ComplaintCategory enum values (app/schemas/complaint.py), not the
-// old mock's free-text category names.
-const CATEGORIES = [
-  { value: 'pothole', label: 'Pothole' },
-  { value: 'road', label: 'Road Damage' },
-  { value: 'streetlight', label: 'Streetlight Outage' },
-  { value: 'drainage', label: 'Drainage / Flooding' },
-  { value: 'garbage', label: 'Garbage Collection' },
-  { value: 'water_supply', label: 'Water Supply' },
-  { value: 'sewage', label: 'Sewage' },
-  { value: 'traffic', label: 'Traffic' },
-  { value: 'electricity', label: 'Electricity' },
-  { value: 'other', label: 'Other' }
-]
 
 const category = ref('pothole')
 const description = ref('')
@@ -93,8 +79,7 @@ async function submit() {
 
   isSubmitting.value = true
   try {
-    const label = CATEGORIES.find(c => c.value === category.value)?.label || category.value
-    const title = `${label} - ${description.value.trim()}`.slice(0, 100)
+    const title = `${categoryLabel(category.value)} - ${description.value.trim()}`.slice(0, 100)
     const data = await createComplaint({
       title,
       description: description.value.trim(),
@@ -136,7 +121,7 @@ function fileAnother() {
     <div v-if="filedComplaint" class="card">
       <h3>Complaint filed</h3>
       <div class="row top">
-        <strong>{{ CATEGORIES.find(c => c.value === filedComplaint.category)?.label || filedComplaint.category }}</strong>
+        <strong>{{ categoryLabel(filedComplaint.category) }}</strong>
         <StatusBadge :value="filedComplaint.status" />
       </div>
       <p class="priority">Priority score: {{ filedComplaint.priority_score }}</p>

@@ -199,12 +199,17 @@ input:focus, select:focus, textarea:focus {
   white-space: nowrap;
 }
 
-.badge.submitted       { background: rgba(184,134,11,.12); color: var(--warn); }
-.badge.in-progress     { background: rgba(47,143,91,.12);  color: var(--accent); }
-.badge.resolved        { background: rgba(42,157,143,.14); color: var(--ok); }
-.badge.severity-high   { background: rgba(192,57,43,.12);  color: var(--danger); }
-.badge.severity-medium { background: rgba(184,134,11,.12); color: var(--warn); }
-.badge.severity-low    { background: rgba(47,143,91,.12);  color: var(--accent); }
+.badge.submitted        { background: rgba(184,134,11,.12); color: var(--warn); }
+.badge.pending-approval { background: rgba(184,134,11,.12); color: var(--warn); }
+.badge.approved         { background: rgba(47,143,91,.12);  color: var(--accent); }
+.badge.in-progress      { background: rgba(47,143,91,.12);  color: var(--accent); }
+.badge.resolved         { background: rgba(42,157,143,.14); color: var(--ok); }
+.badge.closed           { background: rgba(94,107,90,.12);  color: var(--text-dim); }
+.badge.rejected         { background: rgba(192,57,43,.12);  color: var(--danger); }
+.badge.withdrawn        { background: rgba(94,107,90,.12);  color: var(--text-dim); }
+.badge.severity-high    { background: rgba(192,57,43,.12);  color: var(--danger); }
+.badge.severity-medium  { background: rgba(184,134,11,.12); color: var(--warn); }
+.badge.severity-low     { background: rgba(47,143,91,.12);  color: var(--accent); }
 
 /* Empty state */
 

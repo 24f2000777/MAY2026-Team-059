@@ -81,6 +81,16 @@ async def create_complaint(citizen_id, data: ComplaintCreate, db) -> Complaint:
     return complaint
 
 
+async def list_my_complaints(citizen_id, db) -> list[Complaint]:
+    """Every complaint a citizen has filed, newest first."""
+    result = await db.execute(
+        select(Complaint)
+        .where(Complaint.citizen_id == citizen_id)
+        .order_by(Complaint.created_at.desc())
+    )
+    return result.scalars().all()
+
+
 async def assign_complaint(
     complaint_id,
     admin_id,

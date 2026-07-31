@@ -20,6 +20,8 @@ from ..schemas.complaint import (
     ComplaintResponse,
     ComplaintStatusResponse,
     ComplaintTransitionRequest,
+    MyComplaintListResponse,
+    MyComplaintOut,
     StaffSummary,
     WardListResponse,
     WardOut,
@@ -29,6 +31,7 @@ from ..services.complaint_service import (
     assign_complaint,
     create_complaint,
     list_complaint_notes,
+    list_my_complaints,
     transition_complaint_status,
 )
 from ..utils.constants import ROLE_ADMIN, ROLE_STAFF
@@ -63,6 +66,29 @@ async def list_wards(current_user: User = Depends(get_current_user)):
     return SuccessResponse[WardListResponse](
         message="Wards retrieved.",
         data=WardListResponse(wards=wards),
+    )
+
+
+@router.get(
+    "/mine",
+    response_model=SuccessResponse[MyComplaintListResponse],
+    summary="List the current citizen's own complaints",
+)
+async def list_my_complaints_route(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Every complaint the calling citizen has filed, newest first, whether
+    it came from POST /complaints or the chatbot. Backs the "My
+    Complaints" dashboard.
+    """
+    complaints = await list_my_complaints(current_user.id, db)
+    return SuccessResponse[MyComplaintListResponse](
+        message="Complaints retrieved.",
+        data=MyComplaintListResponse(
+            complaints=[MyComplaintOut.model_validate(c) for c in complaints]
+        ),
     )
 
 

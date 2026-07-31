@@ -11,7 +11,7 @@ defineProps({ complaint: Object, showPriority: { type: Boolean, default: false }
     <p class="desc">{{ complaint.description }}</p>
     <div class="row meta">
       <span>{{ complaint.location }}</span>
-      <StatusBadge :value="complaint.severity" kind="severity" />
+      <StatusBadge v-if="complaint.severity" :value="complaint.severity" kind="severity" />
       <span v-if="showPriority" class="priority">Priority: {{ complaint.priorityScore }}</span>
     </div>
     <div class="row bottom">

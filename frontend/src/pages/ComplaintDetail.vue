@@ -33,7 +33,7 @@ const complaint = computed(() => store.byId(route.params.id))
       </ul>
     </div>
   </div>
-  <div v-if="complaint.status === 'Resolved'" class="card" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+  <div v-if="complaint && complaint.status === 'Resolved'" class="card" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
   <div>
     <p style="margin: 0; font-weight: 700;">{{ complaint.rating ? 'You rated this resolution' : 'How was the resolution?' }}</p>
     <p class="page-intro" style="margin: 4px 0 0 0;">
@@ -44,6 +44,10 @@ const complaint = computed(() => store.byId(route.params.id))
   <button class="btn secondary" @click="router.push(`/citizen/${complaint.id}/rate`)">
     {{ complaint.rating ? 'Edit Rating' : 'Rate Resolution' }}
   </button>
+  </div>
+  <div v-if="!complaint" class="card">
+    <p>This complaint isn't available here yet. Full details for complaints filed since the recent backend update aren't wired up on this page yet.</p>
+    <button class="btn secondary" @click="router.push('/citizen')">&larr; Back to My Complaints</button>
   </div>
   </div>
 </template>

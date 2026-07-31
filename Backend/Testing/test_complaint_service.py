@@ -27,6 +27,7 @@ from app.services.complaint_service import (
     assign_complaint,
     create_complaint,
     list_complaint_notes,
+    list_my_complaints,
     transition_complaint_status,
 )
 from app.services.risk_alert_service import HIGH_RISK_NOTIFICATION_TYPE
@@ -527,3 +528,57 @@ class TestComplaintStatusStateMachine:
     async def test_transition_on_nonexistent_complaint_raises(self, db, admin):
         with pytest.raises(ComplaintNotFoundError):
             await transition_complaint_status(uuid.uuid4(), "approve", admin, None, db)
+
+
+class TestListMyComplaints:
+    async def test_returns_only_the_calling_citizens_own_complaints(self, db, citizen):
+        # The one property GET /complaints/mine must never get wrong:
+        # a citizen's own list must never include another citizen's
+        # complaint, whatever else changes about this endpoint.
+        other = User(
+            phone=f"9{uuid.uuid4().int % 10**9:09d}",
+            name="Pytest Other Citizen",
+            email=f"pytest-{uuid.uuid4()}@example.com",
+            role="citizen",
+            hashed_password="x",
+            is_active=True,
+        )
+        db.add(other)
+        await db.flush()
+
+        mine = await _make_complaint(db, citizen)
+        theirs = await _make_complaint(db, other)
+
+        result = await list_my_complaints(citizen.id, db)
+
+        assert [c.id for c in result] == [mine.id]
+        assert theirs.id not in [c.id for c in result]
+
+        await _cleanup(db, mine)
+        await _cleanup(db, theirs)
+        await db.delete(other)
+        await db.commit()
+
+    async def test_ordered_newest_first(self, db, citizen):
+        older = await _make_complaint(db, citizen)
+        # created_at is server-side now(), which in Postgres is the
+        # *transaction's* start time, not per-statement wall-clock time,
+        # so two inserts in the same uncommitted transaction would get
+        # an identical created_at and make this test meaningless.
+        # Committing here forces a real transaction boundary between
+        # the two complaints, matching how two separate POST /complaints
+        # requests behave in production (each gets its own transaction).
+        await db.commit()
+        newer = await _make_complaint(db, citizen)
+
+        result = await list_my_complaints(citizen.id, db)
+
+        result_ids = [c.id for c in result]
+        assert result_ids.index(newer.id) < result_ids.index(older.id)
+
+        await _cleanup(db, older)
+        await _cleanup(db, newer)
+
+    async def test_empty_for_a_citizen_with_no_complaints(self, db, citizen):
+        result = await list_my_complaints(citizen.id, db)
+        assert result == []

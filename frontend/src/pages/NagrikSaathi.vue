@@ -3,6 +3,7 @@ import { ref, nextTick, onMounted, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/authStore'
 import { useChatStore } from '../stores/chatStore'
+import StatusBadge from '../components/StatusBadge.vue'
 
 const auth = useAuthStore()
 const chat = useChatStore()
@@ -128,6 +129,16 @@ async function send() {
             :class="m.from"
           >
             {{ m.text }}
+
+            <div v-if="m.complaint" class="filed-complaint">
+              <div class="filed-complaint-row">
+                <strong>{{ m.complaint.category }}</strong>
+                <StatusBadge :value="m.complaint.status" />
+              </div>
+              <div class="filed-complaint-row">
+                <span class="priority">Priority score: {{ m.complaint.priority_score }}</span>
+              </div>
+            </div>
           </div>
 
         </div>

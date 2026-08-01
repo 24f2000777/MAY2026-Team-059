@@ -78,7 +78,7 @@ class TestChatService:
     async def test_send_message_persists_both_sides_of_the_conversation(self, db, citizen):
         session_id = f"pytest-session-{uuid.uuid4()}"
 
-        reply = await send_chat_message(
+        reply, complaint = await send_chat_message(
             session_id, citizen.id, "There's a pothole near Andheri station", db
         )
 
@@ -176,7 +176,7 @@ class TestChatCreatesRealComplaints:
             "it has been there for weeks and cars keep swerving to avoid it."
         )
 
-        reply = await send_chat_message(session_id, citizen.id, message, db)
+        reply, filed_complaint = await send_chat_message(session_id, citizen.id, message, db)
         assert isinstance(reply, str) and len(reply) > 0
 
         result = await db.execute(select(Complaint).where(Complaint.citizen_id == citizen.id))
@@ -189,6 +189,12 @@ class TestChatCreatesRealComplaints:
         assert "linking road" in complaint.location_text.lower()
         assert isinstance(complaint.priority_score, int)
         assert 0 <= complaint.priority_score <= 100
+
+        # send_chat_message must hand the same freshly-created row back to
+        # its caller, this is what the /chat/message route surfaces to the
+        # frontend as inline filing confirmation.
+        assert filed_complaint is not None
+        assert filed_complaint.id == complaint.id
 
         history = await get_chat_history(session_id, citizen.id, db)
         for h in history:
@@ -231,7 +237,7 @@ class TestChatCreatesRealComplaints:
         message = "Pothole in Bandra"
         assert len(message) < 20, "this test only proves anything if the message is short"
 
-        reply = await send_chat_message(session_id, citizen.id, message, db)
+        reply, filed_complaint = await send_chat_message(session_id, citizen.id, message, db)
         assert isinstance(reply, str) and len(reply) > 0
 
         result = await db.execute(select(Complaint).where(Complaint.citizen_id == citizen.id))
@@ -241,6 +247,8 @@ class TestChatCreatesRealComplaints:
             "not just a confirmation reply with nothing behind it"
         )
         assert len(complaints[0].description) >= 20
+        assert filed_complaint is not None
+        assert filed_complaint.id == complaints[0].id
 
         history = await get_chat_history(session_id, citizen.id, db)
         for h in history:
@@ -273,8 +281,9 @@ class TestChatCreatesRealComplaints:
             "it has been there for over a week and smells terrible."
         )
 
-        reply = await send_chat_message(session_id, citizen.id, message, db)
+        reply, filed_complaint = await send_chat_message(session_id, citizen.id, message, db)
         assert isinstance(reply, str) and len(reply) > 0
+        assert filed_complaint is None, "a failed filing attempt must not return a complaint"
 
         result = await db.execute(select(Complaint).where(Complaint.citizen_id == citizen.id))
         assert result.scalars().all() == [], (

@@ -25,10 +25,6 @@ def _get_pipeline():
 class ComplaintFeatures:
     complaint_category: str
     severity: str
-    ward_code: str
-    zone: str
-    ward_type: str
-    population_density: str
     ward_slum_percentage: float
     complaint_channel: str
     complainant_type: str
@@ -55,10 +51,6 @@ if __name__ == "__main__":
     urgent = predict_priority(ComplaintFeatures(
         complaint_category="Health / Epidemic",
         severity="Critical",
-        ward_code="A",
-        zone="City",
-        ward_type="South",
-        population_density="Very High",
         ward_slum_percentage=80,
         complaint_channel="1916 Helpline",
         complainant_type="Resident",
@@ -71,10 +63,6 @@ if __name__ == "__main__":
     minor = predict_priority(ComplaintFeatures(
         complaint_category="Noise / Air Pollution",
         severity="Low",
-        ward_code="A",
-        zone="City",
-        ward_type="South",
-        population_density="Low",
         ward_slum_percentage=5,
         complaint_channel="MyBMC App",
         complainant_type="Resident",

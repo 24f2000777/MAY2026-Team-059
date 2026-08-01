@@ -1,22 +1,70 @@
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/authStore'
-import { useComplaintStore } from '../stores/complaintStore'
+import { getMyComplaints } from '../api/complaintApi'
+import { categoryLabel } from '../constants/categories'
 import ComplaintCard from '../components/ComplaintCard.vue'
 import DashboardHero from '../components/DashboardHero.vue'
 import ActionTile from '../components/ActionTile.vue'
 
 const auth = useAuthStore()
-const store = useComplaintStore()
 const router = useRouter()
+
+// Real ComplaintStatus enum values (app/schemas/complaint.py), not the
+// old mock's "Submitted"/"In Progress"/"Resolved" strings.
+const STATUSES = [
+  { value: 'All', label: 'All' },
+  { value: 'submitted', label: 'Submitted' },
+  { value: 'pending_approval', label: 'Pending Approval' },
+  { value: 'approved', label: 'Approved' },
+  { value: 'in_progress', label: 'In Progress' },
+  { value: 'resolved', label: 'Resolved' },
+  { value: 'closed', label: 'Closed' },
+  { value: 'rejected', label: 'Rejected' },
+  { value: 'withdrawn', label: 'Withdrawn' }
+]
 
 const searchText = ref('')
 const statusFilter = ref('All')
+const loadError = ref('')
+const rawComplaints = ref([])
 
-const allComplaints = computed(() => store.forCitizen(auth.user.id).sort((a, b) => b.createdAt - a.createdAt))
+// Maps the real MyComplaintOut shape (snake_case, enum values) into what
+// ComplaintCard.vue expects (camelCase, display strings). No severity:
+// it isn't persisted anywhere on Complaint, ComplaintCard already
+// handles that being absent.
+const allComplaints = computed(() =>
+  rawComplaints.value.map((c) => ({
+    id: c.id,
+    category: categoryLabel(c.category),
+    status: c.status,
+    description: c.description,
+    location: c.location_text || 'No location recorded',
+    priorityScore: c.priority_score,
+    createdAt: c.created_at
+  }))
+)
+
 const myComplaints = computed(() =>
-  allComplaints.value.filter((c) => statusFilter.value === 'All' || c.status === statusFilter.value).filter((c) => !searchText.value || c.category.toLowerCase().includes(searchText.value.toLowerCase()) || c.location.toLowerCase().includes(searchText.value.toLowerCase())))
+  allComplaints.value
+    .filter((c) => statusFilter.value === 'All' || c.status === statusFilter.value)
+    .filter((c) => !searchText.value || c.category.toLowerCase().includes(searchText.value.toLowerCase()) || c.location.toLowerCase().includes(searchText.value.toLowerCase()))
+)
+
+onMounted(async () => {
+  try {
+    const data = await getMyComplaints({ accessToken: auth.accessToken })
+    rawComplaints.value = data.complaints
+  } catch (e) {
+    if (e.status === 401) {
+      await auth.logout()
+      router.push('/login')
+      return
+    }
+    loadError.value = e.message
+  }
+})
 </script>
 
 <template>
@@ -50,7 +98,7 @@ const myComplaints = computed(() =>
       <h2>My Complaints</h2>
     </div>
 
-    
+    <p v-if="loadError" class="error-text">{{ loadError }}</p>
 
     <div v-if="allComplaints.length > 0" class="card">
       <div class="filter-toolbar">
@@ -61,10 +109,7 @@ const myComplaints = computed(() =>
         <div class="filter-group">
           <label>Status</label>
           <select v-model="statusFilter">
-            <option>All</option>
-            <option>Submitted</option>
-            <option>In Progress</option>
-            <option>Resolved</option>
+            <option v-for="s in STATUSES" :key="s.value" :value="s.value">{{ s.label }}</option>
           </select>
         </div>
       </div>
@@ -78,7 +123,7 @@ const myComplaints = computed(() =>
     </div>
 
     <div v-else class="grid cols-2">
-      <ComplaintCard v-for="c in myComplaints" :key="c.id" :complaint="c">
+      <ComplaintCard v-for="c in myComplaints" :key="c.id" :complaint="c" :showPriority="true">
         <template #actions>
           <button class="btn secondary" @click="router.push(`/citizen/${c.id}`)">View Details</button>
         </template>

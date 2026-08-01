@@ -1,6 +1,6 @@
 # All 8 database tables for NAGRIK AI
 from sqlalchemy.orm import relationship
-from sqlalchemy import Text, Integer, String, Column, Boolean, ForeignKey, DateTime
+from sqlalchemy import Text, Integer, String, Column, Boolean, ForeignKey, DateTime, Float
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.sql import func
 from app.core.database import Base
@@ -69,6 +69,9 @@ class Complaint(Base):
     status = Column(String(20), default="submitted")
     priority_score = Column(Integer, default=0)
     location_text = Column(String(300), nullable=True)
+    ward_code = Column(String(5), nullable=True)
+    latitude = Column(Float, nullable=True)
+    longitude = Column(Float, nullable=True)
     reject_reason = Column(Text, nullable=True)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())

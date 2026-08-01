@@ -14,7 +14,7 @@ duplicating any scoring/routing logic here.
 from sqlalchemy import func as sa_func
 from sqlalchemy import select
 
-from app.model import Complaint, ComplaintUpdate, User
+from app.model import Complaint, ComplaintImage, ComplaintUpdate, User
 from app.schemas.complaint import ComplaintAssignRequest, ComplaintCreate, ComplaintStatus
 from app.services.priority_service import score_complaint
 from app.services.risk_alert_service import flag_if_high_risk
@@ -153,16 +153,12 @@ async def list_complaints(
     return complaints, total
 
 
-async def get_complaint_detail(complaint_id, current_user, db) -> tuple[Complaint, User | None]:
+async def _get_visible_complaint(complaint_id, current_user, db) -> Complaint:
     """
-    Fetches a single complaint plus its assigned staff member (if
-    any), backing GET /complaints/{id}. Returns (complaint, staff),
-    same shape as assign_complaint above, so the route can build
-    StaffSummary/department names without a second round trip.
-
-    Citizens can only view their own complaint (ComplaintNotOwnerError,
-    403), the same privacy boundary list_complaints enforces. Staff
-    and admin can view any complaint.
+    Fetches a complaint and enforces the citizen-ownership boundary
+    shared by every route that reads a single complaint by id (detail,
+    attachments, and any future one like it). Staff and admin can view
+    any complaint.
 
     Raises:
         ComplaintNotFoundError: 404, if the complaint doesn't exist.
@@ -176,11 +172,55 @@ async def get_complaint_detail(complaint_id, current_user, db) -> tuple[Complain
     if current_user.role == ROLE_CITIZEN and complaint.citizen_id != current_user.id:
         raise ComplaintNotOwnerError("You can only view your own complaints.")
 
+    return complaint
+
+
+async def get_complaint_detail(complaint_id, current_user, db) -> tuple[Complaint, User | None]:
+    """
+    Fetches a single complaint plus its assigned staff member (if
+    any), backing GET /complaints/{id}. Returns (complaint, staff),
+    same shape as assign_complaint above, so the route can build
+    StaffSummary/department names without a second round trip.
+
+    Raises:
+        ComplaintNotFoundError: 404, if the complaint doesn't exist.
+        ComplaintNotOwnerError: 403, if a citizen requests a complaint
+            that isn't theirs.
+    """
+    complaint = await _get_visible_complaint(complaint_id, current_user, db)
+
     staff = None
     if complaint.assigned_to:
         staff = await db.get(User, complaint.assigned_to)
 
     return complaint, staff
+
+
+async def list_complaint_attachments(complaint_id, current_user, db) -> list[ComplaintImage]:
+    """
+    Every attachment on a complaint, oldest first, backing
+    GET /complaints/{id}/attachments. Same visibility boundary as
+    get_complaint_detail: a citizen can only list their own
+    complaint's attachments, staff and admin can list any.
+
+    There's currently no way to add an attachment (the upload
+    endpoint, POST /complaints/{id}/attachments, doesn't exist yet),
+    so this genuinely returns an empty list for every complaint today,
+    that's expected, not a bug.
+
+    Raises:
+        ComplaintNotFoundError: 404, if the complaint doesn't exist.
+        ComplaintNotOwnerError: 403, if a citizen requests a complaint
+            that isn't theirs.
+    """
+    await _get_visible_complaint(complaint_id, current_user, db)
+
+    result = await db.execute(
+        select(ComplaintImage)
+        .where(ComplaintImage.complaint_id == complaint_id)
+        .order_by(ComplaintImage.created_at)
+    )
+    return result.scalars().all()
 
 
 async def assign_complaint(

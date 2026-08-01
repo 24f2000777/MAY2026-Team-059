@@ -10,6 +10,8 @@ from ..dependencies.roles import require_roles
 from ..model import Department, User
 from ..schemas.common import SuccessResponse
 from ..schemas.complaint import (
+    AttachmentListResponse,
+    AttachmentOut,
     ComplaintAssignRequest,
     ComplaintAssignResponse,
     ComplaintCategory,
@@ -37,6 +39,7 @@ from ..services.complaint_service import (
     assign_complaint,
     create_complaint,
     get_complaint_detail,
+    list_complaint_attachments,
     list_complaint_notes,
     list_complaints,
     list_my_complaints,
@@ -227,6 +230,38 @@ async def get_complaint_route(
             reject_reason=complaint.reject_reason,
             created_at=complaint.created_at,
             updated_at=complaint.updated_at,
+        ),
+    )
+
+
+@router.get(
+    "/{complaint_id}/attachments",
+    response_model=SuccessResponse[AttachmentListResponse],
+    summary="List attachments on a complaint (owner citizen, staff, or admin)",
+)
+async def list_complaint_attachments_route(
+    complaint_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Every attachment on a complaint, oldest first. A citizen can only
+    list attachments on their own complaint; staff and admin can list
+    any. There is currently no way to add an attachment (the upload
+    endpoint doesn't exist yet), so this always returns an empty list
+    today, that's expected, not a bug.
+
+    Raises:
+        ComplaintNotFoundError: 404, if the complaint doesn't exist.
+        ComplaintNotOwnerError: 403, if a citizen requests a complaint
+            that isn't theirs.
+    """
+    attachments = await list_complaint_attachments(complaint_id, current_user, db)
+
+    return SuccessResponse[AttachmentListResponse](
+        message="Attachments retrieved.",
+        data=AttachmentListResponse(
+            attachments=[AttachmentOut.model_validate(a) for a in attachments]
         ),
     )
 

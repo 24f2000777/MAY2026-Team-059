@@ -506,6 +506,45 @@ class ComplaintDetailResponse(BaseModel):
 
 
 # =====================================================
+# Complaint Attachments
+#
+# GET /complaints/{id}/attachments only, per section 4 of the API
+# design doc. There's no upload endpoint yet (POST .../attachments),
+# so this always lists empty today, that's a real, expected gap, not
+# a bug, see complaint_service.py's list_complaint_attachments.
+# =====================================================
+
+class AttachmentOut(BaseModel):
+    """One entry in GET /complaints/{id}/attachments."""
+
+    id: UUID
+    complaint_id: UUID
+    image_url: str
+    created_at: datetime
+
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_schema_extra={
+            "example": {
+                "id": "7c1e2f3a-9b4d-4e5f-8a6b-1c2d3e4f5a6b",
+                "complaint_id": "123e4567-e89b-12d3-a456-426614174000",
+                "image_url": "https://storage.example.com/complaints/123e4567/photo1.jpg",
+                "created_at": "2026-07-24T10:15:00Z",
+            }
+        },
+    )
+
+
+class AttachmentListResponse(BaseModel):
+    """Response schema for GET /complaints/{id}/attachments."""
+
+    attachments: list[AttachmentOut] = Field(
+        default_factory=list,
+        description="Attachments ordered oldest to newest",
+    )
+
+
+# =====================================================
 # Complaint Status State Machine
 #
 # submitted --approve--> approved --start--> in_progress --resolve--> resolved

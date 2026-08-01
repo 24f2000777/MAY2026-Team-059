@@ -15,7 +15,7 @@ import pytest
 from sqlalchemy import select
 
 from app.core.database import AsyncSessionLocal
-from app.model import ComplaintUpdate, Department, Notification, User
+from app.model import ComplaintImage, ComplaintUpdate, Department, Notification, User
 from app.schemas.complaint import (
     ComplaintAssignRequest,
     ComplaintCreate,
@@ -27,6 +27,7 @@ from app.services.complaint_service import (
     assign_complaint,
     create_complaint,
     get_complaint_detail,
+    list_complaint_attachments,
     list_complaint_notes,
     list_complaints,
     list_my_complaints,
@@ -781,3 +782,91 @@ class TestGetComplaintDetail:
     async def test_rejects_a_nonexistent_complaint(self, db, admin):
         with pytest.raises(ComplaintNotFoundError):
             await get_complaint_detail(uuid.uuid4(), admin, db)
+
+
+class TestListComplaintAttachments:
+    async def test_empty_list_when_nothing_uploaded(self, db, citizen):
+        # There is no upload endpoint yet, so this is the only state
+        # every complaint can actually be in today, that's expected.
+        complaint = await _make_complaint(db, citizen)
+
+        attachments = await list_complaint_attachments(complaint.id, citizen, db)
+
+        assert attachments == []
+
+        await _cleanup(db, complaint)
+
+    async def test_owner_citizen_can_list_their_own(self, db, citizen):
+        complaint = await _make_complaint(db, citizen)
+
+        attachments = await list_complaint_attachments(complaint.id, citizen, db)
+
+        assert attachments == []
+
+        await _cleanup(db, complaint)
+
+    async def test_citizen_cannot_list_someone_elses(self, db, citizen):
+        other = User(
+            phone=f"9{uuid.uuid4().int % 10**9:09d}",
+            name="Pytest Other Citizen",
+            email=f"pytest-{uuid.uuid4()}@example.com",
+            role="citizen",
+            hashed_password="x",
+            is_active=True,
+        )
+        db.add(other)
+        await db.flush()
+
+        theirs = await _make_complaint(db, other)
+
+        with pytest.raises(ComplaintNotOwnerError):
+            await list_complaint_attachments(theirs.id, citizen, db)
+
+        await _cleanup(db, theirs)
+        await db.delete(other)
+        await db.commit()
+
+    async def test_admin_can_list_any(self, db, citizen, admin):
+        complaint = await _make_complaint(db, citizen)
+
+        attachments = await list_complaint_attachments(complaint.id, admin, db)
+
+        assert attachments == []
+
+        await _cleanup(db, complaint)
+
+    async def test_staff_can_list_any(self, db, citizen, staff):
+        complaint = await _make_complaint(db, citizen)
+
+        attachments = await list_complaint_attachments(complaint.id, staff, db)
+
+        assert attachments == []
+
+        await _cleanup(db, complaint)
+
+    async def test_rejects_a_nonexistent_complaint(self, db, admin):
+        with pytest.raises(ComplaintNotFoundError):
+            await list_complaint_attachments(uuid.uuid4(), admin, db)
+
+    async def test_lists_real_rows_when_present(self, db, citizen):
+        # No upload endpoint exists yet to create these through the API,
+        # so this test inserts ComplaintImage rows directly, the same
+        # way test_pure_status_change_rows_are_not_listed_as_notes above
+        # reaches into ComplaintUpdate directly for a case the service
+        # layer alone can't set up.
+        complaint = await _make_complaint(db, citizen)
+        older = ComplaintImage(complaint_id=complaint.id, image_url="https://example.com/a.jpg")
+        db.add(older)
+        await db.flush()
+        await db.commit()
+        newer = ComplaintImage(complaint_id=complaint.id, image_url="https://example.com/b.jpg")
+        db.add(newer)
+        await db.flush()
+
+        attachments = await list_complaint_attachments(complaint.id, citizen, db)
+
+        assert [a.id for a in attachments] == [older.id, newer.id]
+
+        await db.delete(older)
+        await db.delete(newer)
+        await _cleanup(db, complaint)

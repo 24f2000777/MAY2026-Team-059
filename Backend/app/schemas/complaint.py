@@ -408,6 +408,101 @@ class ComplaintAssignResponse(BaseModel):
     )
 
 
+# =====================================================
+# Complaint List & Detail
+#
+# GET /complaints (role-filtered, paginated list) and
+# GET /complaints/{id} (full single-record detail), per section 2 of
+# the API design doc. Citizens only ever see their own complaints
+# (enforced in the service layer, not here), staff and admin see
+# every complaint.
+# =====================================================
+
+class ComplaintListItem(BaseModel):
+    """
+    One row in GET /complaints. Similar to MyComplaintOut, plus
+    citizen_id and assigned_to, since a staff/admin caller (who can
+    see complaints that aren't their own) needs to know who filed a
+    complaint and who it's assigned to, context a citizen already
+    has implicitly about their own complaints.
+    """
+
+    id: UUID
+    title: str
+    description: str
+    category: ComplaintCategory
+    status: ComplaintStatus
+    priority_score: int
+    location_text: Optional[str] = None
+    ward_code: Optional[str] = None
+    citizen_id: UUID
+    assigned_to: Optional[UUID] = None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ComplaintListResponse(BaseModel):
+    """Response schema for GET /complaints. Pagination info lives in the envelope's `meta`, not here."""
+
+    complaints: list[ComplaintListItem]
+
+
+class ComplaintDetailResponse(BaseModel):
+    """
+    Response schema for GET /complaints/{id}, the full single-record
+    view. Broader than ComplaintListItem (coordinates, reject_reason,
+    resolved staff/department names), since this is the "give me
+    everything about this one complaint" endpoint.
+    """
+
+    id: UUID
+    title: str
+    description: str
+    category: ComplaintCategory
+    status: ComplaintStatus
+    priority_score: int
+    location_text: Optional[str] = None
+    ward_code: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    citizen_id: UUID
+    assigned_to: Optional[UUID] = None
+    staff_details: Optional[StaffSummary] = None
+    department: Optional[str] = None
+    reject_reason: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "id": "123e4567-e89b-12d3-a456-426614174000",
+                "title": "Large pothole on main road",
+                "description": "There is a dangerous pothole near the school gate causing accidents.",
+                "category": "pothole",
+                "status": "in_progress",
+                "priority_score": 85,
+                "location_text": "Near Patel Chowk, Patan",
+                "ward_code": "H-E",
+                "latitude": 19.0596,
+                "longitude": 72.8656,
+                "citizen_id": "999e8877-e66b-21d3-b456-526614174999",
+                "assigned_to": "550e8400-e29b-41d4-a716-446655440000",
+                "staff_details": {
+                    "id": "550e8400-e29b-41d4-a716-446655440000",
+                    "name": "Rajesh Kumar",
+                    "role": "staff",
+                    "department": "Roads Department",
+                },
+                "department": "Roads Department",
+                "reject_reason": None,
+                "created_at": "2026-07-23T21:00:00Z",
+                "updated_at": "2026-07-24T00:30:00Z",
+            }
+        },
+    )
 
 
 # =====================================================

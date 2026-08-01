@@ -26,7 +26,9 @@ from app.services.complaint_service import (
     add_complaint_note,
     assign_complaint,
     create_complaint,
+    get_complaint_detail,
     list_complaint_notes,
+    list_complaints,
     list_my_complaints,
     transition_complaint_status,
 )
@@ -36,6 +38,7 @@ from app.utils.exceptions import (
     ComplaintNotAssignableError,
     ComplaintNotAssignedToUserError,
     ComplaintNotFoundError,
+    ComplaintNotOwnerError,
     InvalidStaffAssignmentError,
     InvalidStatusTransitionError,
 )
@@ -582,3 +585,199 @@ class TestListMyComplaints:
     async def test_empty_for_a_citizen_with_no_complaints(self, db, citizen):
         result = await list_my_complaints(citizen.id, db)
         assert result == []
+
+
+class TestListComplaints:
+    async def test_citizen_only_sees_their_own_complaints(self, db, citizen):
+        other = User(
+            phone=f"9{uuid.uuid4().int % 10**9:09d}",
+            name="Pytest Other Citizen",
+            email=f"pytest-{uuid.uuid4()}@example.com",
+            role="citizen",
+            hashed_password="x",
+            is_active=True,
+        )
+        db.add(other)
+        await db.flush()
+
+        mine = await _make_complaint(db, citizen)
+        theirs = await _make_complaint(db, other)
+
+        results, total = await list_complaints(citizen, db)
+
+        assert [c.id for c in results] == [mine.id]
+        assert total == 1
+
+        await _cleanup(db, mine)
+        await _cleanup(db, theirs)
+        await db.delete(other)
+        await db.commit()
+
+    async def test_admin_sees_every_citizens_complaints(self, db, citizen, admin):
+        other = User(
+            phone=f"9{uuid.uuid4().int % 10**9:09d}",
+            name="Pytest Other Citizen",
+            email=f"pytest-{uuid.uuid4()}@example.com",
+            role="citizen",
+            hashed_password="x",
+            is_active=True,
+        )
+        db.add(other)
+        await db.flush()
+
+        mine = await _make_complaint(db, citizen)
+        theirs = await _make_complaint(db, other)
+
+        results, total = await list_complaints(admin, db, per_page=1000)
+
+        result_ids = {c.id for c in results}
+        assert mine.id in result_ids
+        assert theirs.id in result_ids
+        assert total >= 2
+
+        await _cleanup(db, mine)
+        await _cleanup(db, theirs)
+        await db.delete(other)
+        await db.commit()
+
+    async def test_filters_by_category(self, db, citizen, admin):
+        pothole = await _make_complaint(db, citizen)
+        garbage_data = ComplaintCreate(
+            title="Overflowing garbage bin",
+            description="Garbage has not been collected in over a week near the market.",
+            category="garbage",
+            location=ComplaintLocation(address="Dadar Market, Mumbai"),
+        )
+        garbage = await create_complaint(citizen.id, garbage_data, db)
+
+        results, total = await list_complaints(admin, db, category="garbage", per_page=1000)
+
+        result_ids = {c.id for c in results}
+        assert garbage.id in result_ids
+        assert pothole.id not in result_ids
+
+        await _cleanup(db, pothole)
+        await _cleanup(db, garbage)
+
+    async def test_filters_by_status(self, db, citizen, admin):
+        submitted = await _make_complaint(db, citizen)
+        approved = await _make_complaint(db, citizen)
+        await transition_complaint_status(approved.id, "approve", admin, None, db)
+        await db.commit()
+
+        results, total = await list_complaints(admin, db, status="approved", per_page=1000)
+
+        result_ids = {c.id for c in results}
+        assert approved.id in result_ids
+        assert submitted.id not in result_ids
+
+        await _cleanup(db, submitted)
+        await _cleanup(db, approved)
+
+    async def test_pagination_respects_page_and_per_page(self, db, citizen):
+        first = await _make_complaint(db, citizen)
+        await db.commit()
+        second = await _make_complaint(db, citizen)
+        await db.commit()
+        third = await _make_complaint(db, citizen)
+
+        page_one, total = await list_complaints(citizen, db, page=1, per_page=2)
+        page_two, _ = await list_complaints(citizen, db, page=2, per_page=2)
+
+        assert total == 3
+        assert len(page_one) == 2
+        assert len(page_two) == 1
+        assert {c.id for c in page_one} | {c.id for c in page_two} == {first.id, second.id, third.id}
+
+        await _cleanup(db, first)
+        await _cleanup(db, second)
+        await _cleanup(db, third)
+
+    async def test_sort_by_priority_score_ascending(self, db, citizen):
+        first = await _make_complaint(db, citizen)
+        second = await _make_complaint(db, citizen)
+
+        results, _ = await list_complaints(
+            citizen, db, sort_by="priority_score", order="asc", per_page=1000
+        )
+        result_ids = [c.id for c in results]
+
+        scores = [c.priority_score for c in results if c.id in {first.id, second.id}]
+        assert scores == sorted(scores)
+
+        await _cleanup(db, first)
+        await _cleanup(db, second)
+
+    async def test_empty_for_a_citizen_with_no_complaints(self, db, citizen):
+        results, total = await list_complaints(citizen, db)
+        assert results == []
+        assert total == 0
+
+
+class TestGetComplaintDetail:
+    async def test_owner_citizen_can_view_their_own_complaint(self, db, citizen):
+        complaint = await _make_complaint(db, citizen)
+
+        result, staff = await get_complaint_detail(complaint.id, citizen, db)
+
+        assert result.id == complaint.id
+        assert staff is None
+
+        await _cleanup(db, complaint)
+
+    async def test_citizen_cannot_view_someone_elses_complaint(self, db, citizen):
+        other = User(
+            phone=f"9{uuid.uuid4().int % 10**9:09d}",
+            name="Pytest Other Citizen",
+            email=f"pytest-{uuid.uuid4()}@example.com",
+            role="citizen",
+            hashed_password="x",
+            is_active=True,
+        )
+        db.add(other)
+        await db.flush()
+
+        theirs = await _make_complaint(db, other)
+
+        with pytest.raises(ComplaintNotOwnerError):
+            await get_complaint_detail(theirs.id, citizen, db)
+
+        await _cleanup(db, theirs)
+        await db.delete(other)
+        await db.commit()
+
+    async def test_admin_can_view_any_complaint(self, db, citizen, admin):
+        complaint = await _make_complaint(db, citizen)
+
+        result, staff = await get_complaint_detail(complaint.id, admin, db)
+
+        assert result.id == complaint.id
+        assert staff is None
+
+        await _cleanup(db, complaint)
+
+    async def test_staff_can_view_any_complaint(self, db, citizen, staff):
+        complaint = await _make_complaint(db, citizen)
+
+        result, assigned_staff = await get_complaint_detail(complaint.id, staff, db)
+
+        assert result.id == complaint.id
+        assert assigned_staff is None
+
+        await _cleanup(db, complaint)
+
+    async def test_returns_assigned_staff_member(self, db, citizen, admin, staff):
+        complaint = await _make_complaint(db, citizen)
+        await assign_complaint(complaint.id, admin.id, ComplaintAssignRequest(assigned_to=staff.id), db)
+        await db.commit()
+
+        result, assigned_staff = await get_complaint_detail(complaint.id, citizen, db)
+
+        assert assigned_staff is not None
+        assert assigned_staff.id == staff.id
+
+        await _cleanup(db, complaint)
+
+    async def test_rejects_a_nonexistent_complaint(self, db, admin):
+        with pytest.raises(ComplaintNotFoundError):
+            await get_complaint_detail(uuid.uuid4(), admin, db)

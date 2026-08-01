@@ -193,3 +193,14 @@ class ComplaintNotAssignedToUserError(ComplaintError):
     it's assigned to), this only restricts staff to their own work.
     """
     error_code = "COMP_005"
+
+
+class ComplaintNotOwnerError(ComplaintError):
+    """
+    Raised when a citizen requests GET /complaints or
+    GET /complaints/{id} and tries to view a complaint that isn't
+    their own. Staff and admin bypass this check entirely, it only
+    restricts citizens to their own complaints, matching the same
+    boundary GET /complaints/mine already enforces by construction.
+    """
+    error_code = "COMP_006"

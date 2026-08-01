@@ -11,6 +11,7 @@ calls those endpoints. Reuses those exact services rather than
 duplicating any scoring/routing logic here.
 """
 
+from sqlalchemy import func as sa_func
 from sqlalchemy import select
 
 from app.model import Complaint, ComplaintUpdate, User
@@ -18,14 +19,23 @@ from app.schemas.complaint import ComplaintAssignRequest, ComplaintCreate, Compl
 from app.services.priority_service import score_complaint
 from app.services.risk_alert_service import flag_if_high_risk
 from app.services.routing_service import route_complaint
-from app.utils.constants import ROLE_STAFF
+from app.utils.constants import ROLE_CITIZEN, ROLE_STAFF
 from app.utils.exceptions import (
     ComplaintNotAssignableError,
     ComplaintNotAssignedToUserError,
     ComplaintNotFoundError,
+    ComplaintNotOwnerError,
     InvalidStaffAssignmentError,
     InvalidStatusTransitionError,
 )
+
+# Only these two columns are meaningful to sort a complaint list by,
+# whatever GET /complaints?sort_by= is given, the route validates it
+# against this same set before calling list_complaints.
+SORT_COLUMNS = {
+    "created_at": Complaint.created_at,
+    "priority_score": Complaint.priority_score,
+}
 
 # A complaint already in one of these has nothing left to assign, work
 # on it is either done or it was never going to be actioned.
@@ -89,6 +99,88 @@ async def list_my_complaints(citizen_id, db) -> list[Complaint]:
         .order_by(Complaint.created_at.desc())
     )
     return result.scalars().all()
+
+
+async def list_complaints(
+    current_user,
+    db,
+    status: str | None = None,
+    category: str | None = None,
+    ward_code: str | None = None,
+    assigned_to=None,
+    page: int = 1,
+    per_page: int = 20,
+    sort_by: str = "created_at",
+    order: str = "desc",
+) -> tuple[list[Complaint], int]:
+    """
+    Role-filtered, paginated complaint list backing GET /complaints.
+
+    Citizens only ever see their own complaints, the same privacy
+    boundary GET /complaints/mine already enforces, no filter can be
+    used to see someone else's. Staff and admin see every complaint,
+    narrowed by whatever filters are passed, matching the API design
+    doc's "Roles: All" for this endpoint.
+
+    Returns (complaints, total) — total is the full matching count
+    before pagination is applied, so the route can build meta.total
+    and meta.total_pages.
+    """
+    query = select(Complaint)
+
+    if current_user.role == ROLE_CITIZEN:
+        query = query.where(Complaint.citizen_id == current_user.id)
+
+    if status is not None:
+        query = query.where(Complaint.status == status)
+    if category is not None:
+        query = query.where(Complaint.category == category)
+    if ward_code is not None:
+        query = query.where(Complaint.ward_code == ward_code)
+    if assigned_to is not None:
+        query = query.where(Complaint.assigned_to == assigned_to)
+
+    count_result = await db.execute(select(sa_func.count()).select_from(query.subquery()))
+    total = count_result.scalar_one()
+
+    sort_column = SORT_COLUMNS.get(sort_by, Complaint.created_at)
+    query = query.order_by(sort_column.desc() if order == "desc" else sort_column.asc())
+    query = query.offset((page - 1) * per_page).limit(per_page)
+
+    result = await db.execute(query)
+    complaints = result.scalars().all()
+
+    return complaints, total
+
+
+async def get_complaint_detail(complaint_id, current_user, db) -> tuple[Complaint, User | None]:
+    """
+    Fetches a single complaint plus its assigned staff member (if
+    any), backing GET /complaints/{id}. Returns (complaint, staff),
+    same shape as assign_complaint above, so the route can build
+    StaffSummary/department names without a second round trip.
+
+    Citizens can only view their own complaint (ComplaintNotOwnerError,
+    403), the same privacy boundary list_complaints enforces. Staff
+    and admin can view any complaint.
+
+    Raises:
+        ComplaintNotFoundError: 404, if the complaint doesn't exist.
+        ComplaintNotOwnerError: 403, if a citizen requests a complaint
+            that isn't theirs.
+    """
+    complaint = await db.get(Complaint, complaint_id)
+    if complaint is None:
+        raise ComplaintNotFoundError("Complaint not found.")
+
+    if current_user.role == ROLE_CITIZEN and complaint.citizen_id != current_user.id:
+        raise ComplaintNotOwnerError("You can only view your own complaints.")
+
+    staff = None
+    if complaint.assigned_to:
+        staff = await db.get(User, complaint.assigned_to)
+
+    return complaint, staff
 
 
 async def assign_complaint(

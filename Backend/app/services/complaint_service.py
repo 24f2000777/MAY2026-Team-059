@@ -242,7 +242,8 @@ async def upload_complaint_attachment(
         ComplaintNotOwnerError: 403, if a citizen requests a complaint
             that isn't theirs.
         UnsupportedFileTypeError: 415 (FILE_002), if content_type
-            isn't JPG/PNG/PDF/DOC/DOCX.
+            isn't JPG/PNG/PDF/DOC/DOCX, or file_bytes' actual leading
+            bytes don't match what real files of that type start with.
         FileTooLargeError: 413 (FILE_001), if the file exceeds
             settings.MAX_UPLOAD_SIZE_BYTES.
         TooManyAttachmentsError: 409 (FILE_003), if the complaint
@@ -253,7 +254,7 @@ async def upload_complaint_attachment(
     """
     await _get_visible_complaint(complaint_id, current_user, db)
 
-    validate_upload(content_type, len(file_bytes))
+    validate_upload(content_type, file_bytes)
 
     count_result = await db.execute(
         select(sa_func.count())

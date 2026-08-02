@@ -35,8 +35,10 @@ from app.services.complaint_service import (
     add_complaint_note,
     assign_complaint,
     create_complaint,
+    delete_attachment,
     delete_complaint,
     edit_complaint,
+    get_attachment,
     get_complaint_detail,
     get_complaint_history,
     list_complaint_attachments,
@@ -52,6 +54,7 @@ from app.services.complaint_service import (
 from app.services.risk_alert_service import HIGH_RISK_NOTIFICATION_TYPE
 from app.utils.constants import ROLE_ADMIN, ROLE_STAFF
 from app.utils.exceptions import (
+    AttachmentNotFoundError,
     ComplaintNotAssignableError,
     ComplaintNotAssignedToUserError,
     ComplaintNotFoundError,
@@ -1371,3 +1374,155 @@ class TestCloseComplaint:
     async def test_rejects_a_nonexistent_complaint(self, db, citizen):
         with pytest.raises(ComplaintNotFoundError):
             await transition_complaint_status_as_owner(uuid.uuid4(), "close", citizen, db)
+
+
+class TestGetAttachment:
+    async def test_owner_citizen_can_get_their_own_attachment(self, db, citizen):
+        complaint = await _make_complaint(db, citizen)
+        attachment = await upload_complaint_attachment(
+            complaint.id, citizen, "image/jpeg", JPEG_MAGIC_BYTES, db
+        )
+        await db.commit()
+
+        fetched = await get_attachment(attachment.id, citizen, db)
+
+        assert fetched.id == attachment.id
+        assert fetched.image_url == attachment.image_url
+
+        await db.delete(attachment)
+        await _cleanup(db, complaint)
+
+    async def test_citizen_cannot_get_someone_elses_attachment(self, db, citizen):
+        other = User(
+            phone=f"9{uuid.uuid4().int % 10**9:09d}",
+            name="Pytest Other Citizen",
+            email=f"pytest-{uuid.uuid4()}@example.com",
+            role="citizen",
+            hashed_password="x",
+            is_active=True,
+        )
+        db.add(other)
+        await db.flush()
+
+        theirs = await _make_complaint(db, other)
+        attachment = await upload_complaint_attachment(
+            theirs.id, other, "image/jpeg", JPEG_MAGIC_BYTES, db
+        )
+        await db.commit()
+
+        with pytest.raises(ComplaintNotOwnerError):
+            await get_attachment(attachment.id, citizen, db)
+
+        await db.delete(attachment)
+        await _cleanup(db, theirs)
+        await db.delete(other)
+        await db.commit()
+
+    async def test_admin_can_get_any_attachment(self, db, citizen, admin):
+        complaint = await _make_complaint(db, citizen)
+        attachment = await upload_complaint_attachment(
+            complaint.id, citizen, "image/jpeg", JPEG_MAGIC_BYTES, db
+        )
+        await db.commit()
+
+        fetched = await get_attachment(attachment.id, admin, db)
+
+        assert fetched.id == attachment.id
+
+        await db.delete(attachment)
+        await _cleanup(db, complaint)
+
+    async def test_staff_can_get_any_attachment(self, db, citizen, staff):
+        complaint = await _make_complaint(db, citizen)
+        attachment = await upload_complaint_attachment(
+            complaint.id, citizen, "image/jpeg", JPEG_MAGIC_BYTES, db
+        )
+        await db.commit()
+
+        fetched = await get_attachment(attachment.id, staff, db)
+
+        assert fetched.id == attachment.id
+
+        await db.delete(attachment)
+        await _cleanup(db, complaint)
+
+    async def test_rejects_a_nonexistent_attachment(self, db, admin):
+        with pytest.raises(AttachmentNotFoundError):
+            await get_attachment(uuid.uuid4(), admin, db)
+
+
+class TestDeleteAttachment:
+    async def test_owner_citizen_can_delete_their_own_attachment(self, db, citizen):
+        complaint = await _make_complaint(db, citizen)
+        attachment = await upload_complaint_attachment(
+            complaint.id, citizen, "image/jpeg", JPEG_MAGIC_BYTES, db
+        )
+        await db.commit()
+        attachment_id = attachment.id
+
+        await delete_attachment(attachment_id, citizen, db)
+        await db.commit()
+
+        assert await db.get(ComplaintImage, attachment_id) is None
+
+        await _cleanup(db, complaint)
+
+    async def test_citizen_cannot_delete_someone_elses_attachment(self, db, citizen):
+        other = User(
+            phone=f"9{uuid.uuid4().int % 10**9:09d}",
+            name="Pytest Other Citizen",
+            email=f"pytest-{uuid.uuid4()}@example.com",
+            role="citizen",
+            hashed_password="x",
+            is_active=True,
+        )
+        db.add(other)
+        await db.flush()
+
+        theirs = await _make_complaint(db, other)
+        attachment = await upload_complaint_attachment(
+            theirs.id, other, "image/jpeg", JPEG_MAGIC_BYTES, db
+        )
+        await db.commit()
+
+        with pytest.raises(ComplaintNotOwnerError):
+            await delete_attachment(attachment.id, citizen, db)
+
+        await db.delete(attachment)
+        await _cleanup(db, theirs)
+        await db.delete(other)
+        await db.commit()
+
+    async def test_staff_cannot_delete_an_attachment(self, db, citizen, staff):
+        # Unlike list/upload, the design doc lists delete as
+        # Citizen (own)/Admin only, staff is deliberately excluded.
+        complaint = await _make_complaint(db, citizen)
+        attachment = await upload_complaint_attachment(
+            complaint.id, citizen, "image/jpeg", JPEG_MAGIC_BYTES, db
+        )
+        await db.commit()
+
+        with pytest.raises(ComplaintNotOwnerError):
+            await delete_attachment(attachment.id, staff, db)
+
+        await db.delete(attachment)
+        await _cleanup(db, complaint)
+
+    async def test_admin_can_delete_any_attachment(self, db, citizen, admin):
+        complaint = await _make_complaint(db, citizen)
+        attachment = await upload_complaint_attachment(
+            complaint.id, citizen, "image/jpeg", JPEG_MAGIC_BYTES, db
+        )
+        await db.commit()
+        attachment_id = attachment.id
+
+        await delete_attachment(attachment_id, admin, db)
+        await db.commit()
+
+        assert await db.get(ComplaintImage, attachment_id) is None
+
+        await _cleanup(db, complaint)
+
+    async def test_rejects_a_nonexistent_attachment(self, db, admin):
+        with pytest.raises(AttachmentNotFoundError):
+            await delete_attachment(uuid.uuid4(), admin, db)

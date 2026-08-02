@@ -56,6 +56,7 @@ from app.utils.exceptions import (
     FileTooLargeError,
     UnsupportedFileTypeError,
     TooManyAttachmentsError,
+    AttachmentNotFoundError,
     NotificationError,
     NotificationNotFoundError,
 )
@@ -248,6 +249,13 @@ async def handle_too_many_attachments(
     exc: TooManyAttachmentsError,
 ) -> JSONResponse:
     return _error_response(status.HTTP_409_CONFLICT, exc)
+
+
+async def handle_attachment_not_found(
+    request: Request,
+    exc: AttachmentNotFoundError,
+) -> JSONResponse:
+    return _error_response(status.HTTP_404_NOT_FOUND, exc)
 
 
 async def handle_attachment_error(
@@ -510,6 +518,11 @@ def register_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(
         TooManyAttachmentsError,
         handle_too_many_attachments,
+    )
+
+    app.add_exception_handler(
+        AttachmentNotFoundError,
+        handle_attachment_not_found,
     )
 
     # Catch-all fallback for any other AttachmentError subclass.

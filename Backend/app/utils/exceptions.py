@@ -248,6 +248,11 @@ class TooManyAttachmentsError(AttachmentError):
     error_code = "FILE_003"
 
 
+class AttachmentNotFoundError(AttachmentError):
+    """Raised when the requested attachment does not exist."""
+    error_code = "FILE_004"
+
+
 class NotificationError(Exception):
     """
     Base class for notification-domain errors, same shape as

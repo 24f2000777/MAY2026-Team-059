@@ -18,6 +18,8 @@ from ..schemas.complaint import (
     ComplaintCategory,
     ComplaintCreate,
     ComplaintDetailResponse,
+    ComplaintEditRequest,
+    ComplaintEditResponse,
     ComplaintListItem,
     ComplaintListResponse,
     ComplaintNote,
@@ -39,15 +41,18 @@ from ..services.complaint_service import (
     add_complaint_note,
     assign_complaint,
     create_complaint,
+    delete_complaint,
+    edit_complaint,
     get_complaint_detail,
     list_complaint_attachments,
     list_complaint_notes,
     list_complaints,
     list_my_complaints,
     transition_complaint_status,
+    transition_complaint_status_as_owner,
     upload_complaint_attachment,
 )
-from ..utils.constants import ROLE_ADMIN, ROLE_STAFF
+from ..utils.constants import ROLE_ADMIN, ROLE_CITIZEN, ROLE_STAFF
 from ..utils.storage import read_upload_bounded
 from ..utils.wards import WARDS
 
@@ -234,6 +239,131 @@ async def get_complaint_route(
             created_at=complaint.created_at,
             updated_at=complaint.updated_at,
         ),
+    )
+
+
+@router.patch(
+    "/{complaint_id}",
+    response_model=SuccessResponse[ComplaintEditResponse],
+    summary="Edit a complaint's title/description (owner citizen only, while still submitted)",
+)
+async def edit_complaint_route(
+    complaint_id: UUID,
+    body: ComplaintEditRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles(ROLE_CITIZEN)),
+):
+    """
+    Edits a complaint's title and/or description. Only the citizen
+    who filed it can call this, and only while it's still "submitted"
+    (before an officer has approved it), staff and admin do not get a
+    bypass here.
+
+    Raises:
+        ComplaintNotFoundError: 404, if the complaint doesn't exist.
+        ComplaintNotOwnerError: 403, if the complaint isn't the
+            caller's own.
+        InvalidStatusTransitionError: 409, if the complaint isn't
+            currently "submitted".
+    """
+    complaint = await edit_complaint(complaint_id, current_user, body.title, body.description, db)
+    await db.commit()
+
+    return SuccessResponse[ComplaintEditResponse](
+        message="Complaint updated.",
+        data=ComplaintEditResponse.model_validate(complaint),
+    )
+
+
+@router.delete(
+    "/{complaint_id}",
+    response_model=SuccessResponse[None],
+    summary="Hard-delete a complaint (admin only)",
+)
+async def delete_complaint_route(
+    complaint_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles(ROLE_ADMIN)),
+):
+    """
+    Permanently deletes a complaint and everything attached to it
+    (status history, attachments, rating). Admin only. This cannot be
+    undone.
+
+    Raises:
+        ComplaintNotFoundError: 404, if the complaint doesn't exist.
+    """
+    await delete_complaint(complaint_id, db)
+    await db.commit()
+
+    return SuccessResponse[None](message="Complaint deleted.")
+
+
+@router.patch(
+    "/{complaint_id}/withdraw",
+    response_model=SuccessResponse[ComplaintStatusResponse],
+    summary="Withdraw a submitted complaint (owner citizen only)",
+)
+async def withdraw_complaint_route(
+    complaint_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles(ROLE_CITIZEN)),
+):
+    """
+    submitted -> withdrawn. Only the citizen who filed the complaint
+    can withdraw it, and only before it's been approved.
+
+    Raises:
+        ComplaintNotFoundError: 404, if the complaint doesn't exist.
+        ComplaintNotOwnerError: 403, if the complaint isn't the
+            caller's own.
+        InvalidStatusTransitionError: 409, if the complaint isn't
+            currently "submitted".
+    """
+    complaint = await transition_complaint_status_as_owner(
+        complaint_id, "withdraw", current_user, db
+    )
+    await db.commit()
+    await db.refresh(complaint)
+
+    return SuccessResponse[ComplaintStatusResponse](
+        message="Complaint withdrawn.",
+        data=ComplaintStatusResponse.model_validate(complaint),
+    )
+
+
+@router.patch(
+    "/{complaint_id}/close",
+    response_model=SuccessResponse[ComplaintStatusResponse],
+    summary="Confirm a resolved complaint and close it (owner citizen only)",
+)
+async def close_complaint_route(
+    complaint_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles(ROLE_CITIZEN)),
+):
+    """
+    resolved -> closed. Only the citizen who filed the complaint can
+    confirm and close it. (The design doc also lists an automatic
+    7-day timeout closing a resolved complaint, that's a scheduled
+    job, not part of this endpoint.)
+
+    Raises:
+        ComplaintNotFoundError: 404, if the complaint doesn't exist.
+        ComplaintNotOwnerError: 403, if the complaint isn't the
+            caller's own.
+        InvalidStatusTransitionError: 409, if the complaint isn't
+            currently "resolved".
+    """
+    complaint = await transition_complaint_status_as_owner(
+        complaint_id, "close", current_user, db
+    )
+    await db.commit()
+    await db.refresh(complaint)
+
+    return SuccessResponse[ComplaintStatusResponse](
+        message="Complaint closed.",
+        data=ComplaintStatusResponse.model_validate(complaint),
     )
 
 

@@ -506,6 +506,80 @@ class ComplaintDetailResponse(BaseModel):
 
 
 # =====================================================
+# Complaint Edit
+#
+# PATCH /complaints/{id}, per section 2 of the API design doc. The doc
+# calls this "Citizen (own, draft only)", this app's real state
+# machine has no separate "draft" state, "submitted" (before an
+# officer has approved it) is the closest equivalent, and is what
+# edit_complaint actually checks.
+# =====================================================
+
+class ComplaintEditRequest(BaseModel):
+    """
+    Request schema for PATCH /complaints/{id}. At least one field must
+    be given, an empty PATCH has nothing to do.
+    """
+
+    title: Optional[str] = Field(
+        default=None,
+        min_length=5,
+        max_length=100,
+        description="New title",
+    )
+
+    description: Optional[str] = Field(
+        default=None,
+        min_length=20,
+        max_length=1000,
+        description="New description",
+    )
+
+    @model_validator(mode="after")
+    def require_at_least_one_field(self):
+        if self.title is None and self.description is None:
+            raise ValueError("At least one of title or description must be provided.")
+        return self
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "title": "Large pothole on main road, now spreading",
+                "description": None,
+            }
+        }
+    )
+
+
+class ComplaintEditResponse(BaseModel):
+    """
+    Response schema for PATCH /complaints/{id}. Deliberately smaller
+    than ComplaintDetailResponse, same reasoning as
+    ComplaintStatusResponse below, this only needs to confirm what
+    changed, not the whole complaint record.
+    """
+
+    id: UUID
+    title: str
+    description: str
+    status: str
+    updated_at: datetime
+
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_schema_extra={
+            "example": {
+                "id": "123e4567-e89b-12d3-a456-426614174000",
+                "title": "Large pothole on main road, now spreading",
+                "description": "There is a dangerous pothole near the school gate causing accidents.",
+                "status": "submitted",
+                "updated_at": "2026-07-24T10:15:00Z",
+            }
+        },
+    )
+
+
+# =====================================================
 # Complaint Attachments
 #
 # GET and POST /complaints/{id}/attachments, per section 4 of the API

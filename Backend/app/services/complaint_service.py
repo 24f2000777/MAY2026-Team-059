@@ -11,11 +11,14 @@ calls those endpoints. Reuses those exact services rather than
 duplicating any scoring/routing logic here.
 """
 
+import shutil
+from pathlib import Path
+
 from sqlalchemy import func as sa_func
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from app.core.config import settings
-from app.model import Complaint, ComplaintImage, ComplaintUpdate, User
+from app.model import ChatSession, Complaint, ComplaintImage, ComplaintUpdate, User
 from app.schemas.complaint import ComplaintAssignRequest, ComplaintCreate, ComplaintStatus
 from app.services.priority_service import score_complaint
 from app.services.risk_alert_service import flag_if_high_risk
@@ -197,6 +200,99 @@ async def get_complaint_detail(complaint_id, current_user, db) -> tuple[Complain
         staff = await db.get(User, complaint.assigned_to)
 
     return complaint, staff
+
+
+async def edit_complaint(complaint_id, current_user, title, description, db) -> Complaint:
+    """
+    Edits a complaint's title/description, backing PATCH
+    /complaints/{id}. Enforced as citizen-and-owner-only, by
+    require_roles(ROLE_CITIZEN) at the route level plus the ownership
+    check below, unlike most routes in this module staff and admin do
+    NOT get a bypass here, per the design doc this is citizen-only.
+    Only while the complaint is still "submitted", the closest
+    equivalent this app's real state machine has to the doc's "draft"
+    state, once an officer has approved it the content is no longer
+    the citizen's alone to change.
+
+    Raises:
+        ComplaintNotFoundError: 404, if the complaint doesn't exist.
+        ComplaintNotOwnerError: 403, if the complaint isn't the
+            caller's own.
+        InvalidStatusTransitionError: 409, if the complaint isn't
+            currently "submitted".
+
+    Locks the complaint row (SELECT ... FOR UPDATE) before checking
+    its status, same reasoning as transition_complaint_status: without
+    it, this edit could race a concurrent approve on the same
+    complaint, both reading "submitted" and proceeding.
+
+    Does not commit, same convention as create_complaint above.
+    """
+    result = await db.execute(
+        select(Complaint).where(Complaint.id == complaint_id).with_for_update()
+    )
+    complaint = result.scalar_one_or_none()
+    if complaint is None:
+        raise ComplaintNotFoundError("Complaint not found.")
+
+    if complaint.citizen_id != current_user.id:
+        raise ComplaintNotOwnerError("You can only edit your own complaints.")
+
+    if complaint.status != ComplaintStatus.SUBMITTED.value:
+        raise InvalidStatusTransitionError(
+            f"Cannot edit a complaint that is currently '{complaint.status}', "
+            f"only complaints still awaiting approval can be edited."
+        )
+
+    if title is not None:
+        complaint.title = title
+    if description is not None:
+        complaint.description = description
+
+    await db.flush()
+    return complaint
+
+
+async def delete_complaint(complaint_id, db) -> None:
+    """
+    Hard-deletes a complaint, backing DELETE /complaints/{id}.
+    Admin-only, enforced by require_roles(ROLE_ADMIN) at the route
+    level, no ownership concept applies here.
+
+    ComplaintUpdate, ComplaintImage, and Rating rows all cascade-delete
+    at the database level (ondelete="CASCADE" on their foreign keys),
+    and Notification.complaint_id is set null there too, none of those
+    need handling here. ChatSession.complaint_id has no ondelete
+    configured though, deleting a complaint a chatbot conversation
+    filed would otherwise hit a real foreign key violation, nulled out
+    explicitly first (preserving the conversation itself, just
+    detaching the link) to avoid that.
+
+    Also best-effort removes the complaint's uploaded attachment files
+    from disk (see app/utils/storage.py). The DB rows are gone via
+    cascade regardless, but the files aren't tracked by any foreign
+    key and would otherwise be orphaned.
+
+    Raises:
+        ComplaintNotFoundError: 404, if the complaint doesn't exist.
+
+    Does not commit, same convention as create_complaint above.
+    """
+    complaint = await db.get(Complaint, complaint_id)
+    if complaint is None:
+        raise ComplaintNotFoundError("Complaint not found.")
+
+    await db.execute(
+        update(ChatSession)
+        .where(ChatSession.complaint_id == complaint_id)
+        .values(complaint_id=None)
+    )
+
+    attachment_dir = Path(settings.UPLOAD_DIR) / "complaints" / str(complaint_id)
+    shutil.rmtree(attachment_dir, ignore_errors=True)
+
+    await db.delete(complaint)
+    await db.flush()
 
 
 async def list_complaint_attachments(complaint_id, current_user, db) -> list[ComplaintImage]:
@@ -504,6 +600,83 @@ async def transition_complaint_status(complaint_id, action: str, actor, notes, d
         old_status=old_status,
         new_status=complaint.status,
         notes=notes,
+    ))
+
+    await db.flush()
+
+    return complaint
+
+
+# submitted --withdraw--> withdrawn
+# resolved  --close-----> closed
+#
+# Citizen-initiated transitions, deliberately kept separate from
+# TRANSITIONS/transition_complaint_status above rather than folded
+# into that table: those are all staff/admin role-gated (enforced via
+# require_roles at the route layer), these two are ownership-gated
+# instead, a genuinely different authorization shape, "is this caller
+# an admin/the assignee" vs. "is this caller the citizen who filed
+# it." The design doc also lists "System" as an actor for close (an
+# automatic 7-day timeout), that's a scheduled job, out of scope here,
+# this only covers the citizen-confirms path.
+OWNER_TRANSITIONS = {
+    "withdraw": {
+        "from": {ComplaintStatus.SUBMITTED.value},
+        "to": ComplaintStatus.WITHDRAWN.value,
+    },
+    "close": {
+        "from": {ComplaintStatus.RESOLVED.value},
+        "to": ComplaintStatus.CLOSED.value,
+    },
+}
+
+
+async def transition_complaint_status_as_owner(complaint_id, action: str, citizen, db) -> Complaint:
+    """
+    Drives OWNER_TRANSITIONS above. action is "withdraw" or "close".
+    Role enforcement (citizen-only) happens at the route layer via
+    require_roles, same as transition_complaint_status. This function
+    checks what a role check alone can't: that the caller is this
+    specific complaint's own citizen, not just some citizen.
+
+    Locks the complaint row (SELECT ... FOR UPDATE) before checking
+    its status, same reasoning as transition_complaint_status above.
+
+    Raises:
+        ComplaintNotFoundError: 404, if the complaint doesn't exist.
+        ComplaintNotOwnerError: 403, if the complaint isn't the
+            caller's own.
+        InvalidStatusTransitionError: 409, if the complaint isn't
+            currently in the right state for this action.
+
+    Does not commit, same convention as create_complaint above.
+    """
+    rule = OWNER_TRANSITIONS[action]
+
+    result = await db.execute(
+        select(Complaint).where(Complaint.id == complaint_id).with_for_update()
+    )
+    complaint = result.scalar_one_or_none()
+    if complaint is None:
+        raise ComplaintNotFoundError("Complaint not found.")
+
+    if complaint.citizen_id != citizen.id:
+        raise ComplaintNotOwnerError(f"You can only {action} your own complaints.")
+
+    if complaint.status not in rule["from"]:
+        raise InvalidStatusTransitionError(
+            f"Cannot {action} a complaint that is currently '{complaint.status}'."
+        )
+
+    old_status = complaint.status
+    complaint.status = rule["to"]
+
+    db.add(ComplaintUpdate(
+        complaint_id=complaint.id,
+        updated_by=citizen.id,
+        old_status=old_status,
+        new_status=complaint.status,
+        notes=None,
     ))
 
     await db.flush()

@@ -22,6 +22,7 @@ from app.schemas.complaint import (
     ComplaintLocation,
     ComplaintStatus,
 )
+from app.core.config import settings
 from app.services.complaint_service import (
     add_complaint_note,
     assign_complaint,
@@ -32,6 +33,7 @@ from app.services.complaint_service import (
     list_complaints,
     list_my_complaints,
     transition_complaint_status,
+    upload_complaint_attachment,
 )
 from app.services.risk_alert_service import HIGH_RISK_NOTIFICATION_TYPE
 from app.utils.constants import ROLE_ADMIN, ROLE_STAFF
@@ -40,8 +42,11 @@ from app.utils.exceptions import (
     ComplaintNotAssignedToUserError,
     ComplaintNotFoundError,
     ComplaintNotOwnerError,
+    FileTooLargeError,
     InvalidStaffAssignmentError,
     InvalidStatusTransitionError,
+    TooManyAttachmentsError,
+    UnsupportedFileTypeError,
 )
 
 
@@ -870,3 +875,107 @@ class TestListComplaintAttachments:
         await db.delete(older)
         await db.delete(newer)
         await _cleanup(db, complaint)
+
+
+class TestUploadComplaintAttachment:
+    async def test_owner_citizen_can_upload_to_own_complaint(self, db, citizen):
+        complaint = await _make_complaint(db, citizen)
+
+        attachment = await upload_complaint_attachment(
+            complaint.id, citizen, "image/jpeg", b"fake-jpeg-bytes", db
+        )
+        await db.commit()
+
+        assert attachment.complaint_id == complaint.id
+        assert attachment.image_url.startswith(f"/{settings.UPLOAD_DIR}/complaints/{complaint.id}/")
+        assert attachment.image_url.endswith(".jpg")
+
+        await db.delete(attachment)
+        await _cleanup(db, complaint)
+
+    async def test_citizen_cannot_upload_to_someone_elses_complaint(self, db, citizen):
+        other = User(
+            phone=f"9{uuid.uuid4().int % 10**9:09d}",
+            name="Pytest Other Citizen",
+            email=f"pytest-{uuid.uuid4()}@example.com",
+            role="citizen",
+            hashed_password="x",
+            is_active=True,
+        )
+        db.add(other)
+        await db.flush()
+
+        theirs = await _make_complaint(db, other)
+
+        with pytest.raises(ComplaintNotOwnerError):
+            await upload_complaint_attachment(theirs.id, citizen, "image/jpeg", b"data", db)
+
+        await _cleanup(db, theirs)
+        await db.delete(other)
+        await db.commit()
+
+    async def test_admin_can_upload_to_any_complaint(self, db, citizen, admin):
+        complaint = await _make_complaint(db, citizen)
+
+        attachment = await upload_complaint_attachment(
+            complaint.id, admin, "application/pdf", b"%PDF-fake", db
+        )
+        await db.commit()
+
+        assert attachment.image_url.endswith(".pdf")
+
+        await db.delete(attachment)
+        await _cleanup(db, complaint)
+
+    async def test_staff_can_upload_to_any_complaint(self, db, citizen, staff):
+        complaint = await _make_complaint(db, citizen)
+
+        attachment = await upload_complaint_attachment(
+            complaint.id, staff, "image/png", b"fake-png-bytes", db
+        )
+        await db.commit()
+
+        assert attachment.image_url.endswith(".png")
+
+        await db.delete(attachment)
+        await _cleanup(db, complaint)
+
+    async def test_rejects_unsupported_file_type(self, db, citizen):
+        complaint = await _make_complaint(db, citizen)
+
+        with pytest.raises(UnsupportedFileTypeError):
+            await upload_complaint_attachment(
+                complaint.id, citizen, "application/x-msdownload", b"data", db
+            )
+
+        await _cleanup(db, complaint)
+
+    async def test_rejects_a_file_over_the_size_limit(self, db, citizen):
+        complaint = await _make_complaint(db, citizen)
+        oversized = b"x" * (settings.MAX_UPLOAD_SIZE_BYTES + 1)
+
+        with pytest.raises(FileTooLargeError):
+            await upload_complaint_attachment(complaint.id, citizen, "image/jpeg", oversized, db)
+
+        await _cleanup(db, complaint)
+
+    async def test_rejects_uploading_past_the_per_complaint_limit(self, db, citizen):
+        complaint = await _make_complaint(db, citizen)
+
+        for _ in range(settings.MAX_ATTACHMENTS_PER_COMPLAINT):
+            await upload_complaint_attachment(complaint.id, citizen, "image/jpeg", b"data", db)
+            await db.commit()
+
+        with pytest.raises(TooManyAttachmentsError):
+            await upload_complaint_attachment(complaint.id, citizen, "image/jpeg", b"data", db)
+
+        result = await db.execute(
+            select(ComplaintImage).where(ComplaintImage.complaint_id == complaint.id)
+        )
+        for a in result.scalars().all():
+            await db.delete(a)
+        await _cleanup(db, complaint)
+
+    async def test_rejects_a_nonexistent_complaint(self, db, admin):
+        with pytest.raises(ComplaintNotFoundError):
+            await upload_complaint_attachment(uuid.uuid4(), admin, "image/jpeg", b"data", db)

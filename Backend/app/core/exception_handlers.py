@@ -52,12 +52,16 @@ from app.utils.exceptions import (
     InvalidStatusTransitionError,
     ComplaintNotAssignedToUserError,
     ComplaintNotOwnerError,
+    AttachmentError,
+    FileTooLargeError,
+    UnsupportedFileTypeError,
+    TooManyAttachmentsError,
 )
 
 
 def _error_response(
     status_code: int,
-    exc: AuthenticationError | ComplaintError,
+    exc: AuthenticationError | ComplaintError | AttachmentError,
     details: dict | None = None,
 ) -> JSONResponse:
     """
@@ -219,6 +223,39 @@ async def handle_complaint_error(
     Fallback for any ComplaintError subclass that does not have a
     more specific handler registered above, same reasoning as
     handle_authentication_error below.
+    """
+    return _error_response(status.HTTP_400_BAD_REQUEST, exc)
+
+
+async def handle_file_too_large(
+    request: Request,
+    exc: FileTooLargeError,
+) -> JSONResponse:
+    return _error_response(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, exc)
+
+
+async def handle_unsupported_file_type(
+    request: Request,
+    exc: UnsupportedFileTypeError,
+) -> JSONResponse:
+    return _error_response(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, exc)
+
+
+async def handle_too_many_attachments(
+    request: Request,
+    exc: TooManyAttachmentsError,
+) -> JSONResponse:
+    return _error_response(status.HTTP_409_CONFLICT, exc)
+
+
+async def handle_attachment_error(
+    request: Request,
+    exc: AttachmentError,
+) -> JSONResponse:
+    """
+    Fallback for any AttachmentError subclass that does not have a
+    more specific handler registered above, same reasoning as
+    handle_complaint_error above.
     """
     return _error_response(status.HTTP_400_BAD_REQUEST, exc)
 
@@ -437,6 +474,27 @@ def register_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(
         ComplaintError,
         handle_complaint_error,
+    )
+
+    app.add_exception_handler(
+        FileTooLargeError,
+        handle_file_too_large,
+    )
+
+    app.add_exception_handler(
+        UnsupportedFileTypeError,
+        handle_unsupported_file_type,
+    )
+
+    app.add_exception_handler(
+        TooManyAttachmentsError,
+        handle_too_many_attachments,
+    )
+
+    # Catch-all fallback for any other AttachmentError subclass.
+    app.add_exception_handler(
+        AttachmentError,
+        handle_attachment_error,
     )
 
     # FastAPI/Pydantic's own request validation errors (422),

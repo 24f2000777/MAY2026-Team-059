@@ -14,6 +14,7 @@ duplicating any scoring/routing logic here.
 from sqlalchemy import func as sa_func
 from sqlalchemy import select
 
+from app.core.config import settings
 from app.model import Complaint, ComplaintImage, ComplaintUpdate, User
 from app.schemas.complaint import ComplaintAssignRequest, ComplaintCreate, ComplaintStatus
 from app.services.priority_service import score_complaint
@@ -27,7 +28,9 @@ from app.utils.exceptions import (
     ComplaintNotOwnerError,
     InvalidStaffAssignmentError,
     InvalidStatusTransitionError,
+    TooManyAttachmentsError,
 )
+from app.utils.storage import save_attachment_file, validate_upload
 
 # Only these two columns are meaningful to sort a complaint list by,
 # whatever GET /complaints?sort_by= is given, the route validates it
@@ -203,11 +206,6 @@ async def list_complaint_attachments(complaint_id, current_user, db) -> list[Com
     get_complaint_detail: a citizen can only list their own
     complaint's attachments, staff and admin can list any.
 
-    There's currently no way to add an attachment (the upload
-    endpoint, POST /complaints/{id}/attachments, doesn't exist yet),
-    so this genuinely returns an empty list for every complaint today,
-    that's expected, not a bug.
-
     Raises:
         ComplaintNotFoundError: 404, if the complaint doesn't exist.
         ComplaintNotOwnerError: 403, if a citizen requests a complaint
@@ -221,6 +219,60 @@ async def list_complaint_attachments(complaint_id, current_user, db) -> list[Com
         .order_by(ComplaintImage.created_at)
     )
     return result.scalars().all()
+
+
+async def upload_complaint_attachment(
+    complaint_id,
+    current_user,
+    content_type: str,
+    file_bytes: bytes,
+    db,
+) -> ComplaintImage:
+    """
+    Validates and stores a new attachment on a complaint, backing
+    POST /complaints/{id}/attachments. Same visibility boundary as
+    list_complaint_attachments: a citizen can only upload to their
+    own complaint, staff and admin can upload to any. The design doc
+    lists this route's roles as "Citizen, Officer" only, extended
+    here to include admin too, matching every other route in this
+    module where admin has a superset of staff's access.
+
+    Raises:
+        ComplaintNotFoundError: 404, if the complaint doesn't exist.
+        ComplaintNotOwnerError: 403, if a citizen requests a complaint
+            that isn't theirs.
+        UnsupportedFileTypeError: 415 (FILE_002), if content_type
+            isn't JPG/PNG/PDF/DOC/DOCX.
+        FileTooLargeError: 413 (FILE_001), if the file exceeds
+            settings.MAX_UPLOAD_SIZE_BYTES.
+        TooManyAttachmentsError: 409 (FILE_003), if the complaint
+            already has settings.MAX_ATTACHMENTS_PER_COMPLAINT
+            attachments.
+
+    Does not commit, same convention as create_complaint above.
+    """
+    await _get_visible_complaint(complaint_id, current_user, db)
+
+    validate_upload(content_type, len(file_bytes))
+
+    count_result = await db.execute(
+        select(sa_func.count())
+        .select_from(ComplaintImage)
+        .where(ComplaintImage.complaint_id == complaint_id)
+    )
+    if count_result.scalar_one() >= settings.MAX_ATTACHMENTS_PER_COMPLAINT:
+        raise TooManyAttachmentsError(
+            f"This complaint already has the maximum of "
+            f"{settings.MAX_ATTACHMENTS_PER_COMPLAINT} attachments."
+        )
+
+    image_url = save_attachment_file(complaint_id, content_type, file_bytes)
+
+    attachment = ComplaintImage(complaint_id=complaint_id, image_url=image_url)
+    db.add(attachment)
+    await db.flush()
+
+    return attachment
 
 
 async def assign_complaint(

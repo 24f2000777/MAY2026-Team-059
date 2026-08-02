@@ -1,7 +1,7 @@
 from typing import Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, File, Query, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.database import get_db
@@ -44,6 +44,7 @@ from ..services.complaint_service import (
     list_complaints,
     list_my_complaints,
     transition_complaint_status,
+    upload_complaint_attachment,
 )
 from ..utils.constants import ROLE_ADMIN, ROLE_STAFF
 from ..utils.wards import WARDS
@@ -247,9 +248,7 @@ async def list_complaint_attachments_route(
     """
     Every attachment on a complaint, oldest first. A citizen can only
     list attachments on their own complaint; staff and admin can list
-    any. There is currently no way to add an attachment (the upload
-    endpoint doesn't exist yet), so this always returns an empty list
-    today, that's expected, not a bug.
+    any.
 
     Raises:
         ComplaintNotFoundError: 404, if the complaint doesn't exist.
@@ -263,6 +262,46 @@ async def list_complaint_attachments_route(
         data=AttachmentListResponse(
             attachments=[AttachmentOut.model_validate(a) for a in attachments]
         ),
+    )
+
+
+@router.post(
+    "/{complaint_id}/attachments",
+    status_code=status.HTTP_201_CREATED,
+    response_model=SuccessResponse[AttachmentOut],
+    summary="Upload a photo/document attachment to a complaint (owner citizen, staff, or admin)",
+)
+async def upload_complaint_attachment_route(
+    complaint_id: UUID,
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Uploads a photo/document as evidence on a complaint. A citizen can
+    only upload to their own complaint; staff and admin can upload to
+    any. JPG, PNG, PDF, DOC, and DOCX only, up to 5 MB, up to 5
+    attachments per complaint.
+
+    Raises:
+        ComplaintNotFoundError: 404, if the complaint doesn't exist.
+        ComplaintNotOwnerError: 403, if a citizen requests a complaint
+            that isn't theirs.
+        UnsupportedFileTypeError: 415 (FILE_002), if the file isn't
+            JPG/PNG/PDF/DOC/DOCX.
+        FileTooLargeError: 413 (FILE_001), if the file exceeds 5 MB.
+        TooManyAttachmentsError: 409 (FILE_003), if the complaint
+            already has 5 attachments.
+    """
+    file_bytes = await file.read()
+    attachment = await upload_complaint_attachment(
+        complaint_id, current_user, file.content_type, file_bytes, db
+    )
+    await db.commit()
+
+    return SuccessResponse[AttachmentOut](
+        message="Attachment uploaded.",
+        data=AttachmentOut.model_validate(attachment),
     )
 
 

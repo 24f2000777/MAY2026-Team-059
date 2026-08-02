@@ -79,6 +79,10 @@ Backend/app/ml/priority_scorer/data/*.csv
 # needed for the index to load at all, exception to the *.pkl rule above
 !Backend/app/chatbot/faiss_index/index.pkl
 
+# Locally-uploaded complaint attachments (dev-only storage, see
+# app/utils/storage.py) - real user-uploaded files, never committed
+Backend/uploads/
+
 # ======================================================
 # Local Notes (Do NOT Track)
 # ======================================================

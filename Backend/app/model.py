@@ -19,6 +19,7 @@ class User(Base):
     hashed_password = Column(String(255), nullable=False)
     is_active = Column(Boolean, default=False)
     department_id = Column(UUID(as_uuid=True), ForeignKey("departments.id"), nullable=True)
+    notification_email_enabled = Column(Boolean, nullable=False, default=True, server_default="true")
 
     created_at = Column(
         DateTime(timezone=True),

@@ -246,3 +246,27 @@ class TooManyAttachmentsError(AttachmentError):
     upload is attempted.
     """
     error_code = "FILE_003"
+
+
+class NotificationError(Exception):
+    """
+    Base class for notification-domain errors, same shape as
+    ComplaintError/AttachmentError above.
+    """
+
+    error_code: str = "NOTIF_000"
+
+    def __init__(self, message: str, error_code: str | None = None):
+        super().__init__(message)
+        if error_code is not None:
+            self.error_code = error_code
+
+
+class NotificationNotFoundError(NotificationError):
+    """
+    Raised when the requested notification doesn't exist, or exists
+    but belongs to a different user (same 404, not 403, so a caller
+    can't use this endpoint to probe whether a given notification ID
+    belongs to someone else).
+    """
+    error_code = "NOTIF_001"

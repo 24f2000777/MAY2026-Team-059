@@ -56,6 +56,8 @@ from app.utils.exceptions import (
     FileTooLargeError,
     UnsupportedFileTypeError,
     TooManyAttachmentsError,
+    NotificationError,
+    NotificationNotFoundError,
 )
 
 
@@ -254,6 +256,25 @@ async def handle_attachment_error(
 ) -> JSONResponse:
     """
     Fallback for any AttachmentError subclass that does not have a
+    more specific handler registered above, same reasoning as
+    handle_complaint_error above.
+    """
+    return _error_response(status.HTTP_400_BAD_REQUEST, exc)
+
+
+async def handle_notification_not_found(
+    request: Request,
+    exc: NotificationNotFoundError,
+) -> JSONResponse:
+    return _error_response(status.HTTP_404_NOT_FOUND, exc)
+
+
+async def handle_notification_error(
+    request: Request,
+    exc: NotificationError,
+) -> JSONResponse:
+    """
+    Fallback for any NotificationError subclass that does not have a
     more specific handler registered above, same reasoning as
     handle_complaint_error above.
     """
@@ -495,6 +516,17 @@ def register_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(
         AttachmentError,
         handle_attachment_error,
+    )
+
+    app.add_exception_handler(
+        NotificationNotFoundError,
+        handle_notification_not_found,
+    )
+
+    # Catch-all fallback for any other NotificationError subclass.
+    app.add_exception_handler(
+        NotificationError,
+        handle_notification_error,
     )
 
     # FastAPI/Pydantic's own request validation errors (422),

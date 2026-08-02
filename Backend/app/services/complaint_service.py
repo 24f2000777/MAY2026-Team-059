@@ -20,6 +20,7 @@ from sqlalchemy import select, update
 from app.core.config import settings
 from app.model import ChatSession, Complaint, ComplaintImage, ComplaintUpdate, User
 from app.schemas.complaint import ComplaintAssignRequest, ComplaintCreate, ComplaintStatus
+from app.services.notification_service import create_notification
 from app.services.priority_service import score_complaint
 from app.services.risk_alert_service import flag_if_high_risk
 from app.services.routing_service import route_complaint
@@ -509,6 +510,15 @@ async def assign_complaint(
         notes=data.notes,
     ))
 
+    await create_notification(
+        staff.id,
+        complaint.id,
+        "complaint_assigned",
+        "New complaint assigned to you",
+        f'You have been assigned complaint "{complaint.title}".',
+        db,
+    )
+
     await db.flush()
 
     return complaint, staff
@@ -609,6 +619,19 @@ TRANSITIONS = {
     },
 }
 
+# Notification copy for each TRANSITIONS action, keyed the same way.
+# "start" is the closest real equivalent this app's state machine has
+# to the design doc's "progress update" trigger (see complaint_service
+# module docstring reasoning: internal notes are deliberately never
+# citizen-visible, so add_complaint_note can't be the trigger for that
+# one instead).
+TRANSITION_NOTIFICATIONS = {
+    "approve": ("complaint_approved", "Complaint approved", "has been approved and is awaiting work to begin"),
+    "reject": ("complaint_rejected", "Complaint rejected", "was rejected"),
+    "start": ("complaint_in_progress", "Work started on your complaint", "is now being worked on"),
+    "resolve": ("complaint_resolved", "Complaint resolved", "has been marked resolved"),
+}
+
 
 async def transition_complaint_status(complaint_id, action: str, actor, notes, db) -> Complaint:
     """
@@ -669,6 +692,16 @@ async def transition_complaint_status(complaint_id, action: str, actor, notes, d
         new_status=complaint.status,
         notes=notes,
     ))
+
+    type_, title, message_suffix = TRANSITION_NOTIFICATIONS[action]
+    await create_notification(
+        complaint.citizen_id,
+        complaint.id,
+        type_,
+        title,
+        f'Your complaint "{complaint.title}" {message_suffix}.',
+        db,
+    )
 
     await db.flush()
 
@@ -746,6 +779,20 @@ async def transition_complaint_status_as_owner(complaint_id, action: str, citize
         new_status=complaint.status,
         notes=None,
     ))
+
+    if action == "close" and complaint.assigned_to is not None:
+        # The citizen already knows they just confirmed the closure
+        # themselves, notifying them about their own action wouldn't
+        # add anything, but the assigned staff member finding out the
+        # case is now closed is genuinely new information for them.
+        await create_notification(
+            complaint.assigned_to,
+            complaint.id,
+            "complaint_closed",
+            "Complaint closed",
+            f'The citizen has confirmed and closed complaint "{complaint.title}".',
+            db,
+        )
 
     await db.flush()
 

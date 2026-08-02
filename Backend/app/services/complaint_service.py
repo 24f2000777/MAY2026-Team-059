@@ -221,9 +221,17 @@ async def edit_complaint(complaint_id, current_user, title, description, db) -> 
         InvalidStatusTransitionError: 409, if the complaint isn't
             currently "submitted".
 
+    Locks the complaint row (SELECT ... FOR UPDATE) before checking
+    its status, same reasoning as transition_complaint_status: without
+    it, this edit could race a concurrent approve on the same
+    complaint, both reading "submitted" and proceeding.
+
     Does not commit, same convention as create_complaint above.
     """
-    complaint = await db.get(Complaint, complaint_id)
+    result = await db.execute(
+        select(Complaint).where(Complaint.id == complaint_id).with_for_update()
+    )
+    complaint = result.scalar_one_or_none()
     if complaint is None:
         raise ComplaintNotFoundError("Complaint not found.")
 

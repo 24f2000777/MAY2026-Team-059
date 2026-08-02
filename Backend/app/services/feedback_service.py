@@ -98,12 +98,11 @@ async def get_officer_ratings(staff_id, db) -> tuple[User, list[Rating], float |
     "resolved by" column). Returns (officer, ratings, average) so the
     route doesn't need a second round trip for the officer's name.
 
-    Raises:
-        UserNotFoundError is deliberately not raised for a
-        nonexistent/non-staff id, an admin browsing by id that
-        happens to not exist just sees zero ratings, same reasoning
-        as an empty list being a valid result rather than an error
-        elsewhere in this app.
+    This function itself never raises for a nonexistent id, it just
+    returns officer=None with an empty ratings list, the caller (the
+    GET /feedback/officer/{id} route) is the one that turns a None
+    officer into a 404 (UserNotFoundError), that's a presentation
+    decision, not something this service layer needs to enforce.
     """
     officer = await db.get(User, staff_id)
 

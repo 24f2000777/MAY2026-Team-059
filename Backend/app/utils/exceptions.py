@@ -204,3 +204,45 @@ class ComplaintNotOwnerError(ComplaintError):
     boundary GET /complaints/mine already enforces by construction.
     """
     error_code = "COMP_006"
+
+
+# =====================================================
+# Complaint Attachments
+#
+# FILE_001/FILE_002 use the exact codes the API design doc's
+# Appendix C already assigned them. FILE_003 (too many attachments)
+# isn't in the doc's table, assigned the next FILE_00x code following
+# the same convention as every other module's undocumented cases.
+# =====================================================
+
+class AttachmentError(Exception):
+    """
+    Base class for attachment-domain errors, same shape as
+    ComplaintError/AuthenticationError above.
+    """
+
+    error_code: str = "FILE_000"
+
+    def __init__(self, message: str, error_code: str | None = None):
+        super().__init__(message)
+        if error_code is not None:
+            self.error_code = error_code
+
+
+class FileTooLargeError(AttachmentError):
+    """Raised when an uploaded file exceeds settings.MAX_UPLOAD_SIZE_BYTES."""
+    error_code = "FILE_001"
+
+
+class UnsupportedFileTypeError(AttachmentError):
+    """Raised when an uploaded file's content type isn't JPG/PNG/PDF/DOC/DOCX."""
+    error_code = "FILE_002"
+
+
+class TooManyAttachmentsError(AttachmentError):
+    """
+    Raised when a complaint already has
+    settings.MAX_ATTACHMENTS_PER_COMPLAINT attachments and another
+    upload is attempted.
+    """
+    error_code = "FILE_003"

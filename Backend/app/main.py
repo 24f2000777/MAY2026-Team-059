@@ -1,7 +1,9 @@
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from app.api.auth import router as auth_router
 from app.api.chat import router as chat_router
@@ -62,6 +64,13 @@ app.add_middleware(
 )
 
 register_exception_handlers(app)
+
+# Serves uploaded complaint attachments back out (dev-only local
+# filesystem storage, see app/utils/storage.py). Directory must exist
+# before StaticFiles mounts it, it won't until the first upload
+# otherwise.
+Path(settings.UPLOAD_DIR).mkdir(parents=True, exist_ok=True)
+app.mount(f"/{settings.UPLOAD_DIR}", StaticFiles(directory=settings.UPLOAD_DIR), name="uploads")
 
 app.include_router(auth_router)
 app.include_router(chat_router)

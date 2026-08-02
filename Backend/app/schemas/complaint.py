@@ -508,14 +508,14 @@ class ComplaintDetailResponse(BaseModel):
 # =====================================================
 # Complaint Attachments
 #
-# GET /complaints/{id}/attachments only, per section 4 of the API
-# design doc. There's no upload endpoint yet (POST .../attachments),
-# so this always lists empty today, that's a real, expected gap, not
-# a bug, see complaint_service.py's list_complaint_attachments.
+# GET and POST /complaints/{id}/attachments, per section 4 of the API
+# design doc. Upload stores the file on the local filesystem in dev
+# (see app/utils/storage.py), a signed-URL GET/{attachment_id} and a
+# DELETE aren't built yet.
 # =====================================================
 
 class AttachmentOut(BaseModel):
-    """One entry in GET /complaints/{id}/attachments."""
+    """One entry in GET /complaints/{id}/attachments, and the response of a successful upload."""
 
     id: UUID
     complaint_id: UUID

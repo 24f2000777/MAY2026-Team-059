@@ -123,6 +123,22 @@ class Settings(BaseSettings):
     HUGGINGFACE_API_KEY: Optional[str] = None
 
     # =====================================================
+    # Complaint Attachments
+    #
+    # Per Section 4 of the API design doc: JPG/PNG/PDF/DOC/DOCX, max
+    # 5 MB per file, max 5 files per complaint. Dev storage is the
+    # local filesystem (UPLOAD_DIR, served back via a static mount in
+    # main.py), swapping to S3-compatible object storage for prod is
+    # a config-level change, not a code-level one, once that's needed.
+    # =====================================================
+
+    UPLOAD_DIR: str = "uploads"
+
+    MAX_UPLOAD_SIZE_BYTES: int = 5 * 1024 * 1024
+
+    MAX_ATTACHMENTS_PER_COMPLAINT: int = 5
+
+    # =====================================================
     # Application
     # =====================================================
 

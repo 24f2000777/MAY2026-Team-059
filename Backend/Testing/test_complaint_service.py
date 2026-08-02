@@ -15,7 +15,15 @@ import pytest
 from sqlalchemy import select
 
 from app.core.database import AsyncSessionLocal
-from app.model import ComplaintImage, ComplaintUpdate, Department, Notification, User
+from app.model import (
+    ChatSession,
+    Complaint,
+    ComplaintImage,
+    ComplaintUpdate,
+    Department,
+    Notification,
+    User,
+)
 from app.schemas.complaint import (
     ComplaintAssignRequest,
     ComplaintCreate,
@@ -27,12 +35,15 @@ from app.services.complaint_service import (
     add_complaint_note,
     assign_complaint,
     create_complaint,
+    delete_complaint,
+    edit_complaint,
     get_complaint_detail,
     list_complaint_attachments,
     list_complaint_notes,
     list_complaints,
     list_my_complaints,
     transition_complaint_status,
+    transition_complaint_status_as_owner,
     upload_complaint_attachment,
 )
 from app.services.risk_alert_service import HIGH_RISK_NOTIFICATION_TYPE
@@ -1000,3 +1011,241 @@ class TestUploadComplaintAttachment:
     async def test_rejects_a_nonexistent_complaint(self, db, admin):
         with pytest.raises(ComplaintNotFoundError):
             await upload_complaint_attachment(uuid.uuid4(), admin, "image/jpeg", b"data", db)
+
+
+class TestEditComplaint:
+    async def test_owner_citizen_can_edit_title_and_description(self, db, citizen):
+        complaint = await _make_complaint(db, citizen)
+
+        edited = await edit_complaint(
+            complaint.id, citizen, "Updated title here", "Updated description with enough length.", db
+        )
+        await db.commit()
+
+        assert edited.title == "Updated title here"
+        assert edited.description == "Updated description with enough length."
+
+        await _cleanup(db, complaint)
+
+    async def test_can_edit_just_one_field(self, db, citizen):
+        complaint = await _make_complaint(db, citizen)
+        original_description = complaint.description
+
+        edited = await edit_complaint(complaint.id, citizen, "New title only", None, db)
+        await db.commit()
+
+        assert edited.title == "New title only"
+        assert edited.description == original_description
+
+        await _cleanup(db, complaint)
+
+    async def test_citizen_cannot_edit_someone_elses_complaint(self, db, citizen):
+        other = User(
+            phone=f"9{uuid.uuid4().int % 10**9:09d}",
+            name="Pytest Other Citizen",
+            email=f"pytest-{uuid.uuid4()}@example.com",
+            role="citizen",
+            hashed_password="x",
+            is_active=True,
+        )
+        db.add(other)
+        await db.flush()
+
+        theirs = await _make_complaint(db, other)
+
+        with pytest.raises(ComplaintNotOwnerError):
+            await edit_complaint(theirs.id, citizen, "Hijacked title", None, db)
+
+        await _cleanup(db, theirs)
+        await db.delete(other)
+        await db.commit()
+
+    async def test_staff_cannot_edit_a_complaint(self, db, citizen, staff):
+        # No route-level bypass check here since require_roles(ROLE_CITIZEN)
+        # already keeps staff out at the route layer, this confirms the
+        # service's own ownership check independently rejects a staff
+        # caller too, staff.id never matches complaint.citizen_id.
+        complaint = await _make_complaint(db, citizen)
+
+        with pytest.raises(ComplaintNotOwnerError):
+            await edit_complaint(complaint.id, staff, "Staff edit attempt", None, db)
+
+        await _cleanup(db, complaint)
+
+    async def test_cannot_edit_after_approval(self, db, citizen, admin):
+        complaint = await _make_complaint(db, citizen)
+        await transition_complaint_status(complaint.id, "approve", admin, None, db)
+        await db.commit()
+
+        with pytest.raises(InvalidStatusTransitionError):
+            await edit_complaint(complaint.id, citizen, "Too late now", None, db)
+
+        await _cleanup(db, complaint)
+
+    async def test_rejects_a_nonexistent_complaint(self, db, citizen):
+        with pytest.raises(ComplaintNotFoundError):
+            await edit_complaint(uuid.uuid4(), citizen, "Doesn't matter", None, db)
+
+
+class TestDeleteComplaint:
+    async def test_admin_can_delete_a_complaint(self, db, citizen, admin):
+        complaint = await _make_complaint(db, citizen)
+        complaint_id = complaint.id
+        await db.commit()
+
+        await delete_complaint(complaint_id, db)
+        await db.commit()
+
+        assert await db.get(Complaint, complaint_id) is None
+
+    async def test_delete_cascades_to_notes(self, db, citizen, staff):
+        complaint = await _make_complaint(db, citizen)
+        await add_complaint_note(complaint.id, staff.id, "A note that should vanish with the complaint.", db)
+        await db.commit()
+        complaint_id = complaint.id
+
+        await delete_complaint(complaint_id, db)
+        await db.commit()
+
+        result = await db.execute(
+            select(ComplaintUpdate).where(ComplaintUpdate.complaint_id == complaint_id)
+        )
+        assert result.scalars().all() == []
+
+    async def test_delete_detaches_but_preserves_chat_sessions(self, db, citizen):
+        # ChatSession.complaint_id has no ondelete configured at the
+        # database level (unlike ComplaintUpdate/ComplaintImage/Rating,
+        # which cascade), this is the one delete_complaint has to
+        # handle itself, confirms it does: the session row survives,
+        # just detached.
+        complaint = await _make_complaint(db, citizen)
+        session = ChatSession(
+            session_id=f"pytest-session-{uuid.uuid4()}",
+            user_id=citizen.id,
+            complaint_id=complaint.id,
+            role="assistant",
+            message="Your complaint has been filed.",
+        )
+        db.add(session)
+        await db.flush()
+        await db.commit()
+        session_id = session.id
+        complaint_id = complaint.id
+
+        await delete_complaint(complaint_id, db)
+        await db.commit()
+
+        refreshed = await db.get(ChatSession, session_id)
+        assert refreshed is not None
+        assert refreshed.complaint_id is None
+
+        await db.delete(refreshed)
+        await db.commit()
+
+    async def test_rejects_a_nonexistent_complaint(self, db):
+        with pytest.raises(ComplaintNotFoundError):
+            await delete_complaint(uuid.uuid4(), db)
+
+
+class TestWithdrawComplaint:
+    async def test_owner_citizen_can_withdraw_a_submitted_complaint(self, db, citizen):
+        complaint = await _make_complaint(db, citizen)
+
+        withdrawn = await transition_complaint_status_as_owner(complaint.id, "withdraw", citizen, db)
+        await db.commit()
+
+        assert withdrawn.status == "withdrawn"
+
+        await _cleanup(db, complaint)
+
+    async def test_citizen_cannot_withdraw_someone_elses_complaint(self, db, citizen):
+        other = User(
+            phone=f"9{uuid.uuid4().int % 10**9:09d}",
+            name="Pytest Other Citizen",
+            email=f"pytest-{uuid.uuid4()}@example.com",
+            role="citizen",
+            hashed_password="x",
+            is_active=True,
+        )
+        db.add(other)
+        await db.flush()
+
+        theirs = await _make_complaint(db, other)
+
+        with pytest.raises(ComplaintNotOwnerError):
+            await transition_complaint_status_as_owner(theirs.id, "withdraw", citizen, db)
+
+        await _cleanup(db, theirs)
+        await db.delete(other)
+        await db.commit()
+
+    async def test_cannot_withdraw_an_approved_complaint(self, db, citizen, admin):
+        complaint = await _make_complaint(db, citizen)
+        await transition_complaint_status(complaint.id, "approve", admin, None, db)
+        await db.commit()
+
+        with pytest.raises(InvalidStatusTransitionError):
+            await transition_complaint_status_as_owner(complaint.id, "withdraw", citizen, db)
+
+        await _cleanup(db, complaint)
+
+    async def test_rejects_a_nonexistent_complaint(self, db, citizen):
+        with pytest.raises(ComplaintNotFoundError):
+            await transition_complaint_status_as_owner(uuid.uuid4(), "withdraw", citizen, db)
+
+
+class TestCloseComplaint:
+    async def test_owner_citizen_can_close_a_resolved_complaint(self, db, citizen, admin, staff):
+        complaint = await _make_complaint(db, citizen)
+        await transition_complaint_status(complaint.id, "approve", admin, None, db)
+        complaint.assigned_to = staff.id
+        await db.flush()
+        await transition_complaint_status(complaint.id, "start", staff, None, db)
+        await transition_complaint_status(complaint.id, "resolve", staff, "Fixed.", db)
+        await db.commit()
+
+        closed = await transition_complaint_status_as_owner(complaint.id, "close", citizen, db)
+        await db.commit()
+
+        assert closed.status == "closed"
+
+        await _cleanup(db, complaint)
+
+    async def test_citizen_cannot_close_someone_elses_complaint(self, db, citizen, admin, staff):
+        other = User(
+            phone=f"9{uuid.uuid4().int % 10**9:09d}",
+            name="Pytest Other Citizen",
+            email=f"pytest-{uuid.uuid4()}@example.com",
+            role="citizen",
+            hashed_password="x",
+            is_active=True,
+        )
+        db.add(other)
+        await db.flush()
+
+        theirs = await _make_complaint(db, other)
+        await transition_complaint_status(theirs.id, "approve", admin, None, db)
+        theirs.assigned_to = staff.id
+        await db.flush()
+        await transition_complaint_status(theirs.id, "start", staff, None, db)
+        await transition_complaint_status(theirs.id, "resolve", staff, "Fixed.", db)
+        await db.commit()
+
+        with pytest.raises(ComplaintNotOwnerError):
+            await transition_complaint_status_as_owner(theirs.id, "close", citizen, db)
+
+        await _cleanup(db, theirs)
+        await db.delete(other)
+        await db.commit()
+
+    async def test_cannot_close_a_complaint_that_isnt_resolved(self, db, citizen):
+        complaint = await _make_complaint(db, citizen)
+
+        with pytest.raises(InvalidStatusTransitionError):
+            await transition_complaint_status_as_owner(complaint.id, "close", citizen, db)
+
+        await _cleanup(db, complaint)
+
+    async def test_rejects_a_nonexistent_complaint(self, db, citizen):
+        with pytest.raises(ComplaintNotFoundError):
+            await transition_complaint_status_as_owner(uuid.uuid4(), "close", citizen, db)

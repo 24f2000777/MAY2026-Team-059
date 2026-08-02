@@ -113,3 +113,22 @@ def save_attachment_file(complaint_id, content_type: str, file_bytes: bytes) -> 
     (directory / filename).write_bytes(file_bytes)
 
     return f"/{settings.UPLOAD_DIR}/complaints/{complaint_id}/{filename}"
+
+
+def delete_attachment_file(image_url: str) -> None:
+    """
+    Removes a single attachment's file from disk, best-effort, a
+    missing file is not an error, the DB row is still the source of
+    truth being deleted regardless. image_url is always this app's
+    own generated path (save_attachment_file's return value, never
+    client input), of the shape
+    /{UPLOAD_DIR}/complaints/{complaint_id}/{filename}. The prefix
+    check below is a defense-in-depth sanity guard, not a real
+    traversal risk given that, this function should never delete
+    anything outside the upload directory.
+    """
+    relative = image_url.lstrip("/")
+    if not relative.startswith(f"{settings.UPLOAD_DIR}/"):
+        return
+
+    Path(relative).unlink(missing_ok=True)

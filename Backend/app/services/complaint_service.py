@@ -159,6 +159,74 @@ async def list_complaints(
     return complaints, total
 
 
+async def list_complaints_by_ward(ward_code: str, db) -> list[Complaint]:
+    """
+    Every complaint in a given ward, newest first, backing GET
+    /complaints/ward/{ward_id}. Officer/admin-only per the design doc
+    (unlike GET /complaints' own ward_code filter, which citizens can
+    also use, scoped to their own complaints), so there's no ownership
+    boundary to enforce here, staff and admin already see every
+    complaint regardless of ward.
+    """
+    result = await db.execute(
+        select(Complaint)
+        .where(Complaint.ward_code == ward_code)
+        .order_by(Complaint.created_at.desc())
+    )
+    return result.scalars().all()
+
+
+async def list_complaints_by_category(category: str, db) -> list[Complaint]:
+    """
+    Every complaint in a given category, newest first, backing GET
+    /complaints/category/{category}. Same officer/admin-only reasoning
+    as list_complaints_by_ward above.
+    """
+    result = await db.execute(
+        select(Complaint)
+        .where(Complaint.category == category)
+        .order_by(Complaint.created_at.desc())
+    )
+    return result.scalars().all()
+
+
+async def get_complaint_history(complaint_id, current_user, db) -> list[tuple[ComplaintUpdate, User]]:
+    """
+    Only the status-change rows on a complaint's timeline, oldest
+    first, each paired with who made the change. Backs GET
+    /complaints/{id}/history, distinct from GET /complaints/{id}/updates
+    (list_complaint_notes above), which returns internal notes
+    instead, a ComplaintUpdate row here counts as "history" only when
+    it actually carries a status change (new_status IS NOT NULL), the
+    opposite filter from list_complaint_notes.
+
+    Same ownership boundary as get_complaint_detail: a citizen can
+    only see their own complaint's history, staff and admin can see
+    any.
+
+    Raises:
+        ComplaintNotFoundError: 404, if the complaint doesn't exist.
+        ComplaintNotOwnerError: 403, if a citizen requests a complaint
+            that isn't theirs.
+    """
+    await _get_visible_complaint(complaint_id, current_user, db)
+
+    result = await db.execute(
+        select(ComplaintUpdate)
+        .where(ComplaintUpdate.complaint_id == complaint_id, ComplaintUpdate.new_status.isnot(None))
+        .order_by(ComplaintUpdate.created_at)
+    )
+    changes = result.scalars().all()
+
+    changer_ids = {change.updated_by for change in changes}
+    changers_by_id = {}
+    if changer_ids:
+        result = await db.execute(select(User).where(User.id.in_(changer_ids)))
+        changers_by_id = {user.id: user for user in result.scalars().all()}
+
+    return [(change, changers_by_id.get(change.updated_by)) for change in changes]
+
+
 async def _get_visible_complaint(complaint_id, current_user, db) -> Complaint:
     """
     Fetches a complaint and enforces the citizen-ownership boundary

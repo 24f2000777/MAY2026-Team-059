@@ -37,6 +37,7 @@ from ..schemas.complaint import (
     WardListResponse,
     WardOut,
 )
+from ..schemas.feedback import FeedbackCreateRequest, FeedbackOut
 from ..services.complaint_service import (
     add_complaint_note,
     assign_complaint,
@@ -52,6 +53,7 @@ from ..services.complaint_service import (
     transition_complaint_status_as_owner,
     upload_complaint_attachment,
 )
+from ..services.feedback_service import get_feedback, submit_feedback
 from ..utils.constants import ROLE_ADMIN, ROLE_CITIZEN, ROLE_STAFF
 from ..utils.storage import read_upload_bounded
 from ..utils.wards import WARDS
@@ -686,4 +688,66 @@ async def resolve_complaint_route(
     """
     return await _transition_and_respond(
         complaint_id, "resolve", current_user, body.notes, "Complaint resolved.", db
+    )
+
+
+@router.post(
+    "/{complaint_id}/feedback",
+    status_code=status.HTTP_201_CREATED,
+    response_model=SuccessResponse[FeedbackOut],
+    summary="Submit a rating and feedback for a resolved complaint (owner citizen only)",
+)
+async def submit_feedback_route(
+    complaint_id: UUID,
+    body: FeedbackCreateRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles(ROLE_CITIZEN)),
+):
+    """
+    Only while the complaint is RESOLVED, and only once per complaint.
+    Submitting feedback auto-transitions the complaint to CLOSED, per
+    the design doc.
+
+    Raises:
+        ComplaintNotFoundError: 404, if the complaint doesn't exist.
+        ComplaintNotOwnerError: 403, if the complaint isn't the
+            caller's own.
+        ComplaintNotResolvedError: 409, if the complaint isn't
+            currently "resolved".
+        RatingAlreadyExistsError: 409, if this complaint already has
+            a rating.
+    """
+    rating = await submit_feedback(complaint_id, current_user, body.score, body.feedback, db)
+    await db.commit()
+
+    return SuccessResponse[FeedbackOut](
+        message="Feedback submitted, complaint closed.",
+        data=FeedbackOut.model_validate(rating),
+    )
+
+
+@router.get(
+    "/{complaint_id}/feedback",
+    response_model=SuccessResponse[Optional[FeedbackOut]],
+    summary="Get feedback details for a complaint (owner citizen, staff, or admin)",
+)
+async def get_feedback_route(
+    complaint_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Returns null data if the complaint hasn't been rated yet, that's a
+    valid state, not a 404.
+
+    Raises:
+        ComplaintNotFoundError: 404, if the complaint doesn't exist.
+        ComplaintNotOwnerError: 403, if a citizen requests a complaint
+            that isn't theirs.
+    """
+    rating = await get_feedback(complaint_id, current_user, db)
+
+    return SuccessResponse[Optional[FeedbackOut]](
+        message="Feedback retrieved.",
+        data=FeedbackOut.model_validate(rating) if rating else None,
     )

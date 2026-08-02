@@ -246,3 +246,8 @@ class TooManyAttachmentsError(AttachmentError):
     upload is attempted.
     """
     error_code = "FILE_003"
+
+
+class AttachmentNotFoundError(AttachmentError):
+    """Raised when the requested attachment does not exist."""
+    error_code = "FILE_004"

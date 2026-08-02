@@ -4,6 +4,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, File, Query, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..core.config import settings
 from ..core.database import get_db
 from ..dependencies.auth import get_current_user
 from ..dependencies.roles import require_roles
@@ -47,6 +48,7 @@ from ..services.complaint_service import (
     upload_complaint_attachment,
 )
 from ..utils.constants import ROLE_ADMIN, ROLE_STAFF
+from ..utils.storage import read_upload_bounded
 from ..utils.wards import WARDS
 
 
@@ -288,12 +290,13 @@ async def upload_complaint_attachment_route(
         ComplaintNotOwnerError: 403, if a citizen requests a complaint
             that isn't theirs.
         UnsupportedFileTypeError: 415 (FILE_002), if the file isn't
-            JPG/PNG/PDF/DOC/DOCX.
+            JPG/PNG/PDF/DOC/DOCX, or its actual content doesn't match
+            the claimed type.
         FileTooLargeError: 413 (FILE_001), if the file exceeds 5 MB.
         TooManyAttachmentsError: 409 (FILE_003), if the complaint
             already has 5 attachments.
     """
-    file_bytes = await file.read()
+    file_bytes = await read_upload_bounded(file, settings.MAX_UPLOAD_SIZE_BYTES)
     attachment = await upload_complaint_attachment(
         complaint_id, current_user, file.content_type, file_bytes, db
     )

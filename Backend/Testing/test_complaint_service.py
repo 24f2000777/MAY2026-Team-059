@@ -877,12 +877,21 @@ class TestListComplaintAttachments:
         await _cleanup(db, complaint)
 
 
+# Real magic bytes for a couple of allowed types, validate_upload now
+# checks actual file content against these, not just the client's
+# claimed Content-Type, so a test can no longer get away with
+# b"fake-jpeg-bytes" for "image/jpeg", it has to actually start with
+# what a real JPEG/PNG starts with.
+JPEG_MAGIC_BYTES = b"\xff\xd8\xff" + b"fake-rest-of-file"
+PNG_MAGIC_BYTES = b"\x89PNG\r\n\x1a\n" + b"fake-rest-of-file"
+
+
 class TestUploadComplaintAttachment:
     async def test_owner_citizen_can_upload_to_own_complaint(self, db, citizen):
         complaint = await _make_complaint(db, citizen)
 
         attachment = await upload_complaint_attachment(
-            complaint.id, citizen, "image/jpeg", b"fake-jpeg-bytes", db
+            complaint.id, citizen, "image/jpeg", JPEG_MAGIC_BYTES, db
         )
         await db.commit()
 
@@ -931,7 +940,7 @@ class TestUploadComplaintAttachment:
         complaint = await _make_complaint(db, citizen)
 
         attachment = await upload_complaint_attachment(
-            complaint.id, staff, "image/png", b"fake-png-bytes", db
+            complaint.id, staff, "image/png", PNG_MAGIC_BYTES, db
         )
         await db.commit()
 
@@ -950,6 +959,18 @@ class TestUploadComplaintAttachment:
 
         await _cleanup(db, complaint)
 
+    async def test_rejects_content_that_does_not_match_the_claimed_type(self, db, citizen):
+        # A client can claim any allowed Content-Type it wants, this
+        # confirms the actual bytes are checked too, not just the
+        # header, PNG magic bytes labeled as a JPEG should still be
+        # rejected.
+        complaint = await _make_complaint(db, citizen)
+
+        with pytest.raises(UnsupportedFileTypeError):
+            await upload_complaint_attachment(complaint.id, citizen, "image/jpeg", PNG_MAGIC_BYTES, db)
+
+        await _cleanup(db, complaint)
+
     async def test_rejects_a_file_over_the_size_limit(self, db, citizen):
         complaint = await _make_complaint(db, citizen)
         oversized = b"x" * (settings.MAX_UPLOAD_SIZE_BYTES + 1)
@@ -963,11 +984,11 @@ class TestUploadComplaintAttachment:
         complaint = await _make_complaint(db, citizen)
 
         for _ in range(settings.MAX_ATTACHMENTS_PER_COMPLAINT):
-            await upload_complaint_attachment(complaint.id, citizen, "image/jpeg", b"data", db)
+            await upload_complaint_attachment(complaint.id, citizen, "image/jpeg", JPEG_MAGIC_BYTES, db)
             await db.commit()
 
         with pytest.raises(TooManyAttachmentsError):
-            await upload_complaint_attachment(complaint.id, citizen, "image/jpeg", b"data", db)
+            await upload_complaint_attachment(complaint.id, citizen, "image/jpeg", JPEG_MAGIC_BYTES, db)
 
         result = await db.execute(
             select(ComplaintImage).where(ComplaintImage.complaint_id == complaint.id)

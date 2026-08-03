@@ -126,6 +126,15 @@ python -m scripts.create_admin
 
 It will ask for a name, phone number, email, and password, then create the account immediately active, no OTP step needed since you are the one running it directly on the machine. If an admin account already exists, the script refuses to run again, on purpose, so you can never accidentally end up with two. Keep these credentials somewhere you will remember them, you will use them to log in and to create staff accounts from inside the app itself, through `POST /admin/users`.
 
+Since the whole team points at the same shared Supabase database, this admin account is already the same account for everyone, there is nothing to individually set up, just log in.
+
+```
+email:    admin@nagrikai.team
+password: Nagrik@2026
+```
+
+Anyone with these credentials can hard delete complaints and create or deactivate accounts, treat them like any other team credential and keep them out of anywhere public, screenshots included.
+
 ### Step 7: Run the backend, in three separate terminal windows
 
 The backend is not just one process. Sending the verification email happens in the background through Celery, so you need a Celery worker running, and there is also a nightly job that recalculates complaint priority scores, which needs Celery beat. Open three terminal tabs or windows, activate the virtual environment in each one, and run one of these in each:

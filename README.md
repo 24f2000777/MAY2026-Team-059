@@ -21,7 +21,7 @@
 
 NAGRIK AI is a civic complaint platform for Mumbai. A citizen can report a problem like a pothole, a water leak, or an overflowing drain, either by filling out a form or by just chatting with an AI assistant called Nagrik Saathi about it. The system reads the complaint, figures out how urgent it is, decides which BMC department should handle it, and checks whether it looks like a duplicate of something already reported. Staff and admins review, assign, and resolve these complaints, the citizen gets notified at each step, and once a complaint is fixed the citizen confirms it and can leave a rating.
 
-The backend, on `develop`, is now genuinely large. Authentication, the full complaint lifecycle from submission through approval, assignment, work, resolution, and closure, photo and document attachments, notifications, feedback and ratings, and account creation for staff and admins are all real, tested, and running against an actual Postgres database. The chatbot is a real AI conversation, not a scripted demo. The frontend has not caught up to all of this yet. Registration, login, complaint submission, and the chatbot are wired to the real backend, but a fair amount of the citizen, staff, and admin dashboard pages still run on sample data stored in the browser, since connecting them is ongoing work. This guide walks you through getting the whole thing running on your own machine so you can click around and test it yourself, not just read about it.
+The backend, on `develop`, is now genuinely large. Authentication, the full complaint lifecycle from submission through approval, assignment, work, resolution, and closure, photo and document attachments, notifications, feedback and ratings, and account creation for staff and admins are all real, tested, and running against an actual Postgres database. The chatbot is a real AI conversation, not a scripted demo. The frontend has mostly caught up now too. Registration, login, complaint submission, the chatbot, complaint detail, feedback and ratings, the staff task workflow, and the admin dashboard with approve and assign actions are all wired to the real backend. Only the three analytics pages, the profile page, and a general untargeted feedback form still run on sample data stored in the browser, since none of those have a matching real endpoint yet or are considered lower priority. This guide walks you through getting the whole thing running on your own machine so you can click around and test it yourself, not just read about it.
 
 ---
 
@@ -291,16 +291,19 @@ Vue 3.5 with the Composition API and `<script setup>`, Vue Router 5 for routing 
 
 ## What is real and what is still sample data
 
-| Store or API file | Talks to | Notes |
+| API file | Talks to | Notes |
 |---|---|---|
-| `stores/authStore.js` through `api/authApi.js` | Real backend | register, verify OTP and log in, resend OTP, login, logout |
-| `stores/chatStore.js` through `api/chatApi.js` | Real backend | Nagrik Saathi, real AI replies, real chat history saved per user |
-| `stores/complaintStore.js` through `api/client.js` | Sample data in the browser | the complaint list, detail, and submission form pages, plus ratings |
-| Profile, notifications, password reset | Sample data in the browser | not connected to the backend yet |
+| `api/authApi.js` | Real backend | register, verify OTP and log in, resend OTP, login, logout |
+| `api/chatApi.js` | Real backend | Nagrik Saathi, real AI replies, real chat history saved per user |
+| `api/complaintApi.js` | Real backend | submission, listing, detail, every lifecycle transition, attachments, feedback, the officer list |
+| `api/notificationApi.js` | Real backend | listing, unread count, mark read, mark all read, delete, preferences |
+| `api/client.js` | Sample data in the browser | still used by `stores/complaintStore.js`, but only for the three analytics pages now |
 
-`api/client.js` is clearly marked as sample data at the top of the file. Every function in it is written to match exactly what a real endpoint would expect, so connecting it for real later just means rewriting the inside of each function, nothing about how the rest of the app calls it needs to change.
+`api/client.js` is clearly marked as sample data at the top of the file. It used to back almost every complaint related page, that is no longer true, most pages now call `complaintApi.js` or `notificationApi.js` directly with their own local component state instead of going through a shared Pinia store. `complaintStore.js` itself was not deleted, it is still there and still mock backed, but the only pages left calling it are `AnalyticsPage.vue`, `CitizenAnalytics.vue`, and `StaffAnalytics.vue`.
 
-The backend has genuinely grown a lot faster than the frontend has caught up with it. Complaint approval, assignment, work status, resolution, closing, attachments, notifications, and feedback are all real and working on the backend today, none of it is wired into `complaintStore.js` yet. If you are picking up frontend work next, this is the highest value place to start, the endpoints already exist and are tested, they just need a real caller instead of the sample data layer.
+Two things are still genuinely not wired to anything real: `Profile.vue` (viewing or editing your own profile, changing your password, and the forgot and reset password flow all still go through `api/client.js`), and `FeedbackReport.vue` (a general subject plus message form for reporting a bug or an idea, not tied to any specific complaint). That second one is a deliberate gap rather than an oversight, the real backend's feedback system is always a rating on one specific resolved complaint, there is no endpoint for untargeted app feedback with a subject line, so this page has nothing real to call yet without a new backend feature first.
+
+The admin dashboard's complaint list also has a real limitation worth knowing about: it asks the backend for up to 100 complaints and stops there, since there is no pagination control in the UI yet. On a small test database this never matters, but once a deployment has more than 100 complaints the dashboard will quietly show an incomplete list and undercount its own summary numbers.
 
 ## How the login and signup flow works, step by step
 
@@ -328,15 +331,13 @@ If you describe a real civic problem with enough detail, including where it is, 
 
 Public visitors can see the landing page, a FAQ, the privacy policy, terms of service, and a contact page, all without logging in.
 
-Citizens get a dashboard with a personal greeting and summary cards, a report an issue form (still sample data for now, use the chatbot for a genuinely saved complaint today), a list of their own complaints, a detail view with a status timeline, and a page to rate a resolved complaint.
+Citizens get a dashboard with a personal greeting and summary cards, backed by a real `GET /complaints/mine` call. The report an issue form is still sample data, use the chatbot for a genuinely saved complaint today. The complaint detail page is real, showing the actual status, priority score, department, assigned staff member, attachments, and full status history pulled from the backend. Once a complaint is resolved, the same page offers a real rating flow, submitting a score and optional comment through `POST /complaints/{id}/feedback`, which also closes the complaint for real.
 
-Staff get a dashboard of assigned tasks sorted by priority, and a page to update the status of a task.
+Staff get a dashboard of assigned tasks, pulled with a real `GET /complaints?assigned_to=` call and sorted by priority. Opening a task shows its real status and history, and offers a real contextual action instead of a free form status picker, a Start Work button while the complaint is approved, a Mark Resolved button once it is in progress, and nothing to click at all once it has moved past that, since those are the only transitions the backend's state machine actually allows a staff member to make.
 
-Admins get a dashboard with summary cards and a filterable table, a page to assign or reassign complaints, and an analytics page with several charts.
+Admins get a dashboard with real summary numbers and a real filterable table of every complaint on the platform (up to the first 100, see the note above), a real Approve action for anything still submitted, and a real Assign or Reassign flow that pulls the actual list of staff accounts from `GET /admin/officers` and calls `PATCH /complaints/{id}/assign`. There is no reject button in the UI yet, even though the backend endpoint for it exists and `rejectComplaint()` is already written in `complaintApi.js`, it just has nothing calling it yet. The analytics page is still sample data.
 
-Anyone logged in, regardless of role, can use Nagrik Saathi, view a notifications feed, edit their profile, and submit general feedback.
-
-None of the pages in this section talk to the real backend endpoints for those actions yet, even though the real endpoints already exist, see the table above.
+Anyone logged in, regardless of role, gets a real notifications feed, listing actual notifications from `GET /notifications`, letting you mark one or all of them as read, or delete one, all against the real backend. Editing your profile and the general feedback form are still sample data.
 
 ## Folder layout
 
@@ -353,15 +354,19 @@ frontend/src/
 │   └── NotFound.vue
 ├── components/ Navbar.vue, DashboardHero.vue, ActionTile.vue, footer.vue,
 │               ComplaintCard.vue, StatusBadge.vue, StatCard.vue, DonutChart.vue, LineChart.vue
-├── stores/ authStore.js (real), chatStore.js (real), complaintStore.js (sample data)
+├── stores/ authStore.js (real), chatStore.js (real), complaintStore.js (sample data, only the analytics pages still use it)
 ├── api/
-│   ├── client.js sample data layer for everything not listed below
-│   ├── httpClient.js the real fetch wrapper, unwraps the backend's response envelope
+│   ├── client.js sample data layer, used by the analytics pages, Profile.vue, and FeedbackReport.vue
+│   ├── httpClient.js the real fetch wrapper, unwraps the backend's response envelope, also handles multipart uploads
 │   ├── authApi.js real register, verify, resend, login, logout calls
-│   └── chatApi.js real send message and get history calls
+│   ├── chatApi.js real send message and get history calls
+│   ├── complaintApi.js real calls for submission, listing, detail, every lifecycle transition, attachments, feedback, and the officer list
+│   └── notificationApi.js real calls for listing, unread count, mark read, mark all read, delete, and preferences
 ├── router/index.js all routes plus role based guards
 └── assets/style.css global styling
 ```
+
+Most complaint related pages call `complaintApi.js` or `notificationApi.js` directly from their own `onMounted` hook and keep their own local `ref` based state, rather than going through a shared Pinia store the way `complaintStore.js` used to work. That was a deliberate choice made when wiring these pages up, retrofitting the existing synchronous, localStorage backed store to handle real asynchronous network calls and loading and error states would have been more work than just having each page manage its own state directly, and it keeps each page's data needs visible in that page's own file instead of hidden behind a shared store.
 
 ---
 
@@ -398,6 +403,7 @@ Every protected endpoint expects an `Authorization: Bearer <access_token>` heade
 | Method | Path | Needs login | What it does |
 |---|---|---|---|
 | POST | `/users` | Yes, admin only | Creates a new staff account, already active, never another admin |
+| GET | `/officers` | Yes, admin only | Lists every staff account, used to populate the assignment dropdown on the frontend |
 
 There is no endpoint for creating the admin account itself, see the setup section above for `scripts/create_admin.py`.
 
@@ -692,9 +698,13 @@ Every verification and password reset email goes out asynchronously through a Ce
 
 ## Where the project actually stands right now
 
-**Done and genuinely tested:** the full authentication flow including resend OTP, admin bootstrap and staff account creation, role based access control, the complete complaint lifecycle from submission through approval, rejection, assignment, work, resolution, citizen confirmed closing, and withdrawal, photo and document attachment upload, fetch, and delete, automatic notifications on every one of those transitions, feedback and ratings with automatic closing, ward and category filtering, complaint history, the machine learning pipeline for priority scoring, categorization, department routing, and duplicate detection, and the chatbot itself filing real complaints. All of this is covered by a real, passing test suite.
+**Done and genuinely tested, on both the backend and the frontend:** the full authentication flow including resend OTP, admin bootstrap and staff account creation, role based access control, the complete complaint lifecycle from submission through approval, rejection, assignment, work, resolution, citizen confirmed closing, and withdrawal, automatic notifications on every one of those transitions, feedback and ratings with automatic closing, and the chatbot itself filing real complaints. All of the backend side of this is covered by a real, passing test suite, and the full lifecycle has also been verified by hand end to end in the browser, real citizen, staff, and admin sessions clicking through submit, approve, assign, start work, resolve, rate, and watching the real notifications land at each step.
 
-**Built on the backend but still running on sample data on the frontend:** almost everything above, once past registration, login, submission, and the chatbot. The complaint list, detail, status updates, assignment, attachments, notifications, and ratings pages all still call `api/client.js` instead of the real endpoints, even though those real endpoints already exist and are tested. This is the most valuable place to focus frontend work next.
+**Done and tested on the backend, but with no frontend page calling it yet:** photo and document attachment upload, fetch, and delete, the reject action on a complaint, ward and category filtering, complaint history as its own endpoint separate from internal notes, and the platform wide feedback summary and per officer rating aggregation. These are not sample data problems, the real endpoints exist and are tested, they are simply not wired to any button or page yet.
+
+**Still running on sample data on the frontend:** the three analytics pages, the profile page including password change and the forgot and reset password flow, and the general feedback and bug report form, which has no matching backend endpoint at all since the real feedback system is always tied to one specific resolved complaint.
+
+**Known limitation, not a missing feature:** the admin dashboard's complaint list has no pagination, it always asks for the first 100 complaints and stops there.
 
 **Planned but not started:** scheduled automatic closing of resolved complaints that a citizen never confirms, department management endpoints, a broader admin analytics dashboard beyond the ratings summary, a proper deployment setup with Docker and continuous integration, and a dedicated security audit pass before any real launch.
 

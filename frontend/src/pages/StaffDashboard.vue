@@ -1,28 +1,61 @@
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/authStore'
-import { useComplaintStore } from '../stores/complaintStore'
+import { listComplaints } from '../api/complaintApi'
+import { categoryLabel } from '../constants/categories'
 import ComplaintCard from '../components/ComplaintCard.vue'
 import DashboardHero from '../components/DashboardHero.vue'
 import ActionTile from '../components/ActionTile.vue'
 
 const auth = useAuthStore()
-const store = useComplaintStore()
 const router = useRouter()
+
+const STATUSES = [
+  { value: 'All', label: 'All' },
+  { value: 'approved', label: 'Approved' },
+  { value: 'in_progress', label: 'In Progress' },
+  { value: 'resolved', label: 'Resolved' }
+]
 
 const searchText = ref('')
 const statusFilter = ref('All')
-const severityFilter = ref('All')
+const loadError = ref('')
+const rawComplaints = ref([])
 
-const allTasks = computed(() => store.forStaff(auth.user.id).sort((a, b) => b.priorityScore - a.priorityScore))
+const allTasks = computed(() =>
+  rawComplaints.value
+    .map((c) => ({
+      id: c.id,
+      category: categoryLabel(c.category),
+      status: c.status,
+      description: c.description,
+      location: c.location_text || 'No location recorded',
+      priorityScore: c.priority_score,
+      createdAt: c.created_at
+    }))
+    .sort((a, b) => b.priorityScore - a.priorityScore)
+)
 
 const myTasks = computed(() =>
   allTasks.value
     .filter((c) => statusFilter.value === 'All' || c.status === statusFilter.value)
-    .filter((c) => severityFilter.value === 'All' || c.severity === severityFilter.value)
     .filter((c) => !searchText.value || c.category.toLowerCase().includes(searchText.value.toLowerCase()) || c.location.toLowerCase().includes(searchText.value.toLowerCase()))
 )
+
+onMounted(async () => {
+  try {
+    const data = await listComplaints({ accessToken: auth.accessToken, assignedTo: auth.user.id })
+    rawComplaints.value = data.complaints
+  } catch (e) {
+    if (e.status === 401) {
+      await auth.logout()
+      router.push('/login')
+      return
+    }
+    loadError.value = e.message
+  }
+})
 </script>
 
 <template>
@@ -56,6 +89,8 @@ const myTasks = computed(() =>
       <h2>My Assigned Tasks</h2>
     </div>
 
+    <p v-if="loadError" class="error-text">{{ loadError }}</p>
+
     <div v-if="allTasks.length > 0" class="card">
       <div class="filter-toolbar">
         <div class="filter-group">
@@ -65,19 +100,7 @@ const myTasks = computed(() =>
         <div class="filter-group">
           <label>Status</label>
           <select v-model="statusFilter">
-            <option>All</option>
-            <option>Submitted</option>
-            <option>In Progress</option>
-            <option>Resolved</option>
-          </select>
-        </div>
-        <div class="filter-group">
-          <label>Severity</label>
-          <select v-model="severityFilter">
-            <option>All</option>
-            <option>Low</option>
-            <option>Medium</option>
-            <option>High</option>
+            <option v-for="s in STATUSES" :key="s.value" :value="s.value">{{ s.label }}</option>
           </select>
         </div>
       </div>

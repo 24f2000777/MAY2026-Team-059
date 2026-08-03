@@ -12,7 +12,7 @@ import pytest
 
 from app.core.database import AsyncSessionLocal
 from app.model import User
-from app.services.admin_service import create_staff_account
+from app.services.admin_service import create_staff_account, list_officers
 from app.utils.exceptions import EmailAlreadyExistsError, PhoneAlreadyExistsError
 
 
@@ -68,4 +68,18 @@ class TestCreateStaffAccount:
             await create_staff_account("Officer Two", phone, _unique_email(), "TestPass@456", db)
 
         await db.delete(first)
+        await db.commit()
+
+
+class TestListOfficers:
+    async def test_includes_a_newly_created_officer(self, db):
+        staff = await create_staff_account("Officer Findable", _unique_phone(), _unique_email(), "TestPass@123", db)
+        await db.commit()
+
+        officers = await list_officers(db)
+
+        assert any(o.id == staff.id for o in officers)
+        assert all(o.role == "staff" for o in officers)
+
+        await db.delete(staff)
         await db.commit()

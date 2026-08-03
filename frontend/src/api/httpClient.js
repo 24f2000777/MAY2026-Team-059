@@ -9,16 +9,21 @@
 
 export const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
-export async function request(path, { method = 'GET', body, token } = {}) {
-  const headers = { 'Content-Type': 'application/json' }
+export async function request(path, { method = 'GET', body, token, formData } = {}) {
+  // formData (a real FormData instance, used for attachment upload) is
+  // sent as-is with no Content-Type header, the browser sets its own
+  // multipart boundary automatically, setting it manually here would
+  // break the boundary and the backend would fail to parse the body.
+  const headers = {}
   if (token) headers.Authorization = `Bearer ${token}`
+  if (!formData) headers['Content-Type'] = 'application/json'
 
   let response
   try {
     response = await fetch(`${API_BASE_URL}${path}`, {
       method,
       headers,
-      body: body !== undefined ? JSON.stringify(body) : undefined
+      body: formData ?? (body !== undefined ? JSON.stringify(body) : undefined)
     })
   } catch {
     throw new Error('Could not reach the server. Is the backend running?')

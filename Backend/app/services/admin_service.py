@@ -12,6 +12,18 @@ from app.utils.constants import ROLE_STAFF
 from app.utils.exceptions import EmailAlreadyExistsError, PhoneAlreadyExistsError
 
 
+async def list_officers(db) -> list[User]:
+    """
+    Every staff account, newest first, backing GET /admin/officers.
+    Used to populate an assignment dropdown, so name is what matters
+    most here, not any particular ordering by workload.
+    """
+    result = await db.execute(
+        select(User).where(User.role == ROLE_STAFF).order_by(User.created_at.desc())
+    )
+    return result.scalars().all()
+
+
 async def create_staff_account(name: str, phone: str, email: str, password: str, db) -> User:
     """
     Creates a staff account, already active, no OTP/verification

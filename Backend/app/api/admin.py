@@ -4,15 +4,31 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..core.database import get_db
 from ..dependencies.roles import require_roles
 from ..model import User
-from ..schemas.admin import CreateStaffRequest, StaffAccountOut
+from ..schemas.admin import CreateStaffRequest, OfficerListResponse, StaffAccountOut
 from ..schemas.common import SuccessResponse
-from ..services.admin_service import create_staff_account
+from ..services.admin_service import create_staff_account, list_officers
 from ..utils.constants import ROLE_ADMIN
 
 router = APIRouter(
     prefix="/admin",
     tags=["Admin"],
 )
+
+
+@router.get(
+    "/officers",
+    response_model=SuccessResponse[OfficerListResponse],
+    summary="List all officers, for an assignment dropdown (admin only)",
+)
+async def list_officers_route(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles(ROLE_ADMIN)),
+):
+    officers = await list_officers(db)
+    return SuccessResponse[OfficerListResponse](
+        message="Officers retrieved.",
+        data=OfficerListResponse(officers=[StaffAccountOut.model_validate(o) for o in officers]),
+    )
 
 
 @router.post(

@@ -30,3 +30,9 @@ class StaffAccountOut(BaseModel):
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class OfficerListResponse(BaseModel):
+    """Response schema for GET /admin/officers."""
+
+    officers: list[StaffAccountOut] = Field(default_factory=list)

@@ -1,12 +1,12 @@
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/authStore'
-import { useComplaintStore } from '../stores/complaintStore'
+import { approveComplaint, listComplaints, listOfficers } from '../api/complaintApi'
+import { categoryLabel } from '../constants/categories'
 import StatusBadge from '../components/StatusBadge.vue'
 
 const auth = useAuthStore()
-const store = useComplaintStore()
 const router = useRouter()
 
 const searchText = ref('')
@@ -14,23 +14,60 @@ const statusFilter = ref('All')
 const categoryFilter = ref('All')
 const areaFilter = ref('')
 const dateFilter = ref('')
+const loadError = ref('')
+const actionError = ref('')
+const rawComplaints = ref([])
+const officers = ref([])
 
-const categories = computed(() => ['All', ...new Set(store.complaints.map((c) => c.category))])
+const STATUSES = ['All', 'submitted', 'approved', 'in_progress', 'resolved', 'closed', 'rejected', 'withdrawn']
 
-function localDate(date) {
-  const d = new Date(date)
+function localDate(iso) {
+  const d = new Date(iso)
   const year = d.getFullYear()
   const month = String(d.getMonth() + 1).padStart(2, '0')
   const day = String(d.getDate()).padStart(2, '0')
   return `${year}-${month}-${day}`
 }
 
-const unassignedCount = computed(() => store.complaints.filter((c) => !c.assignedStaffId).length)
-const openCount = computed(() => store.complaints.filter((c) => c.status !== 'Resolved').length)
-const resolvedCount = computed(() => store.complaints.filter((c) => c.status === 'Resolved').length)
+async function load() {
+  loadError.value = ''
+  try {
+    const [complaintsData, officersData] = await Promise.all([
+      listComplaints({ accessToken: auth.accessToken }),
+      listOfficers({ accessToken: auth.accessToken })
+    ])
+    rawComplaints.value = complaintsData.complaints
+    officers.value = officersData.officers
+  } catch (e) {
+    if (e.status === 401) {
+      await auth.logout()
+      router.push('/login')
+      return
+    }
+    loadError.value = e.message
+  }
+}
+
+const complaints = computed(() =>
+  rawComplaints.value.map((c) => ({
+    id: c.id,
+    category: categoryLabel(c.category),
+    categoryRaw: c.category,
+    status: c.status,
+    location: c.location_text || 'No location recorded',
+    assignedTo: c.assigned_to,
+    createdAt: c.created_at
+  }))
+)
+
+const categories = computed(() => ['All', ...new Set(complaints.value.map((c) => c.category))])
+
+const unassignedCount = computed(() => complaints.value.filter((c) => !c.assignedTo).length)
+const openCount = computed(() => complaints.value.filter((c) => !['resolved', 'closed', 'rejected', 'withdrawn'].includes(c.status)).length)
+const resolvedCount = computed(() => complaints.value.filter((c) => c.status === 'resolved' || c.status === 'closed').length)
 
 const filtered = computed(() =>
-  store.complaints
+  complaints.value
     .filter((c) => {
       if (!searchText.value) return true
       const q = searchText.value.toLowerCase()
@@ -40,7 +77,7 @@ const filtered = computed(() =>
     .filter((c) => categoryFilter.value === 'All' || c.category === categoryFilter.value)
     .filter((c) => !areaFilter.value || c.location.toLowerCase().includes(areaFilter.value.toLowerCase()))
     .filter((c) => !dateFilter.value || localDate(c.createdAt) === dateFilter.value)
-    .sort((a, b) => b.createdAt - a.createdAt)
+    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
 )
 
 function resetFilters() {
@@ -50,6 +87,22 @@ function resetFilters() {
   areaFilter.value = ''
   dateFilter.value = ''
 }
+
+function officerName(id) {
+  return officers.value.find((o) => o.id === id)?.name || 'Unassigned'
+}
+
+async function doApprove(id) {
+  actionError.value = ''
+  try {
+    await approveComplaint({ id, accessToken: auth.accessToken })
+    await load()
+  } catch (e) {
+    actionError.value = e.message
+  }
+}
+
+onMounted(load)
 </script>
 
 <template>
@@ -70,7 +123,7 @@ function resetFilters() {
         <p class="ops-summary-title">Live Snapshot</p>
         <div class="ops-summary-row">
           <span>Total Complaints</span>
-          <strong>{{ store.complaints.length }}</strong>
+          <strong>{{ complaints.length }}</strong>
         </div>
         <div class="ops-summary-row">
           <span>Open</span>
@@ -86,20 +139,20 @@ function resetFilters() {
         </div>
         <div class="ops-summary-row">
           <span>Staff Available</span>
-          <strong>{{ store.staffList.length }}</strong>
+          <strong>{{ officers.length }}</strong>
         </div>
       </div>
     </div>
+
+    <p v-if="loadError" class="error-text">{{ loadError }}</p>
+    <p v-if="actionError" class="error-text">{{ actionError }}</p>
 
     <div class="card">
       <div class="filter-toolbar">
         <div class="filter-group">
           <label>Status</label>
           <select v-model="statusFilter">
-            <option>All</option>
-            <option>Submitted</option>
-            <option>In Progress</option>
-            <option>Resolved</option>
+            <option v-for="s in STATUSES" :key="s" :value="s">{{ s }}</option>
           </select>
         </div>
 
@@ -130,7 +183,6 @@ function resetFilters() {
             <tr>
               <th>Category</th>
               <th>Location</th>
-              <th>Severity</th>
               <th>Status</th>
               <th>Assigned</th>
               <th>Filed</th>
@@ -141,11 +193,13 @@ function resetFilters() {
             <tr v-for="c in filtered" :key="c.id">
               <td>{{ c.category }}</td>
               <td>{{ c.location }}</td>
-              <td><StatusBadge :value="c.severity" kind="severity" /></td>
               <td><StatusBadge :value="c.status" /></td>
-              <td>{{ store.staffList.find((s) => s.id === c.assignedStaffId)?.name || 'Unassigned' }}</td>
+              <td>{{ officerName(c.assignedTo) }}</td>
               <td>{{ new Date(c.createdAt).toLocaleDateString() }}</td>
-              <td><button class="btn secondary" @click="router.push(`/admin/assign/${c.id}`)">{{ c.assignedStaffId ? 'Reassign' : 'Assign' }}</button></td>
+              <td class="row-actions">
+                <button v-if="c.status === 'submitted'" class="btn secondary" @click="doApprove(c.id)">Approve</button>
+                <button class="btn secondary" @click="router.push(`/admin/assign/${c.id}`)">{{ c.assignedTo ? 'Reassign' : 'Assign' }}</button>
+              </td>
             </tr>
           </tbody>
         </table>
@@ -153,3 +207,6 @@ function resetFilters() {
     </div>
   </div>
 </template>
+<style scoped>
+.row-actions { display: flex; gap: 8px; }
+</style>

@@ -30,6 +30,10 @@ async function submit() {
   try {
     await submitFeedback({ id: route.params.id, score: rating.value, feedback: review.value || undefined, accessToken: auth.accessToken })
     saved.value = true
+    // Submitting feedback auto-closes the complaint server-side, keep
+    // the badge on this page in sync rather than leaving it showing
+    // the pre-submit "resolved" status until the next navigation.
+    complaint.value = { ...complaint.value, status: 'closed' }
   } catch (e) {
     submitError.value = e.message
   }

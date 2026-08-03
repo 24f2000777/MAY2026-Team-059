@@ -20,6 +20,9 @@ from ..schemas.complaint import (
     ComplaintDetailResponse,
     ComplaintEditRequest,
     ComplaintEditResponse,
+    ComplaintHistoryChangedBy,
+    ComplaintHistoryEntry,
+    ComplaintHistoryListResponse,
     ComplaintListItem,
     ComplaintListResponse,
     ComplaintNote,
@@ -37,6 +40,7 @@ from ..schemas.complaint import (
     WardListResponse,
     WardOut,
 )
+from ..schemas.feedback import FeedbackCreateRequest, FeedbackOut
 from ..services.complaint_service import (
     add_complaint_note,
     assign_complaint,
@@ -44,14 +48,18 @@ from ..services.complaint_service import (
     delete_complaint,
     edit_complaint,
     get_complaint_detail,
+    get_complaint_history,
     list_complaint_attachments,
     list_complaint_notes,
     list_complaints,
+    list_complaints_by_category,
+    list_complaints_by_ward,
     list_my_complaints,
     transition_complaint_status,
     transition_complaint_status_as_owner,
     upload_complaint_attachment,
 )
+from ..services.feedback_service import get_feedback, submit_feedback
 from ..utils.constants import ROLE_ADMIN, ROLE_CITIZEN, ROLE_STAFF
 from ..utils.storage import read_upload_bounded
 from ..utils.wards import WARDS
@@ -185,6 +193,46 @@ async def list_complaints_route(
             "total": total,
             "total_pages": (total + per_page - 1) // per_page if total else 0,
         },
+    )
+
+
+@router.get(
+    "/ward/{ward_id}",
+    response_model=SuccessResponse[ComplaintListResponse],
+    summary="List all complaints for a specific ward (staff/admin only)",
+)
+async def list_complaints_by_ward_route(
+    ward_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles(ROLE_STAFF, ROLE_ADMIN)),
+):
+    """Every complaint filed in a given ward, newest first. Staff/admin only, per the design doc."""
+    complaints = await list_complaints_by_ward(ward_id, db)
+    return SuccessResponse[ComplaintListResponse](
+        message="Complaints retrieved.",
+        data=ComplaintListResponse(
+            complaints=[ComplaintListItem.model_validate(c) for c in complaints]
+        ),
+    )
+
+
+@router.get(
+    "/category/{category}",
+    response_model=SuccessResponse[ComplaintListResponse],
+    summary="Filter complaints by category (staff/admin only)",
+)
+async def list_complaints_by_category_route(
+    category: ComplaintCategory,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles(ROLE_STAFF, ROLE_ADMIN)),
+):
+    """Every complaint in a given category, newest first. Staff/admin only, per the design doc."""
+    complaints = await list_complaints_by_category(category.value, db)
+    return SuccessResponse[ComplaintListResponse](
+        message="Complaints retrieved.",
+        data=ComplaintListResponse(
+            complaints=[ComplaintListItem.model_validate(c) for c in complaints]
+        ),
     )
 
 
@@ -565,6 +613,48 @@ async def list_complaint_notes_route(
     )
 
 
+@router.get(
+    "/{complaint_id}/history",
+    response_model=SuccessResponse[ComplaintHistoryListResponse],
+    summary="Get only the status-change history of a complaint (owner citizen, staff, or admin)",
+)
+async def get_complaint_history_route(
+    complaint_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Every status transition on a complaint's timeline, oldest first,
+    distinct from GET /{complaint_id}/updates (internal notes only).
+    A citizen can only view their own complaint's history; staff and
+    admin can view any.
+
+    Raises:
+        ComplaintNotFoundError: 404, if the complaint doesn't exist.
+        ComplaintNotOwnerError: 403, if a citizen requests a complaint
+            that isn't theirs.
+    """
+    changes = await get_complaint_history(complaint_id, current_user, db)
+
+    return SuccessResponse[ComplaintHistoryListResponse](
+        message="History retrieved.",
+        data=ComplaintHistoryListResponse(
+            history=[
+                ComplaintHistoryEntry(
+                    id=change.id,
+                    old_status=change.old_status,
+                    new_status=change.new_status,
+                    changed_by=ComplaintHistoryChangedBy(
+                        id=changer.id, name=changer.name, role=changer.role
+                    ),
+                    created_at=change.created_at,
+                )
+                for change, changer in changes
+            ]
+        ),
+    )
+
+
 async def _transition_and_respond(complaint_id, action, actor, notes, message, db):
     """
     Shared by all four transition routes below: run the transition,
@@ -686,4 +776,66 @@ async def resolve_complaint_route(
     """
     return await _transition_and_respond(
         complaint_id, "resolve", current_user, body.notes, "Complaint resolved.", db
+    )
+
+
+@router.post(
+    "/{complaint_id}/feedback",
+    status_code=status.HTTP_201_CREATED,
+    response_model=SuccessResponse[FeedbackOut],
+    summary="Submit a rating and feedback for a resolved complaint (owner citizen only)",
+)
+async def submit_feedback_route(
+    complaint_id: UUID,
+    body: FeedbackCreateRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles(ROLE_CITIZEN)),
+):
+    """
+    Only while the complaint is RESOLVED, and only once per complaint.
+    Submitting feedback auto-transitions the complaint to CLOSED, per
+    the design doc.
+
+    Raises:
+        ComplaintNotFoundError: 404, if the complaint doesn't exist.
+        ComplaintNotOwnerError: 403, if the complaint isn't the
+            caller's own.
+        ComplaintNotResolvedError: 409, if the complaint isn't
+            currently "resolved".
+        RatingAlreadyExistsError: 409, if this complaint already has
+            a rating.
+    """
+    rating = await submit_feedback(complaint_id, current_user, body.score, body.feedback, db)
+    await db.commit()
+
+    return SuccessResponse[FeedbackOut](
+        message="Feedback submitted, complaint closed.",
+        data=FeedbackOut.model_validate(rating),
+    )
+
+
+@router.get(
+    "/{complaint_id}/feedback",
+    response_model=SuccessResponse[Optional[FeedbackOut]],
+    summary="Get feedback details for a complaint (owner citizen, staff, or admin)",
+)
+async def get_feedback_route(
+    complaint_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Returns null data if the complaint hasn't been rated yet, that's a
+    valid state, not a 404.
+
+    Raises:
+        ComplaintNotFoundError: 404, if the complaint doesn't exist.
+        ComplaintNotOwnerError: 403, if a citizen requests a complaint
+            that isn't theirs.
+    """
+    rating = await get_feedback(complaint_id, current_user, db)
+
+    return SuccessResponse[Optional[FeedbackOut]](
+        message="Feedback retrieved.",
+        data=FeedbackOut.model_validate(rating) if rating else None,
     )

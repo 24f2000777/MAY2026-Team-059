@@ -796,3 +796,30 @@ class ComplaintNoteListResponse(BaseModel):
         default_factory=list,
         description="Notes ordered oldest to newest",
     )
+
+
+class ComplaintHistoryChangedBy(BaseModel):
+    """Who made a status change, built from a join to User at read time."""
+
+    id: UUID = Field(..., description="User ID of whoever made the change")
+    name: str = Field(..., description="Display name")
+    role: str = Field(..., description="Role at the time of lookup")
+
+
+class ComplaintHistoryEntry(BaseModel):
+    """One status transition on a complaint's timeline."""
+
+    id: UUID = Field(..., description="History entry ID")
+    old_status: Optional[ComplaintStatus] = Field(None, description="Status before this change")
+    new_status: ComplaintStatus = Field(..., description="Status after this change")
+    changed_by: ComplaintHistoryChangedBy = Field(..., description="Who made the change")
+    created_at: datetime = Field(..., description="When the change happened")
+
+
+class ComplaintHistoryListResponse(BaseModel):
+    """Response schema for GET /complaints/{id}/history."""
+
+    history: list[ComplaintHistoryEntry] = Field(
+        default_factory=list,
+        description="Status changes ordered oldest to newest",
+    )

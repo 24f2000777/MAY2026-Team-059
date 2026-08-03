@@ -23,8 +23,9 @@ from app.schemas.complaint import ComplaintAssignRequest, ComplaintCreate, Compl
 from app.services.priority_service import score_complaint
 from app.services.risk_alert_service import flag_if_high_risk
 from app.services.routing_service import route_complaint
-from app.utils.constants import ROLE_CITIZEN, ROLE_STAFF
+from app.utils.constants import ROLE_ADMIN, ROLE_CITIZEN, ROLE_STAFF
 from app.utils.exceptions import (
+    AttachmentNotFoundError,
     ComplaintNotAssignableError,
     ComplaintNotAssignedToUserError,
     ComplaintNotFoundError,
@@ -33,7 +34,7 @@ from app.utils.exceptions import (
     InvalidStatusTransitionError,
     TooManyAttachmentsError,
 )
-from app.utils.storage import save_attachment_file, validate_upload
+from app.utils.storage import delete_attachment_file, save_attachment_file, validate_upload
 
 # Only these two columns are meaningful to sort a complaint list by,
 # whatever GET /complaints?sort_by= is given, the route validates it
@@ -157,6 +158,74 @@ async def list_complaints(
     complaints = result.scalars().all()
 
     return complaints, total
+
+
+async def list_complaints_by_ward(ward_code: str, db) -> list[Complaint]:
+    """
+    Every complaint in a given ward, newest first, backing GET
+    /complaints/ward/{ward_id}. Officer/admin-only per the design doc
+    (unlike GET /complaints' own ward_code filter, which citizens can
+    also use, scoped to their own complaints), so there's no ownership
+    boundary to enforce here, staff and admin already see every
+    complaint regardless of ward.
+    """
+    result = await db.execute(
+        select(Complaint)
+        .where(Complaint.ward_code == ward_code)
+        .order_by(Complaint.created_at.desc())
+    )
+    return result.scalars().all()
+
+
+async def list_complaints_by_category(category: str, db) -> list[Complaint]:
+    """
+    Every complaint in a given category, newest first, backing GET
+    /complaints/category/{category}. Same officer/admin-only reasoning
+    as list_complaints_by_ward above.
+    """
+    result = await db.execute(
+        select(Complaint)
+        .where(Complaint.category == category)
+        .order_by(Complaint.created_at.desc())
+    )
+    return result.scalars().all()
+
+
+async def get_complaint_history(complaint_id, current_user, db) -> list[tuple[ComplaintUpdate, User]]:
+    """
+    Only the status-change rows on a complaint's timeline, oldest
+    first, each paired with who made the change. Backs GET
+    /complaints/{id}/history, distinct from GET /complaints/{id}/updates
+    (list_complaint_notes above), which returns internal notes
+    instead, a ComplaintUpdate row here counts as "history" only when
+    it actually carries a status change (new_status IS NOT NULL), the
+    opposite filter from list_complaint_notes.
+
+    Same ownership boundary as get_complaint_detail: a citizen can
+    only see their own complaint's history, staff and admin can see
+    any.
+
+    Raises:
+        ComplaintNotFoundError: 404, if the complaint doesn't exist.
+        ComplaintNotOwnerError: 403, if a citizen requests a complaint
+            that isn't theirs.
+    """
+    await _get_visible_complaint(complaint_id, current_user, db)
+
+    result = await db.execute(
+        select(ComplaintUpdate)
+        .where(ComplaintUpdate.complaint_id == complaint_id, ComplaintUpdate.new_status.isnot(None))
+        .order_by(ComplaintUpdate.created_at)
+    )
+    changes = result.scalars().all()
+
+    changer_ids = {change.updated_by for change in changes}
+    changers_by_id = {}
+    if changer_ids:
+        result = await db.execute(select(User).where(User.id.in_(changer_ids)))
+        changers_by_id = {user.id: user for user in result.scalars().all()}
+
+    return [(change, changers_by_id.get(change.updated_by)) for change in changes]
 
 
 async def _get_visible_complaint(complaint_id, current_user, db) -> Complaint:
@@ -370,6 +439,65 @@ async def upload_complaint_attachment(
     await db.flush()
 
     return attachment
+
+
+async def get_attachment(attachment_id, current_user, db) -> ComplaintImage:
+    """
+    Fetches a single attachment by id, backing GET /attachments/{id}.
+    Visibility follows the parent complaint's ownership boundary
+    (same as list_complaint_attachments): a citizen can only fetch
+    attachments on their own complaint, staff and admin can fetch
+    any. image_url is already a directly-fetchable path (local
+    filesystem storage in dev, see app/utils/storage.py), there's no
+    real "signing" step to perform, the design doc's 1-hour signed
+    URL expiry is a prod/S3-only concern for whenever storage
+    actually moves there.
+
+    Raises:
+        AttachmentNotFoundError: 404, if the attachment doesn't exist.
+        ComplaintNotOwnerError: 403, if a citizen requests an
+            attachment on a complaint that isn't theirs.
+    """
+    attachment = await db.get(ComplaintImage, attachment_id)
+    if attachment is None:
+        raise AttachmentNotFoundError("Attachment not found.")
+
+    await _get_visible_complaint(attachment.complaint_id, current_user, db)
+
+    return attachment
+
+
+async def delete_attachment(attachment_id, current_user, db) -> None:
+    """
+    Deletes a single attachment, backing DELETE /attachments/{id}.
+    Narrower than the read path: only the citizen who owns the
+    parent complaint, or an admin, per the design doc (staff can list
+    and upload attachments but not delete them). Also removes the
+    actual file from disk, for local filesystem storage the DB row
+    alone isn't the whole story.
+
+    Raises:
+        AttachmentNotFoundError: 404, if the attachment doesn't exist.
+        ComplaintNotOwnerError: 403, if the caller is neither an
+            admin nor the owning citizen.
+
+    Does not commit, same convention as create_complaint above.
+    """
+    attachment = await db.get(ComplaintImage, attachment_id)
+    if attachment is None:
+        raise AttachmentNotFoundError("Attachment not found.")
+
+    if current_user.role != ROLE_ADMIN:
+        complaint = await db.get(Complaint, attachment.complaint_id)
+        if complaint is None or complaint.citizen_id != current_user.id:
+            raise ComplaintNotOwnerError(
+                "You can only delete attachments on your own complaints."
+            )
+
+    delete_attachment_file(attachment.image_url)
+
+    await db.delete(attachment)
+    await db.flush()
 
 
 async def assign_complaint(

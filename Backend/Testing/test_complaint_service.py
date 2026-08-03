@@ -35,12 +35,17 @@ from app.services.complaint_service import (
     add_complaint_note,
     assign_complaint,
     create_complaint,
+    delete_attachment,
     delete_complaint,
     edit_complaint,
+    get_attachment,
     get_complaint_detail,
+    get_complaint_history,
     list_complaint_attachments,
     list_complaint_notes,
     list_complaints,
+    list_complaints_by_category,
+    list_complaints_by_ward,
     list_my_complaints,
     transition_complaint_status,
     transition_complaint_status_as_owner,
@@ -49,6 +54,7 @@ from app.services.complaint_service import (
 from app.services.risk_alert_service import HIGH_RISK_NOTIFICATION_TYPE
 from app.utils.constants import ROLE_ADMIN, ROLE_STAFF
 from app.utils.exceptions import (
+    AttachmentNotFoundError,
     ComplaintNotAssignableError,
     ComplaintNotAssignedToUserError,
     ComplaintNotFoundError,
@@ -800,6 +806,125 @@ class TestGetComplaintDetail:
             await get_complaint_detail(uuid.uuid4(), admin, db)
 
 
+class TestListComplaintsByWard:
+    async def test_returns_only_complaints_in_that_ward(self, db, citizen):
+        in_ward = await create_complaint(
+            citizen.id,
+            ComplaintCreate(
+                title="Pothole outside Colaba station",
+                description="A large pothole has formed right outside the station entrance.",
+                category="pothole",
+                location=ComplaintLocation(address="Colaba Causeway, Mumbai"),
+                ward_code="A",
+            ),
+            db,
+        )
+        elsewhere = await _make_complaint(db, citizen)
+
+        results = await list_complaints_by_ward("A", db)
+
+        result_ids = {c.id for c in results}
+        assert in_ward.id in result_ids
+        assert elsewhere.id not in result_ids
+
+        await _cleanup(db, in_ward)
+        await _cleanup(db, elsewhere)
+
+    async def test_only_returns_complaints_for_the_given_ward_code(self, db, citizen):
+        # A fresh, unlikely-to-collide ward code rather than asserting a
+        # truly empty result, other tests in the suite may run
+        # concurrently and leave complaints in commonly-used wards.
+        results = await list_complaints_by_ward("Z-UNUSED", db)
+        assert results == []
+
+
+class TestListComplaintsByCategory:
+    async def test_returns_only_complaints_in_that_category(self, db, citizen):
+        pothole = await _make_complaint(db, citizen)
+        garbage = await create_complaint(
+            citizen.id,
+            ComplaintCreate(
+                title="Overflowing garbage bin",
+                description="Garbage has not been collected in over a week near the market.",
+                category="garbage",
+                location=ComplaintLocation(address="Dadar Market, Mumbai"),
+            ),
+            db,
+        )
+
+        results = await list_complaints_by_category("garbage", db)
+
+        result_ids = {c.id for c in results}
+        assert garbage.id in result_ids
+        assert pothole.id not in result_ids
+
+        await _cleanup(db, pothole)
+        await _cleanup(db, garbage)
+
+
+class TestGetComplaintHistory:
+    async def test_owner_citizen_sees_status_changes_only(self, db, citizen, admin):
+        complaint = await _make_complaint(db, citizen)
+        await add_complaint_note(complaint.id, admin.id, "Just a note, not a status change.", db)
+        await transition_complaint_status(complaint.id, "approve", admin, None, db)
+        await db.commit()
+
+        history = await get_complaint_history(complaint.id, citizen, db)
+
+        assert len(history) == 1
+        change, changer = history[0]
+        assert change.old_status == "submitted"
+        assert change.new_status == "approved"
+        assert changer.id == admin.id
+
+        await _cleanup(db, complaint)
+
+    async def test_citizen_cannot_view_someone_elses_history(self, db, citizen):
+        other = User(
+            phone=f"9{uuid.uuid4().int % 10**9:09d}",
+            name="Pytest Other Citizen",
+            email=f"pytest-{uuid.uuid4()}@example.com",
+            role="citizen",
+            hashed_password="x",
+            is_active=True,
+        )
+        db.add(other)
+        await db.flush()
+
+        theirs = await _make_complaint(db, other)
+
+        with pytest.raises(ComplaintNotOwnerError):
+            await get_complaint_history(theirs.id, citizen, db)
+
+        await _cleanup(db, theirs)
+        await db.delete(other)
+        await db.commit()
+
+    async def test_admin_can_view_any_complaints_history(self, db, citizen, admin):
+        complaint = await _make_complaint(db, citizen)
+        await transition_complaint_status(complaint.id, "approve", admin, None, db)
+        await db.commit()
+
+        history = await get_complaint_history(complaint.id, admin, db)
+
+        assert len(history) == 1
+
+        await _cleanup(db, complaint)
+
+    async def test_empty_for_a_complaint_with_no_status_changes_yet(self, db, citizen):
+        complaint = await _make_complaint(db, citizen)
+
+        history = await get_complaint_history(complaint.id, citizen, db)
+
+        assert history == []
+
+        await _cleanup(db, complaint)
+
+    async def test_rejects_a_nonexistent_complaint(self, db, admin):
+        with pytest.raises(ComplaintNotFoundError):
+            await get_complaint_history(uuid.uuid4(), admin, db)
+
+
 class TestListComplaintAttachments:
     async def test_empty_list_when_nothing_uploaded(self, db, citizen):
         # There is no upload endpoint yet, so this is the only state
@@ -1249,3 +1374,155 @@ class TestCloseComplaint:
     async def test_rejects_a_nonexistent_complaint(self, db, citizen):
         with pytest.raises(ComplaintNotFoundError):
             await transition_complaint_status_as_owner(uuid.uuid4(), "close", citizen, db)
+
+
+class TestGetAttachment:
+    async def test_owner_citizen_can_get_their_own_attachment(self, db, citizen):
+        complaint = await _make_complaint(db, citizen)
+        attachment = await upload_complaint_attachment(
+            complaint.id, citizen, "image/jpeg", JPEG_MAGIC_BYTES, db
+        )
+        await db.commit()
+
+        fetched = await get_attachment(attachment.id, citizen, db)
+
+        assert fetched.id == attachment.id
+        assert fetched.image_url == attachment.image_url
+
+        await db.delete(attachment)
+        await _cleanup(db, complaint)
+
+    async def test_citizen_cannot_get_someone_elses_attachment(self, db, citizen):
+        other = User(
+            phone=f"9{uuid.uuid4().int % 10**9:09d}",
+            name="Pytest Other Citizen",
+            email=f"pytest-{uuid.uuid4()}@example.com",
+            role="citizen",
+            hashed_password="x",
+            is_active=True,
+        )
+        db.add(other)
+        await db.flush()
+
+        theirs = await _make_complaint(db, other)
+        attachment = await upload_complaint_attachment(
+            theirs.id, other, "image/jpeg", JPEG_MAGIC_BYTES, db
+        )
+        await db.commit()
+
+        with pytest.raises(ComplaintNotOwnerError):
+            await get_attachment(attachment.id, citizen, db)
+
+        await db.delete(attachment)
+        await _cleanup(db, theirs)
+        await db.delete(other)
+        await db.commit()
+
+    async def test_admin_can_get_any_attachment(self, db, citizen, admin):
+        complaint = await _make_complaint(db, citizen)
+        attachment = await upload_complaint_attachment(
+            complaint.id, citizen, "image/jpeg", JPEG_MAGIC_BYTES, db
+        )
+        await db.commit()
+
+        fetched = await get_attachment(attachment.id, admin, db)
+
+        assert fetched.id == attachment.id
+
+        await db.delete(attachment)
+        await _cleanup(db, complaint)
+
+    async def test_staff_can_get_any_attachment(self, db, citizen, staff):
+        complaint = await _make_complaint(db, citizen)
+        attachment = await upload_complaint_attachment(
+            complaint.id, citizen, "image/jpeg", JPEG_MAGIC_BYTES, db
+        )
+        await db.commit()
+
+        fetched = await get_attachment(attachment.id, staff, db)
+
+        assert fetched.id == attachment.id
+
+        await db.delete(attachment)
+        await _cleanup(db, complaint)
+
+    async def test_rejects_a_nonexistent_attachment(self, db, admin):
+        with pytest.raises(AttachmentNotFoundError):
+            await get_attachment(uuid.uuid4(), admin, db)
+
+
+class TestDeleteAttachment:
+    async def test_owner_citizen_can_delete_their_own_attachment(self, db, citizen):
+        complaint = await _make_complaint(db, citizen)
+        attachment = await upload_complaint_attachment(
+            complaint.id, citizen, "image/jpeg", JPEG_MAGIC_BYTES, db
+        )
+        await db.commit()
+        attachment_id = attachment.id
+
+        await delete_attachment(attachment_id, citizen, db)
+        await db.commit()
+
+        assert await db.get(ComplaintImage, attachment_id) is None
+
+        await _cleanup(db, complaint)
+
+    async def test_citizen_cannot_delete_someone_elses_attachment(self, db, citizen):
+        other = User(
+            phone=f"9{uuid.uuid4().int % 10**9:09d}",
+            name="Pytest Other Citizen",
+            email=f"pytest-{uuid.uuid4()}@example.com",
+            role="citizen",
+            hashed_password="x",
+            is_active=True,
+        )
+        db.add(other)
+        await db.flush()
+
+        theirs = await _make_complaint(db, other)
+        attachment = await upload_complaint_attachment(
+            theirs.id, other, "image/jpeg", JPEG_MAGIC_BYTES, db
+        )
+        await db.commit()
+
+        with pytest.raises(ComplaintNotOwnerError):
+            await delete_attachment(attachment.id, citizen, db)
+
+        await db.delete(attachment)
+        await _cleanup(db, theirs)
+        await db.delete(other)
+        await db.commit()
+
+    async def test_staff_cannot_delete_an_attachment(self, db, citizen, staff):
+        # Unlike list/upload, the design doc lists delete as
+        # Citizen (own)/Admin only, staff is deliberately excluded.
+        complaint = await _make_complaint(db, citizen)
+        attachment = await upload_complaint_attachment(
+            complaint.id, citizen, "image/jpeg", JPEG_MAGIC_BYTES, db
+        )
+        await db.commit()
+
+        with pytest.raises(ComplaintNotOwnerError):
+            await delete_attachment(attachment.id, staff, db)
+
+        await db.delete(attachment)
+        await _cleanup(db, complaint)
+
+    async def test_admin_can_delete_any_attachment(self, db, citizen, admin):
+        complaint = await _make_complaint(db, citizen)
+        attachment = await upload_complaint_attachment(
+            complaint.id, citizen, "image/jpeg", JPEG_MAGIC_BYTES, db
+        )
+        await db.commit()
+        attachment_id = attachment.id
+
+        await delete_attachment(attachment_id, admin, db)
+        await db.commit()
+
+        assert await db.get(ComplaintImage, attachment_id) is None
+
+        await _cleanup(db, complaint)
+
+    async def test_rejects_a_nonexistent_attachment(self, db, admin):
+        with pytest.raises(AttachmentNotFoundError):
+            await delete_attachment(uuid.uuid4(), admin, db)

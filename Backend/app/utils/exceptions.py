@@ -206,6 +206,26 @@ class ComplaintNotOwnerError(ComplaintError):
     error_code = "COMP_006"
 
 
+class RatingAlreadyExistsError(ComplaintError):
+    """
+    Raised when POST /complaints/{id}/feedback is called on a
+    complaint that already has a rating, ratings.complaint_id is
+    unique (one rating per complaint, see app/model.py's Rating
+    table), so a resubmission is always a conflict, never an update.
+    """
+    error_code = "COMP_007"
+
+
+class ComplaintNotResolvedError(ComplaintError):
+    """
+    Raised when feedback is submitted for a complaint that isn't
+    currently RESOLVED, the only status the design doc allows
+    feedback from (submitting feedback then auto-transitions it to
+    CLOSED, see feedback_service.py).
+    """
+    error_code = "COMP_008"
+
+
 # =====================================================
 # Complaint Attachments
 #
@@ -246,3 +266,8 @@ class TooManyAttachmentsError(AttachmentError):
     upload is attempted.
     """
     error_code = "FILE_003"
+
+
+class AttachmentNotFoundError(AttachmentError):
+    """Raised when the requested attachment does not exist."""
+    error_code = "FILE_004"

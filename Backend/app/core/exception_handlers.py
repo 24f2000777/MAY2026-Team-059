@@ -52,6 +52,8 @@ from app.utils.exceptions import (
     InvalidStatusTransitionError,
     ComplaintNotAssignedToUserError,
     ComplaintNotOwnerError,
+    RatingAlreadyExistsError,
+    ComplaintNotResolvedError,
     AttachmentError,
     FileTooLargeError,
     UnsupportedFileTypeError,
@@ -214,6 +216,20 @@ async def handle_complaint_not_owner(
     exc: ComplaintNotOwnerError,
 ) -> JSONResponse:
     return _error_response(status.HTTP_403_FORBIDDEN, exc)
+
+
+async def handle_rating_already_exists(
+    request: Request,
+    exc: RatingAlreadyExistsError,
+) -> JSONResponse:
+    return _error_response(status.HTTP_409_CONFLICT, exc)
+
+
+async def handle_complaint_not_resolved(
+    request: Request,
+    exc: ComplaintNotResolvedError,
+) -> JSONResponse:
+    return _error_response(status.HTTP_409_CONFLICT, exc)
 
 
 async def handle_complaint_error(
@@ -476,6 +492,16 @@ def register_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(
         ComplaintNotOwnerError,
         handle_complaint_not_owner,
+    )
+
+    app.add_exception_handler(
+        RatingAlreadyExistsError,
+        handle_rating_already_exists,
+    )
+
+    app.add_exception_handler(
+        ComplaintNotResolvedError,
+        handle_complaint_not_resolved,
     )
 
     # Catch-all fallback for any other ComplaintError subclass.

@@ -19,9 +19,9 @@
 
 ## What this project actually does
 
-NAGRIK AI is a civic complaint platform for Mumbai. A citizen can report a problem like a pothole, a water leak, or an overflowing drain, either by filling out a form or by just chatting with an AI assistant called Nagrik Saathi about it. The system reads the complaint, figures out how urgent it is, decides which BMC department should handle it, and checks whether it looks like a duplicate of something already reported. Staff and admins are meant to review, assign, and resolve these complaints from their own dashboards.
+NAGRIK AI is a civic complaint platform for Mumbai. A citizen can report a problem like a pothole, a water leak, or an overflowing drain, either by filling out a form or by just chatting with an AI assistant called Nagrik Saathi about it. The system reads the complaint, figures out how urgent it is, decides which BMC department should handle it, and checks whether it looks like a duplicate of something already reported. Staff and admins review, assign, and resolve these complaints, the citizen gets notified at each step, and once a complaint is fixed the citizen confirms it and can leave a rating.
 
-Right now, on `develop`, the login and signup flow and the chatbot are both fully real. They talk to an actual FastAPI backend, a real Postgres database, and real AI models. Most of the rest of the citizen, staff, and admin pages still run on sample data stored in the browser, since those parts haven't been connected to the backend yet. This guide will walk you through getting the whole thing running on your own machine so you can actually click around and test it, not just read about it.
+The backend, on `develop`, is now genuinely large. Authentication, the full complaint lifecycle from submission through approval, assignment, work, resolution, and closure, photo and document attachments, notifications, feedback and ratings, and account creation for staff and admins are all real, tested, and running against an actual Postgres database. The chatbot is a real AI conversation, not a scripted demo. The frontend has not caught up to all of this yet. Registration, login, complaint submission, and the chatbot are wired to the real backend, but a fair amount of the citizen, staff, and admin dashboard pages still run on sample data stored in the browser, since connecting them is ongoing work. This guide walks you through getting the whole thing running on your own machine so you can click around and test it yourself, not just read about it.
 
 ---
 
@@ -84,6 +84,8 @@ Your database connection string, pointing at a Postgres database you can reach. 
 sudo -u postgres psql -c "CREATE DATABASE nagrik_ai;"
 ```
 
+There are actually two database URL variables. `DATABASE_URL` uses the asyncpg driver and is what the running application uses for every request. `SYNC_DATABASE_URL` uses psycopg2 instead and is used only by Alembic, the schema migration tool, and by a couple of standalone scripts that need a plain synchronous connection. Both should point at the same database, just through different drivers.
+
 A `SECRET_KEY` and an `OTP_SECRET_KEY`, each at least 32 characters and different from each other. You can generate a good random one with:
 ```bash
 python3 -c "import secrets; print(secrets.token_hex(32))"
@@ -103,7 +105,28 @@ redis-cli ping
 ```
 This should print `PONG`. If Postgres was already running when you created the database earlier, it is already good to go.
 
-### Step 5: Run the backend, in three separate terminal windows
+### Step 5: Apply the database schema with Alembic
+
+The database tables are managed through Alembic migrations, not created automatically by the app on startup. Run this once, from the Backend folder, with your virtual environment active and your `.env` filled in:
+
+```bash
+alembic upgrade head
+```
+
+This creates every table the app needs. If you ever pull down changes that include a new migration file under `alembic/versions/`, run this same command again to bring your local database up to date. You do not need to run this again if nothing new was added.
+
+### Step 6: Create the admin account
+
+There is deliberately no signup page or public API endpoint for creating an admin or a staff account. Every account created through the normal register page is a citizen. The platform is meant to have exactly one admin, and that admin is the only one who can create staff accounts, so the very first admin has to be created directly, once, through a script instead of over the network.
+
+From the Backend folder, with your virtual environment active:
+```bash
+python -m scripts.create_admin
+```
+
+It will ask for a name, phone number, email, and password, then create the account immediately active, no OTP step needed since you are the one running it directly on the machine. If an admin account already exists, the script refuses to run again, on purpose, so you can never accidentally end up with two. Keep these credentials somewhere you will remember them, you will use them to log in and to create staff accounts from inside the app itself, through `POST /admin/users`.
+
+### Step 7: Run the backend, in three separate terminal windows
 
 The backend is not just one process. Sending the verification email happens in the background through Celery, so you need a Celery worker running, and there is also a nightly job that recalculates complaint priority scores, which needs Celery beat. Open three terminal tabs or windows, activate the virtual environment in each one, and run one of these in each:
 
@@ -130,7 +153,7 @@ uvicorn app.main:app --reload
 
 Once that third command settles, you should see a line saying the application startup is complete. The API is now running at `http://127.0.0.1:8000`. You can open `http://127.0.0.1:8000/docs` in a browser right now to see every available endpoint and try them directly, which is a genuinely useful way to explore what the backend can do before you even touch the frontend.
 
-### Step 6: Run the frontend
+### Step 8: Run the frontend
 
 Open a fourth terminal window, this one does not need the virtual environment since it is a separate Node.js project:
 
@@ -148,7 +171,7 @@ Vite will print a URL once it starts, almost always `http://localhost:5173`. Ope
 
 Once both sides are running, here is how to try it out yourself.
 
-### Creating an account
+### Creating a citizen account
 
 Go to the register page and fill in your name, a real-looking email address, a ten digit phone number, and a password. Submit it. The account gets created but starts out unverified, and the backend sends a six digit code to the email address you gave.
 
@@ -183,11 +206,35 @@ asyncio.run(main())
 
 Type the code into the verification page. Once accepted, you are logged in immediately and taken to your citizen dashboard.
 
-Every account created through the register page is a citizen by default. If you want to test what the app looks like as staff or as an admin, register normally and then update that one row directly in the database:
-```sql
-UPDATE users SET role = 'staff' WHERE email = 'you@example.com';
+### Getting a staff account to test with
+
+Log in as the admin account you created with `scripts/create_admin.py` in Step 6, then send a request to create a staff account:
+
+```bash
+curl -X POST http://localhost:8000/admin/users \
+  -H "Authorization: Bearer $ADMIN_ACCESS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Officer Test",
+    "phone": "9123456780",
+    "email": "officer@example.com",
+    "password": "TestPass@123"
+  }'
 ```
-Use `role = 'admin'` instead if you want an admin account.
+
+That account is created already active, so you can log in with it right away, no OTP step. There is no way to create a staff account through the register page or any unauthenticated endpoint, this is the only real path.
+
+### Walking through a full complaint lifecycle
+
+This is the core loop the whole platform is built around, and it is worth trying end to end at least once.
+
+1. As a citizen, submit a complaint, either through the chatbot or directly against the API.
+2. As the admin, approve it with `PATCH /complaints/{id}/approve`, then assign it to a staff account with `PATCH /complaints/{id}/assign`.
+3. As that staff member, mark it started with `PATCH /complaints/{id}/start`, then mark it resolved with `PATCH /complaints/{id}/resolve` once the work is notionally done.
+4. As the citizen again, check `GET /notifications`, you should see one notification for each step above that concerns you.
+5. Still as the citizen, submit feedback with `POST /complaints/{id}/feedback`, including a score from 1 to 5. This automatically closes the complaint, you do not need to call the close endpoint separately, and the assigned staff member gets notified that it was closed.
+
+Every one of those calls is real, hits a real database, and the notifications and the automatic closing on feedback are genuine side effects, not something faked for a demo.
 
 ### Talking to Nagrik Saathi
 
@@ -197,7 +244,7 @@ You can also just ask it questions, like what the BMC helpline number is, and it
 
 ### Running the automated tests
 
-The backend has a large real test suite, meaning the tests talk to an actual database and make actual calls to the AI providers rather than faking the responses. This takes a while to run since it is doing real work, often several minutes, but it gives you real confidence rather than a false sense of security.
+The backend has a large real test suite, meaning the tests talk to an actual database and make actual calls to the AI providers rather than faking the responses. This takes a while to run since it is doing real work, often thirty minutes or more for the full suite, but it gives you real confidence rather than a false sense of security.
 
 ```bash
 cd Backend
@@ -205,7 +252,7 @@ source venv/bin/activate
 pytest
 ```
 
-You need Postgres and Redis running for this, same as the app itself.
+You need Postgres and Redis running for this, same as the app itself. If you only want to check one area of the backend, you can point pytest at a single file instead, for example `pytest Testing/test_notification_service.py`, which finishes much faster.
 
 ---
 
@@ -222,7 +269,11 @@ The same trick works for port 5173 if the frontend complains.
 
 **The login page says it could not reach the server, even though the backend is clearly running.** This is almost always a mismatch between which port the frontend is actually running on and which ports the backend allows requests from. If port 5173 was already taken when you started the frontend, Vite quietly picks 5174 or another nearby port instead, and the backend only accepts requests from 5173 and 3000 by default. Check what port Vite actually printed when it started, close that tab, free up 5173 using the steps above, and restart the frontend so it claims the right port.
 
-**You registered but the OTP email never seems to arrive.** Two likely causes. Either the Celery worker from Step 5 is not actually running, since sending the email happens entirely through that background worker and nothing will be sent without it, or your SMTP settings in `.env` still have placeholder values instead of the real shared Ethereal credentials from `.env.example`. Fix whichever applies and try registering again, or use the terminal capture script from the section above to sidestep email entirely.
+**You registered but the OTP email never seems to arrive.** Two likely causes. Either the Celery worker from the setup steps is not actually running, since sending the email happens entirely through that background worker and nothing will be sent without it, or your SMTP settings in `.env` still have placeholder values instead of the real shared Ethereal credentials from `.env.example`. Fix whichever applies and try registering again, or use the terminal capture script from the section above to sidestep email entirely.
+
+**Starting the app fails with a database error about a missing table or column.** Your database schema is behind. Run `alembic upgrade head` from the Backend folder to bring it up to date, this is a separate step from installing the Python packages and needs to be rerun any time a new migration file has been added.
+
+**The `create_admin` script refuses to run and says an admin already exists.** This is working as intended, the platform only ever has one admin account. If you genuinely need a fresh one, for instance on a brand new database, that check is only looking for any user with the admin role, so make sure you are actually pointed at the database you think you are.
 
 **The chatbot seems to hang for a very long time before replying, or never replies at all.** This almost always means the AI provider you are using has hit a rate limit or a quota. Groq's free tier resets on a rolling basis, usually within a minute or two, so waiting briefly and trying again often just works. If it keeps happening, check that you have a valid `GROQ_API_KEY` in your `.env`, and consider also filling in `GEMINI_API_KEY` and `HUGGINGFACE_API_KEY` so the system has somewhere real to fall back to instead of just one provider.
 
@@ -249,6 +300,8 @@ Vue 3.5 with the Composition API and `<script setup>`, Vue Router 5 for routing 
 
 `api/client.js` is clearly marked as sample data at the top of the file. Every function in it is written to match exactly what a real endpoint would expect, so connecting it for real later just means rewriting the inside of each function, nothing about how the rest of the app calls it needs to change.
 
+The backend has genuinely grown a lot faster than the frontend has caught up with it. Complaint approval, assignment, work status, resolution, closing, attachments, notifications, and feedback are all real and working on the backend today, none of it is wired into `complaintStore.js` yet. If you are picking up frontend work next, this is the highest value place to start, the endpoints already exist and are tested, they just need a real caller instead of the sample data layer.
+
 ## How the login and signup flow works, step by step
 
 You register with your name, email, a ten digit phone number, and a password of at least eight characters. This calls the real `POST /auth/register`, which creates an account that cannot log in yet and emails a real six digit code.
@@ -263,7 +316,7 @@ Logging out calls the real `POST /auth/logout`, which revokes your access token 
 
 One thing worth knowing if you look closely at browser storage while testing: your password is never written to `sessionStorage` or `localStorage` at any point, only your email is briefly held there between registering and verifying. This was a deliberate fix made after an earlier version briefly kept the plaintext password around to auto log you in after verifying.
 
-There is no signup page for staff or admin accounts. Every account created through registration is a citizen. To test the other roles, register normally and then update that row's role directly in the database, as shown earlier in this guide.
+There is no signup page for staff or admin accounts, and there never will be one for admin specifically. Every account created through registration is a citizen. To test the staff role, log in as the admin created through `scripts/create_admin.py` and call `POST /admin/users`, as shown earlier in this guide.
 
 ## Nagrik Saathi in more detail
 
@@ -282,6 +335,8 @@ Staff get a dashboard of assigned tasks sorted by priority, and a page to update
 Admins get a dashboard with summary cards and a filterable table, a page to assign or reassign complaints, and an analytics page with several charts.
 
 Anyone logged in, regardless of role, can use Nagrik Saathi, view a notifications feed, edit their profile, and submit general feedback.
+
+None of the pages in this section talk to the real backend endpoints for those actions yet, even though the real endpoints already exist, see the table above.
 
 ## Folder layout
 
@@ -312,11 +367,11 @@ frontend/src/
 
 # Backend reference
 
-A FastAPI backend, async throughout, using SQLAlchemy 2.0 with asyncpg, JWT based authentication, Redis for OTP storage, rate limiting and token revocation, Celery for background email and the nightly rescore job, and a LangGraph powered chatbot with real retrieval augmented answers.
+A FastAPI backend, async throughout, using SQLAlchemy 2.0 with asyncpg, JWT based authentication, Redis for OTP storage, rate limiting and token revocation, Celery for background email and the nightly rescore job, Alembic for schema migrations, and a LangGraph powered chatbot with real retrieval augmented answers.
 
 ## Tech stack
 
-FastAPI running async, Python 3.12, Pydantic v2 for validation. PostgreSQL 15 through SQLAlchemy's async ORM with asyncpg, with psycopg2 used only by one manual test script. JWT tokens through python jose, password hashing through passlib's bcrypt implementation, and HTTPBearer for extracting tokens from requests. Redis handles OTP storage, the logout token blacklist, and rate limiting. Celery handles email dispatch and the nightly priority rescore. On the AI side, Groq, Gemini, and HuggingFace are all wired in with automatic fallback between them, orchestrated with LangChain and LangGraph, with FAISS and sentence transformers powering the chatbot's knowledge base search.
+FastAPI running async, Python 3.12, Pydantic v2 for validation. PostgreSQL 15 through SQLAlchemy's async ORM with asyncpg for the running app, and through psycopg2 for Alembic migrations and a couple of standalone scripts that need a plain synchronous connection. JWT tokens through python jose, password hashing through passlib's bcrypt implementation, and HTTPBearer for extracting tokens from requests. Redis handles OTP storage, the logout token blacklist, and rate limiting. Celery handles email dispatch and the nightly priority rescore. On the AI side, Groq, Gemini, and HuggingFace are all wired in with automatic fallback between them, orchestrated with LangChain and LangGraph, with FAISS and sentence transformers powering the chatbot's knowledge base search.
 
 ## Full endpoint reference
 
@@ -338,12 +393,73 @@ Every protected endpoint expects an `Authorization: Bearer <access_token>` heade
 | POST | `/forgot-password` | No | Requests a password reset OTP, limited to three per hour per email |
 | POST | `/reset-password` | No | Completes the password reset using the OTP |
 
+### Admin, under `/admin`
+
+| Method | Path | Needs login | What it does |
+|---|---|---|---|
+| POST | `/users` | Yes, admin only | Creates a new staff account, already active, never another admin |
+
+There is no endpoint for creating the admin account itself, see the setup section above for `scripts/create_admin.py`.
+
 ### Complaints, under `/complaints`
 
 | Method | Path | Needs login | What it does |
 |---|---|---|---|
 | POST | (root) | Yes | Creates a complaint, then immediately scores its priority, routes it to a department, and checks if it is high risk |
+| GET | (root) | Yes | Lists complaints, citizens see only their own, staff and admin see everything, supports filters and pagination |
+| GET | `/mine` | Yes | The calling citizen's own complaints |
+| GET | `/wards` | Yes | The 24 real BMC administrative wards, used to populate a ward picker |
 | GET | `/whoami` | Yes | A small debug route that returns your own id and email |
+| GET | `/ward/{ward_id}` | Yes, staff or admin | Every complaint filed in a given ward |
+| GET | `/category/{category}` | Yes, staff or admin | Every complaint in a given category |
+| GET | `/{id}` | Yes | Full details for one complaint, citizens only their own |
+| PATCH | `/{id}` | Yes, owner citizen | Edits the title or description, only while still submitted |
+| DELETE | `/{id}` | Yes, admin only | Hard deletes a complaint |
+| GET | `/{id}/history` | Yes | Only the status change events on a complaint's timeline |
+| GET | `/{id}/updates` | Yes, staff or admin | Internal notes staff have added, never shown to the citizen |
+| POST | `/{id}/updates` | Yes, staff or admin | Adds an internal note |
+| PATCH | `/{id}/approve` | Yes, admin only | submitted moves to approved |
+| PATCH | `/{id}/reject` | Yes, admin only | Moves to rejected, with a mandatory reason |
+| PATCH | `/{id}/assign` | Yes, admin only | Assigns the complaint to a staff account |
+| PATCH | `/{id}/start` | Yes, assigned staff or admin | approved moves to in progress |
+| PATCH | `/{id}/resolve` | Yes, assigned staff or admin | in progress moves to resolved |
+| PATCH | `/{id}/withdraw` | Yes, owner citizen | submitted moves to withdrawn |
+| PATCH | `/{id}/close` | Yes, owner citizen | resolved moves to closed, without also leaving a rating |
+| GET | `/{id}/attachments` | Yes | Lists photo or document attachments on a complaint |
+| POST | `/{id}/attachments` | Yes | Uploads an attachment, jpg, png, pdf, doc, or docx, up to 5 MB, 5 per complaint |
+| GET | `/{id}/feedback` | Yes | The rating left on a complaint, or null if none yet |
+| POST | `/{id}/feedback` | Yes, owner citizen | Leaves a 1 to 5 star rating, only while resolved, this also closes the complaint automatically |
+
+See the section below on the complaint status workflow for exactly which transitions are allowed from which starting status.
+
+### Attachments, under `/attachments`
+
+| Method | Path | Needs login | What it does |
+|---|---|---|---|
+| GET | `/{attachment_id}` | Yes | A single attachment's metadata and URL, owner citizen, staff, or admin |
+| DELETE | `/{attachment_id}` | Yes, owner citizen or admin | Deletes the attachment and its file on disk, staff cannot delete |
+
+### Notifications, under `/notifications`
+
+| Method | Path | Needs login | What it does |
+|---|---|---|---|
+| GET | (root) | Yes | Every notification for the logged in user |
+| GET | `/unread-count` | Yes | How many are unread |
+| PATCH | `/read-all` | Yes | Marks every unread notification as read |
+| PATCH | `/{id}/read` | Yes | Marks one notification as read |
+| DELETE | `/{id}` | Yes | Deletes one notification |
+| POST | `/preferences` | Yes | Turns the email notification flag on or off |
+
+Notifications are created automatically, in the same request, whenever a complaint is approved, rejected, started, resolved, assigned, or closed. There is no separate background job creating them.
+
+### Feedback, under `/feedback`
+
+| Method | Path | Needs login | What it does |
+|---|---|---|---|
+| GET | `/officer/{officer_id}` | Yes, admin only | Aggregated ratings for everything a given staff member was assigned |
+| GET | `/summary` | Yes, admin only | Platform wide average score and the count at each star value |
+
+The endpoints for submitting and reading feedback on a specific complaint live under `/complaints/{id}/feedback`, listed in that section above, since a rating always belongs to exactly one complaint.
 
 ### Chat, under `/chat`
 
@@ -375,9 +491,19 @@ These are the same services the complaint submission and chatbot pipelines alrea
 | GET | `/admin` | admins only |
 | GET | `/internal` | staff or admins |
 
-### Notifications, under `/notifications`
+## The complaint status workflow
 
-The router exists but has no actual endpoints wired up yet. The underlying model exists in the database already.
+A complaint moves through a small state machine, and every transition is logged as a row in the complaint updates table, which is what powers the history endpoint.
+
+```
+submitted --approve--> approved --start--> in_progress --resolve--> resolved --close--> closed
+    \                       \
+     \--reject--> rejected   \--reject--> rejected
+
+submitted --withdraw--> withdrawn
+```
+
+Approving and rejecting are admin only. Starting and resolving need the complaint to already be assigned, and if a staff account (rather than an admin) calls them, it has to be the staff member the complaint is actually assigned to, not just any staff account. Withdrawing and closing are citizen only, and only on their own complaint, withdraw only works while still submitted, close only works once resolved. Submitting feedback is an alternative path to closing that also leaves a rating behind, see the feedback section above.
 
 ## The shape every response comes back in
 
@@ -407,6 +533,19 @@ An error looks like this:
 | AUTH_010 | OTP is invalid or expired | 400 |
 | AUTH_011 | Account is already verified | 409 |
 | AUTH_012 | That chat session belongs to someone else | 403 |
+| COMP_001 | Complaint not found | 404 |
+| COMP_002 | The user you tried to assign is not a real staff account | 422 |
+| COMP_003 | This complaint is already in a terminal state, nothing left to assign | 409 |
+| COMP_004 | That status transition is not allowed from the complaint's current status | 409 |
+| COMP_005 | A staff member tried to start or resolve a complaint not assigned to them | 403 |
+| COMP_006 | A citizen tried to view or act on a complaint that is not theirs | 403 |
+| COMP_007 | This complaint already has a rating | 409 |
+| COMP_008 | Feedback was submitted for a complaint that is not currently resolved | 409 |
+| FILE_001 | Uploaded file is too large | 413 |
+| FILE_002 | Unsupported or spoofed file type | 415 |
+| FILE_003 | Complaint already has the maximum number of attachments | 409 |
+| FILE_004 | Attachment not found | 404 |
+| NOTIF_001 | Notification not found, or it belongs to someone else | 404 |
 | RTE_001 | Rate limit exceeded | 429 |
 | VAL_001 | Neither an address nor coordinates were given for the location | 422 |
 | VAL_002 | Only one of latitude or longitude was given, they need to come together | 422 |
@@ -433,24 +572,29 @@ The title needs to be between 5 and 100 characters, the description between 20 a
 Backend/
 ├── app/
 │   ├── api/
-│   │   ├── auth.py          11 endpoints, fully working
-│   │   ├── complaints.py    submission plus a debug route, real and wired
-│   │   ├── chat.py          2 endpoints, real AI replies and real complaint filing
-│   │   ├── ml.py            10 endpoints
-│   │   ├── dashboard.py     5 endpoints, one per role plus one shared
-│   │   └── notifications.py stub, no endpoints yet
+│   │   ├── auth.py          registration, login, tokens, profile
+│   │   ├── admin.py         staff account creation
+│   │   ├── complaints.py    the full complaint lifecycle, attachments, updates, feedback
+│   │   ├── attachments.py   single attachment fetch and delete
+│   │   ├── notifications.py list, mark read, delete, preferences
+│   │   ├── feedback.py      officer ratings and platform wide summary
+│   │   ├── chat.py          Nagrik Saathi, real AI replies and real complaint filing
+│   │   ├── ml.py            priority, categorization, routing, duplicate detection, exposed individually
+│   │   └── dashboard.py     one summary route per role plus a shared one
 │   ├── chatbot/              conversation_graph.py, extractor.py, knowledge_base.py, providers.py, the LangGraph chatbot
 │   ├── core/                 config.py, database.py, security.py, redis.py, exception_handlers.py, celery_app.py
 │   ├── dependencies/         auth.py for get_current_user, roles.py for require_roles
-│   ├── schemas/               auth.py, common.py, complaint.py (real and wired), chat.py, notification.py (stub)
-│   ├── services/               auth_service.py, complaint_service.py, chat_service.py, otp_service.py,
-│   │                            email_service.py, token_blacklist_service.py, rate_limit_service.py,
+│   ├── schemas/               auth.py, common.py, complaint.py, chat.py, notification.py, feedback.py, admin.py
+│   ├── services/               auth_service.py, admin_service.py, complaint_service.py, chat_service.py,
+│   │                            otp_service.py, email_service.py, token_blacklist_service.py, rate_limit_service.py,
 │   │                            priority_service.py, category_service.py, routing_service.py,
-│   │                            duplicate_service.py, risk_alert_service.py, notification_service.py (stub)
-│   ├── tasks/                   email_tasks.py, priority_tasks.py, notification_tasks.py (stub)
-│   ├── utils/                    constants.py, exceptions.py, validators.py (stub)
-│   ├── model.py                  User, Complaint, ComplaintUpdate, Notification, Rating, ChatSession, Department
+│   │                            duplicate_service.py, risk_alert_service.py, notification_service.py, feedback_service.py
+│   ├── tasks/                   email_tasks.py, priority_tasks.py
+│   ├── utils/                    constants.py, exceptions.py, storage.py, wards.py
+│   ├── model.py                  User, Department, Complaint, ComplaintUpdate, ComplaintImage, Notification, Rating, ChatSession
 │   └── main.py
+├── alembic/                       migration environment and every applied migration
+├── scripts/                       create_admin.py, the one time admin bootstrap
 ├── Testing/                       the real test suite, see below
 ├── requirements.txt
 └── .env.example
@@ -462,7 +606,7 @@ Backend/
 cp .env.example .env
 ```
 
-Then fill in your database credentials, a random `SECRET_KEY` and `OTP_SECRET_KEY` that are different from each other (generate one with `python -c "import secrets; print(secrets.token_hex(32))"`), your Redis URL, and at least one AI provider key. SMTP already defaults to the shared Ethereal sandbox mentioned earlier in this guide, so you do not need a real personal email account just to test locally.
+Then fill in your database credentials for both `DATABASE_URL` (asyncpg, used by the app) and `SYNC_DATABASE_URL` (psycopg2, used by Alembic), a random `SECRET_KEY` and `OTP_SECRET_KEY` that are different from each other (generate one with `python -c "import secrets; print(secrets.token_hex(32))"`), your Redis URL, and at least one AI provider key. SMTP already defaults to the shared Ethereal sandbox mentioned earlier in this guide, so you do not need a real personal email account just to test locally.
 
 ## Running the tests
 
@@ -471,7 +615,7 @@ cd Backend
 pytest
 ```
 
-This suite hits a real database and makes real calls to whichever AI provider is configured, rather than faking any of it, since the whole point of many of these tests is proving the real behavior actually works. It covers authentication end to end including token issuance and rate limiting, role based access control tested from an attacker's point of view with forged tokens and permission escalation attempts, and the priority scoring, categorization, routing, duplicate detection, and chatbot pipelines. You need Postgres and Redis running for it, same as the app itself.
+This suite hits a real database and makes real calls to whichever AI provider is configured, rather than faking any of it, since the whole point of many of these tests is proving the real behavior actually works. It covers authentication end to end including token issuance and rate limiting, role based access control tested from an attacker's point of view with forged tokens and permission escalation attempts, the priority scoring, categorization, routing, and duplicate detection pipelines, the full complaint status workflow including every role boundary, attachment upload and content validation, notification creation on every transition, and the feedback and rating flow including the automatic closing it triggers. You need Postgres and Redis running for it, same as the app itself.
 
 There are also two small standalone scripts at the very root of the repository, separate from the main test suite, worth knowing about if you are working on location validation specifically:
 ```bash
@@ -479,22 +623,22 @@ python3 location_validation.py
 pytest test_location_validation.py
 ```
 
-## Design documents that are not connected to anything yet
+## Design documents that are now historical
 
-A handful of files sitting at the root of the repository are design documents only. They describe an intended API shape or schema but are not wired into the running application. Do not be confused if you go looking for the endpoint they describe and cannot find it, that is expected for now.
+A handful of files sitting at the root of the repository were originally design documents, sketching an intended shape for something before it was actually built. Most of what they described has since been built for real, sometimes slightly differently than the original sketch, since that tends to happen once real edge cases show up.
 
-| File | What it describes | What actually exists today |
+| File | What it originally described | Where the real thing lives now |
 |---|---|---|
-| `location_validation.py` | Location validation rules and error codes | A separate, already working version of the same idea lives in `Backend/app/schemas/complaint.py` |
-| `api-doc.yaml` | A full draft OpenAPI contract for complaints, comments, and attachments | Some parts of it, like a client supplied priority field or a structured address, do not match what was actually built |
-| `complaint_assign_schema.py` | The intended shape of a complaint assignment endpoint | No real endpoint exists yet, this is next on the roadmap |
-| `complaint_internal_notes_schema.py` | The intended shape of an internal notes endpoint for staff | No real endpoint exists yet either |
+| `complaint_assign_schema.py` | The intended shape of a complaint assignment endpoint | `PATCH /complaints/{id}/assign`, real and tested |
+| `complaint_internal_notes_schema.py` | The intended shape of an internal notes endpoint for staff | `POST` and `GET /complaints/{id}/updates`, real and tested |
+| `location_validation.py` | Location validation rules and error codes | The real version lives in `Backend/app/schemas/complaint.py`, same rules, same VAL_001/VAL_002 codes |
+| `api-doc.yaml` | A full draft OpenAPI contract for complaints, comments, and attachments | Mostly superseded, some parts, like a client supplied priority field or a structured address, do not match what was actually built, the real contract is what `/docs` shows on a running server |
 
-If you end up building the real assign or internal notes endpoints, start from these two files. They have already been reviewed and their terminology already matches the real role names used elsewhere in the codebase.
+These files are kept around for historical reference and are not imported by anything the running application depends on.
 
 ## How the database is laid out
 
-Seven tables in total: Users, Complaints, Complaint Updates, Notifications, Ratings, Chat Sessions, and Departments.
+Eight tables in total: Users, Departments, Complaints, Complaint Updates, Complaint Images, Notifications, Ratings, and Chat Sessions.
 
 ```mermaid
 erDiagram
@@ -506,12 +650,13 @@ erDiagram
     USERS ||--o{ CHAT_SESSIONS : chats
     DEPARTMENTS ||--o{ COMPLAINTS : routed_to
     COMPLAINTS ||--o{ COMPLAINT_UPDATES : history
+    COMPLAINTS ||--o{ COMPLAINT_IMAGES : attachments
     COMPLAINTS ||--|| RATINGS : rating
     COMPLAINTS ||--o{ NOTIFICATIONS : triggers
     COMPLAINTS ||--o{ CHAT_SESSIONS : discussed
 ```
 
-Every user has a role of either citizen, staff, or admin.
+Every user has a role of either citizen, staff, or admin, and the platform is meant to have exactly one admin at a time. Users also carry a `notification_email_enabled` flag, defaulting to true, which is the only thing `POST /notifications/preferences` actually controls, in app notifications themselves are never optional.
 
 ## How authentication actually works underneath
 
@@ -529,17 +674,29 @@ Passwords are hashed with bcrypt and never stored or logged in plain text. Acces
 
 Role based access control works through a single reusable dependency, `require_roles`, which you hand one or more allowed roles and it takes care of rejecting anyone else with a proper 403. This is tested from an actual attacker's perspective in `test_rbac_security.py`, including forged token signatures, tampered payloads, and expired tokens, all of which are correctly rejected.
 
+Staff and admin accounts cannot be created through registration at all. The one admin account is created once, directly against the database, by running `scripts/create_admin.py`, which refuses to run again once an admin already exists. That admin is then the only account that can create staff accounts, through `POST /admin/users`, which itself has no role field, it can only ever create staff, never a second admin.
+
+## How notifications work
+
+A notification is created synchronously, in the same request and the same database transaction, at each of these points: a complaint is approved, rejected, started, or resolved, notifying the citizen who filed it; a complaint is assigned, notifying the newly assigned staff member; and a citizen confirms and closes a resolved complaint, either directly or by leaving feedback, notifying the assigned staff member. There is no Celery task or background job involved in creating them, the notification exists the moment the transition that caused it commits.
+
+A citizen can also independently be notified if their complaint's priority score crosses a high risk threshold, in which case every admin is notified, not the citizen.
+
+## How feedback and ratings work
+
+A citizen can leave exactly one rating per complaint, a score from 1 to 5 stars plus optional written feedback, and only while that complaint is resolved. Submitting it inserts the rating and, in the same call, transitions the complaint straight to closed, reusing the same transition the standalone close endpoint uses, so it also triggers the same notification to the assigned staff member. Trying to submit feedback again after that fails, since the complaint is no longer resolved. An admin can pull aggregated ratings for a specific staff member, or a platform wide average and score distribution, through the `/feedback` endpoints above.
+
 ## What Celery is doing in the background
 
-Every verification and password reset email goes out asynchronously through a Celery task rather than blocking the request that triggered it. Separately, Celery Beat runs a nightly job at 2 AM IST that recalculates the priority score for every complaint in the system. Notification creation on status change, scheduled auto closing of old complaints, and generating PDF reports are all planned for Celery later but not built yet.
+Every verification and password reset email goes out asynchronously through a Celery task rather than blocking the request that triggered it. Separately, Celery Beat runs a nightly job at 2 AM IST that recalculates the priority score for every complaint in the system. Notification creation happens synchronously, not through Celery, see the section above. Scheduled auto closing of long stale resolved complaints and generating PDF reports are planned for Celery later but not built yet.
 
 ## Where the project actually stands right now
 
-**Done and genuinely tested:** the full authentication flow including resend OTP, role based access control, complaint submission through both the form's backend and the chatbot, the machine learning pipeline for priority scoring, categorization, department routing, and duplicate detection, and the chatbot itself filing real complaints. All of this is covered by a real, passing test suite.
+**Done and genuinely tested:** the full authentication flow including resend OTP, admin bootstrap and staff account creation, role based access control, the complete complaint lifecycle from submission through approval, rejection, assignment, work, resolution, citizen confirmed closing, and withdrawal, photo and document attachment upload, fetch, and delete, automatic notifications on every one of those transitions, feedback and ratings with automatic closing, ward and category filtering, complaint history, the machine learning pipeline for priority scoring, categorization, department routing, and duplicate detection, and the chatbot itself filing real complaints. All of this is covered by a real, passing test suite.
 
-**Built but still running on sample data on the frontend, or missing a real backend endpoint:** the citizen's profile page, notifications, and password reset flow, the complaint list, detail, and ratings pages, and on the backend, the complaint assignment and internal notes endpoints, for which the design already exists.
+**Built on the backend but still running on sample data on the frontend:** almost everything above, once past registration, login, submission, and the chatbot. The complaint list, detail, status updates, assignment, attachments, notifications, and ratings pages all still call `api/client.js` instead of the real endpoints, even though those real endpoints already exist and are tested. This is the most valuable place to focus frontend work next.
 
-**Planned but not started:** the complaint status workflow of approving, starting, resolving, and rejecting a complaint, photo evidence upload, automatically closing old resolved complaints, a proper deployment setup with Docker and continuous integration, and a dedicated security audit pass before any real launch.
+**Planned but not started:** scheduled automatic closing of resolved complaints that a citizen never confirms, department management endpoints, a broader admin analytics dashboard beyond the ratings summary, a proper deployment setup with Docker and continuous integration, and a dedicated security audit pass before any real launch.
 
 ---
 
@@ -554,7 +711,7 @@ git push -u origin feature/your-feature-name
 # then open a pull request from your branch into develop
 ```
 
-Nothing gets merged directly into `main`. Before opening a pull request, make sure your code actually runs, there are no secrets hardcoded anywhere, your tests pass, and any new dependency you added is in `requirements.txt`.
+Nothing gets merged directly into `main`. Before opening a pull request, make sure your code actually runs, there are no secrets hardcoded anywhere, your tests pass, and any new dependency you added is in `requirements.txt`. If your change touches the database schema, include a real Alembic migration, generated with `alembic revision --autogenerate -m "describe the change"` and reviewed by hand before committing it.
 
 ## The team
 

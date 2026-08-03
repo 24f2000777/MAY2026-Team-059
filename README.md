@@ -610,9 +610,14 @@ Backend/
 │   └── main.py
 ├── alembic/                       migration environment and every applied migration
 ├── scripts/                       create_admin.py, the one time admin bootstrap
-├── Testing/                       the real test suite, see below
+├── Testing/                       the real test suite, including test_location_validation.py
 ├── requirements.txt
-└── .env.example
+├── .env.example
+├── location_validation.py         historical, see the design documents section below
+├── complaint_assign_schema.py     historical
+├── complaint_internal_notes_schema.py  historical
+├── api-doc.yaml                   historical
+└── implementation.md              historical
 ```
 
 ## Filling in your environment file, in more detail
@@ -632,22 +637,24 @@ pytest
 
 This suite hits a real database and makes real calls to whichever AI provider is configured, rather than faking any of it, since the whole point of many of these tests is proving the real behavior actually works. It covers authentication end to end including token issuance and rate limiting, role based access control tested from an attacker's point of view with forged tokens and permission escalation attempts, the priority scoring, categorization, routing, and duplicate detection pipelines, the full complaint status workflow including every role boundary, attachment upload and content validation, notification creation on every transition, and the feedback and rating flow including the automatic closing it triggers. You need Postgres and Redis running for it, same as the app itself.
 
-There are also two small standalone scripts at the very root of the repository, separate from the main test suite, worth knowing about if you are working on location validation specifically:
+There are also two small standalone scripts inside the Backend folder, separate from the main test suite, worth knowing about if you are working on location validation specifically:
 ```bash
+cd Backend
 python3 location_validation.py
-pytest test_location_validation.py
+pytest Testing/test_location_validation.py
 ```
 
 ## Design documents that are now historical
 
-A handful of files sitting at the root of the repository were originally design documents, sketching an intended shape for something before it was actually built. Most of what they described has since been built for real, sometimes slightly differently than the original sketch, since that tends to happen once real edge cases show up.
+A handful of files inside the Backend folder were originally design documents, sketching an intended shape for something before it was actually built. Most of what they described has since been built for real, sometimes slightly differently than the original sketch, since that tends to happen once real edge cases show up. They used to sit loose at the root of the repository, they have since been moved into Backend since that is what they actually describe, keeping the repository root down to just the frontend and Backend folders plus this README.
 
 | File | What it originally described | Where the real thing lives now |
 |---|---|---|
-| `complaint_assign_schema.py` | The intended shape of a complaint assignment endpoint | `PATCH /complaints/{id}/assign`, real and tested |
-| `complaint_internal_notes_schema.py` | The intended shape of an internal notes endpoint for staff | `POST` and `GET /complaints/{id}/updates`, real and tested |
-| `location_validation.py` | Location validation rules and error codes | The real version lives in `Backend/app/schemas/complaint.py`, same rules, same VAL_001/VAL_002 codes |
-| `api-doc.yaml` | A full draft OpenAPI contract for complaints, comments, and attachments | Mostly superseded, some parts, like a client supplied priority field or a structured address, do not match what was actually built, the real contract is what `/docs` shows on a running server |
+| `Backend/complaint_assign_schema.py` | The intended shape of a complaint assignment endpoint | `PATCH /complaints/{id}/assign`, real and tested |
+| `Backend/complaint_internal_notes_schema.py` | The intended shape of an internal notes endpoint for staff | `POST` and `GET /complaints/{id}/updates`, real and tested |
+| `Backend/location_validation.py` | Location validation rules and error codes | The real version lives in `Backend/app/schemas/complaint.py`, same rules, same VAL_001/VAL_002 codes |
+| `Backend/api-doc.yaml` | A full draft OpenAPI contract for complaints, comments, and attachments | Mostly superseded, some parts, like a client supplied priority field or a structured address, do not match what was actually built, the real contract is what `/docs` shows on a running server |
+| `Backend/implementation.md` | An early module by module implementation roadmap | Superseded by the status section further down in this README, which reflects what has actually shipped rather than what was planned |
 
 These files are kept around for historical reference and are not imported by anything the running application depends on.
 

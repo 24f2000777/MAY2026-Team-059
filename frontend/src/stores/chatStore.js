@@ -1,52 +1,25 @@
 import { defineStore } from 'pinia'
-import { sendChatMessage, getChatHistory } from '../api/chatApi'
-
-// Namespaced per user (not a single shared key) so two different
-// accounts logged into the same browser never collide or leak each
-// other's conversation history.
-function sessionKeyFor(userId) {
-  return `nagrik_chat_session_${userId}`
-}
-
-function mapHistoryMessage(m) {
-  return { from: m.role === 'assistant' ? 'bot' : 'user', text: m.message, createdAt: m.created_at }
-}
+import { sendChatMessage } from '../api/chatApi'
 
 export const useChatStore = defineStore('chat', {
   state: () => ({
     sessionId: null,
     messages: [],
     isTyping: false,
-    error: null,
-    historyLoaded: false
+    error: null
   }),
   actions: {
-    initSession(userId) {
-      const key = sessionKeyFor(userId)
-      let sessionId = localStorage.getItem(key)
-      if (!sessionId) {
-        sessionId = crypto.randomUUID()
-        localStorage.setItem(key, sessionId)
-      }
-      this.sessionId = sessionId
-    },
-
-    async loadHistory({ accessToken }) {
-      // Fails soft for most errors (a down backend, a hiccup) — the
-      // user can still start chatting fresh (the greeting/suggestions
-      // just show as if there were no prior history). A 401 specifically
-      // is re-thrown: the page is only reachable while logged in, so an
-      // expired/invalid token here means the caller should redirect to
-      // /login instead of silently showing a "fresh" conversation.
-      try {
-        const data = await getChatHistory({ sessionId: this.sessionId, accessToken })
-        this.messages = data.messages.map(mapHistoryMessage)
-      } catch (e) {
-        this.error = e.message
-        if (e.status === 401) throw e
-      } finally {
-        this.historyLoaded = true
-      }
+    // Starts a brand new conversation, a fresh session id every time.
+    // Nagrik Saathi is meant to open blank on purpose, so a returning
+    // citizen lands ready to file a new complaint rather than staring
+    // at last time's transcript. Their past complaints are still all
+    // there on the dashboard regardless, this only affects the chat
+    // window itself, nothing is deleted server side.
+    startNewConversation() {
+      this.sessionId = crypto.randomUUID()
+      this.messages = []
+      this.isTyping = false
+      this.error = null
     },
 
     // Seeds the role-specific greeting as a real message once, only on a
@@ -76,14 +49,6 @@ export const useChatStore = defineStore('chat', {
       } finally {
         this.isTyping = false
       }
-    },
-
-    reset() {
-      this.sessionId = null
-      this.messages = []
-      this.isTyping = false
-      this.error = null
-      this.historyLoaded = false
     }
   }
 })

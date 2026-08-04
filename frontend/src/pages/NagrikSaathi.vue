@@ -38,21 +38,12 @@ const suggestions = isStaff ? [
       'Garbage'
     ]
 
-onMounted(async () => {
-  chat.initSession(auth.user.id)
-  try {
-    await chat.loadHistory({ accessToken: auth.accessToken })
-  } catch (e) {
-    if (e.status === 401) {
-      // Same reasoning as send()'s 401 handling below: isLoggedIn only
-      // checks that a token is present, not that it's still valid, so
-      // clear the stale session before redirecting or the guest-route
-      // guard would just bounce back here.
-      await auth.logout()
-      router.push('/login')
-      return
-    }
-  }
+onMounted(() => {
+  // Always a fresh conversation, a returning citizen should land on a
+  // blank chat ready to file something new, not their last transcript.
+  // No network call needed here, sendMessage's own 401 handling below
+  // covers an expired token once they actually try to chat.
+  chat.startNewConversation()
   chat.seedGreetingIfEmpty(greeting)
 })
 

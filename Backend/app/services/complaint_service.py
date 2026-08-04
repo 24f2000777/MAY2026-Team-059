@@ -153,6 +153,13 @@ async def list_complaints(
 
     sort_column = SORT_COLUMNS.get(sort_by, Complaint.created_at)
     query = query.order_by(sort_column.desc() if order == "desc" else sort_column.asc())
+    if sort_column is Complaint.priority_score:
+        # priority_score ties are common (e.g. two potholes scoring
+        # identically), and without a secondary key Postgres doesn't
+        # guarantee a stable order, results can even shift between
+        # pages. Break ties by whichever complaint has been waiting
+        # longer, first-come-first-served among equally urgent ones.
+        query = query.order_by(Complaint.created_at.asc())
     query = query.offset((page - 1) * per_page).limit(per_page)
 
     result = await db.execute(query)

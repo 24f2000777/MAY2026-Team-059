@@ -21,6 +21,7 @@ import StaffAnalytics from '../pages/StaffAnalytics.vue'
 import AdminDashboard from '../pages/AdminDashboard.vue'
 import AssignmentPage from '../pages/AssignmentPage.vue'
 import AnalyticsPage from '../pages/AnalyticsPage.vue'
+import StaffManagement from '../pages/StaffManagement.vue'
 
 import NagrikSaathi from '../pages/NagrikSaathi.vue'
 import Notifications from '../pages/Notifications.vue'
@@ -53,6 +54,7 @@ const routes = [
   { path: '/admin', name: 'admin-dashboard', component: AdminDashboard, meta: { role: 'admin' } },
   { path: '/admin/assign/:id', name: 'assignment', component: AssignmentPage, meta: { role: 'admin' } },
   { path: '/admin/analytics', name: 'analytics', component: AnalyticsPage, meta: { role: 'admin' } },
+  { path: '/admin/staff', name: 'staff-management', component: StaffManagement, meta: { role: 'admin' } },
   { path: '/:pathMatch(.*)*', name: 'not-found', component: NotFound},
 
   { path: '/notifications', name: 'notifications', component: Notifications },

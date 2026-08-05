@@ -135,3 +135,11 @@ export function submitFeedback({ id, score, feedback, accessToken }) {
 export function listOfficers({ accessToken }) {
   return request('/admin/officers', { token: accessToken })
 }
+
+export function createStaffAccount({ name, phone, email, password, accessToken }) {
+  return request('/admin/users', {
+    method: 'POST',
+    token: accessToken,
+    body: { name, phone, email, password }
+  })
+}

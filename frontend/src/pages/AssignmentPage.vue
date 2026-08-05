@@ -74,7 +74,7 @@ async function confirmAssignment() {
       <h3>Assign a Staff Member</h3>
       <p v-if="assignError" class="error-text">{{ assignError }}</p>
       <div v-if="officers.length === 0" class="empty-state">
-        No staff accounts exist yet. Create one from an admin account through POST /admin/users.
+        No staff accounts exist yet. <router-link to="/admin/staff">Create one here</router-link>.
       </div>
       <template v-else>
         <div class="field">

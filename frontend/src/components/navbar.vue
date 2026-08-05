@@ -30,6 +30,7 @@ function logout() { auth.logout(); router.push('/login') }
 
     <router-link v-if="auth.role === 'admin'" to="/admin">Dashboard</router-link>
     <router-link v-if="auth.role === 'admin'" to="/admin/analytics">Analytics</router-link>
+    <router-link v-if="auth.role === 'admin'" to="/admin/staff">Staff</router-link>
 
     <span class="spacer"></span>
 

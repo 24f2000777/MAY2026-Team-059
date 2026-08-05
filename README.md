@@ -55,7 +55,7 @@ Open it and fill in **only these five things**:
 
 | Variable | What to put |
 |---|---|
-| `DATABASE_URL` / `SYNC_DATABASE_URL` | Same Postgres database, two different drivers. Create it first with `sudo -u postgres psql -c "CREATE DATABASE nagrik_ai;"` if it's local |
+| `DATABASE_URL` / `SYNC_DATABASE_URL` | Same shared Supabase database, two different drivers. Get both from Supabase dashboard → Connect, `DATABASE_URL` from the **Transaction pooler**, `SYNC_DATABASE_URL` from the **Session pooler**. Don't use "Direct connection", it only resolves over IPv6 and fails with `could not translate host name` on plenty of networks |
 | `SECRET_KEY` / `OTP_SECRET_KEY` | Two different 32+ char random strings, generate with `python3 -c "import secrets; print(secrets.token_hex(32))"` |
 | `GROQ_API_KEY` | Powers the chatbot and priority scoring. `GEMINI_API_KEY`/`HUGGINGFACE_API_KEY` are optional automatic fallbacks |
 | SMTP settings | **Leave exactly as they are.** `.env.example` already ships real, working Ethereal test-inbox credentials |
@@ -114,6 +114,7 @@ password: Nagrik@2026
 | Login says it can't reach the server | Frontend and backend are on mismatched ports | Backend only accepts `5173`/`3000`. If Vite printed `5174` instead, free `5173` and restart it |
 | OTP email never arrives | The Celery worker isn't running, or SMTP is still a placeholder | Start terminal 1 above, or check `.env` still has the real Ethereal values from `.env.example` |
 | `column does not exist` / missing table | Database schema is behind | `cd Backend && alembic upgrade head` |
+| `could not translate host name "db.....supabase.co"` | `SYNC_DATABASE_URL` is set to the "Direct connection" host, which only resolves over IPv6 | Swap it for the **Session pooler** connection string from Supabase dashboard → Connect, see the `.env` table above |
 | `create_admin` refuses to run | Working as intended, only one admin allowed | Use the shared login above instead |
 | Chatbot hangs or never replies | The AI provider hit a rate limit | Wait a minute and retry, or add `GEMINI_API_KEY`/`HUGGINGFACE_API_KEY` as fallbacks |
 | Complaints or accounts you didn't create | Shared database, a teammate's test data | Expected. Don't delete anything that isn't clearly yours without asking first |

@@ -2,11 +2,16 @@
 // authApi.js: thin wrappers around request() from httpClient.js.
 import { request } from './httpClient'
 
-export function sendChatMessage({ sessionId, message, accessToken }) {
+export function sendChatMessage({ sessionId, message, latitude, longitude, accessToken }) {
   return request('/chat/message', {
     method: 'POST',
     token: accessToken,
-    body: { session_id: sessionId, message }
+    body: {
+      session_id: sessionId,
+      message,
+      latitude: latitude ?? null,
+      longitude: longitude ?? null
+    }
   })
 }
 

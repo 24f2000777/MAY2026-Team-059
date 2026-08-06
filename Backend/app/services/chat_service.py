@@ -60,7 +60,9 @@ async def _check_session_ownership(session_id: str, user_id, db) -> None:
         raise ChatSessionAccessDeniedError("This chat session belongs to another user.")
 
 
-async def _file_complaint_from_chat(user_id, extracted_info: dict, db) -> Complaint | None:
+async def _file_complaint_from_chat(
+    user_id, extracted_info: dict, db, latitude: float | None = None, longitude: float | None = None
+) -> Complaint | None:
     """
     Persists the complaint the conversation just finished extracting,
     through the same create_complaint() pipeline POST /complaints uses
@@ -95,7 +97,7 @@ async def _file_complaint_from_chat(user_id, extracted_info: dict, db) -> Compla
                 title=title,
                 description=description,
                 category=BMC_TO_OUR_CATEGORY.get(bmc_category, "other"),
-                location=ComplaintLocation(address=location),
+                location=ComplaintLocation(address=location, latitude=latitude, longitude=longitude),
             )
             return await create_complaint(user_id, data, db)
     except Exception:
@@ -107,7 +109,9 @@ async def _file_complaint_from_chat(user_id, extracted_info: dict, db) -> Compla
         return None
 
 
-async def send_chat_message(session_id: str, user_id, message: str, db) -> tuple[str, Complaint | None]:
+async def send_chat_message(
+    session_id: str, user_id, message: str, db, latitude: float | None = None, longitude: float | None = None
+) -> tuple[str, Complaint | None]:
     """
     Logs the citizen's message, gets Nagrik Saathi's reply, logs that
     too, and returns (reply, complaint). Both messages are saved even
@@ -120,6 +124,11 @@ async def send_chat_message(session_id: str, user_id, message: str, db) -> tuple
     it, scored and routed the same way POST /complaints does, and
     returns it alongside the reply so the route can surface it to the
     frontend. complaint is None on every turn that didn't file one.
+
+    latitude/longitude are optional GPS coords from the chat UI's
+    "share location" button. The frontend resends whatever it last
+    captured on every turn, so they're just passed straight through
+    to whichever turn ends up actually filing the complaint.
     """
     await _check_session_ownership(session_id, user_id, db)
 
@@ -135,7 +144,7 @@ async def send_chat_message(session_id: str, user_id, message: str, db) -> tuple
 
     complaint = None
     if extracted_info is not None:
-        complaint = await _file_complaint_from_chat(user_id, extracted_info, db)
+        complaint = await _file_complaint_from_chat(user_id, extracted_info, db, latitude, longitude)
 
     # flush, not commit: transaction boundaries belong to the get_db
     # dependency at the router layer, which commits once at the end of

@@ -27,7 +27,9 @@ async def send_message(
     letting the frontend show a filing confirmation inline without a
     second request.
     """
-    reply, complaint = await send_chat_message(body.session_id, current_user.id, body.message, db)
+    reply, complaint = await send_chat_message(
+        body.session_id, current_user.id, body.message, db, body.latitude, body.longitude
+    )
     return SuccessResponse[ChatMessageResponse](
         message="Message sent.",
         data=ChatMessageResponse(

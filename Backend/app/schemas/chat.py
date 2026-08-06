@@ -1,12 +1,26 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class ChatMessageRequest(BaseModel):
     session_id: str = Field(..., min_length=1, max_length=100)
     message: str = Field(..., min_length=1, max_length=2000)
+
+    # Optional GPS coords from the chat UI's "share location" button.
+    # Sent on every message once captured (not just the turn it was
+    # clicked on), since the conversation may take several more turns
+    # before Nagrik Saathi actually has enough to file a complaint,
+    # and whichever turn does the filing is the one that needs them.
+    latitude: float | None = Field(default=None, ge=-90, le=90)
+    longitude: float | None = Field(default=None, ge=-180, le=180)
+
+    @model_validator(mode="after")
+    def validate_coords_paired(self):
+        if (self.latitude is None) != (self.longitude is None):
+            raise ValueError("latitude and longitude must both be provided together.")
+        return self
 
 
 class ChatFiledComplaint(BaseModel):

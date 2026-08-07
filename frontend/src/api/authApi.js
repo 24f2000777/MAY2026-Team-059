@@ -40,3 +40,33 @@ export function logoutUser({ accessToken, refreshToken }) {
     body: refreshToken ? { refresh_token: refreshToken } : {}
   })
 }
+
+export function forgotPassword({ email }) {
+  return request('/auth/forgot-password', {
+    method: 'POST',
+    body: { email }
+  })
+}
+
+export function resetPassword({ email, otp, newPassword }) {
+  return request('/auth/reset-password', {
+    method: 'POST',
+    body: { email, otp, new_password: newPassword }
+  })
+}
+
+export function updateProfile({ name, phone, accessToken }) {
+  return request('/auth/me', {
+    method: 'PUT',
+    token: accessToken,
+    body: { name, phone }
+  })
+}
+
+export function changePassword({ currentPassword, newPassword, accessToken }) {
+  return request('/auth/change-password', {
+    method: 'POST',
+    token: accessToken,
+    body: { current_password: currentPassword, new_password: newPassword }
+  })
+}

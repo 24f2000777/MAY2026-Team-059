@@ -10,11 +10,11 @@ const email = ref('')
 const error = ref('')
 const loading = ref(false)
 
-function submit() {
+async function submit() {
   error.value = ''
   loading.value = true
   try {
-    auth.requestReset(email.value)
+    await auth.requestReset(email.value)
     router.push({ path: '/reset-password', query: { email: email.value } })
   } catch (e) {
     error.value = e.message

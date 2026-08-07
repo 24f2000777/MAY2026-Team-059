@@ -33,8 +33,7 @@ export function createComplaint({ title, description, category, location, wardCo
 // Lists complaints visible to the caller. Citizens only ever see
 // their own regardless of filters, staff and admin see everything,
 // narrowed by whatever filters are passed. perPage caps at 100 on
-// the backend, there's no UI pagination control yet so this always
-// asks for the largest page the backend allows.
+// the backend.
 export function listComplaints({ accessToken, status, category, wardCode, assignedTo, page = 1, perPage = 100 } = {}) {
   const params = new URLSearchParams({ page, per_page: perPage })
   if (status) params.set('status', status)
@@ -42,6 +41,19 @@ export function listComplaints({ accessToken, status, category, wardCode, assign
   if (wardCode) params.set('ward_code', wardCode)
   if (assignedTo) params.set('assigned_to', assignedTo)
   return request(`/complaints?${params.toString()}`, { token: accessToken })
+}
+
+// Same endpoint, but also returns the response's meta (total, total_pages),
+// for callers that need to know whether there's more than one page to
+// fetch, e.g. AdminDashboard.vue loading every complaint across pages
+// rather than silently stopping at the first 100.
+export function listComplaintsPage({ accessToken, status, category, wardCode, assignedTo, page = 1, perPage = 100 } = {}) {
+  const params = new URLSearchParams({ page, per_page: perPage })
+  if (status) params.set('status', status)
+  if (category) params.set('category', category)
+  if (wardCode) params.set('ward_code', wardCode)
+  if (assignedTo) params.set('assigned_to', assignedTo)
+  return request(`/complaints?${params.toString()}`, { token: accessToken, includeMeta: true })
 }
 
 export function getComplaint({ id, accessToken }) {

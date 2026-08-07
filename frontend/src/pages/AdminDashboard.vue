@@ -1,8 +1,8 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/authStore'
-import { approveComplaint, listComplaints, listOfficers } from '../api/complaintApi'
+import { approveComplaint, listComplaintsPage, listOfficers } from '../api/complaintApi'
 import { categoryLabel } from '../constants/categories'
 import StatusBadge from '../components/StatusBadge.vue'
 
@@ -29,14 +29,32 @@ function localDate(iso) {
   return `${year}-${month}-${day}`
 }
 
+// The backend caps a single page at 100 complaints. Fetching just
+// page 1 used to silently drop everything past that, with no
+// indication anything was missing. Loops through every page instead,
+// so search/filter still work across the whole dataset, the table
+// below paginates the (already filtered) results for display.
+async function loadAllComplaints() {
+  const all = []
+  let page = 1
+  let totalPages = 1
+  do {
+    const { data, meta } = await listComplaintsPage({ accessToken: auth.accessToken, page, perPage: 100 })
+    all.push(...data.complaints)
+    totalPages = meta?.total_pages || 1
+    page += 1
+  } while (page <= totalPages)
+  return all
+}
+
 async function load() {
   loadError.value = ''
   try {
-    const [complaintsData, officersData] = await Promise.all([
-      listComplaints({ accessToken: auth.accessToken }),
+    const [allComplaints, officersData] = await Promise.all([
+      loadAllComplaints(),
       listOfficers({ accessToken: auth.accessToken })
     ])
-    rawComplaints.value = complaintsData.complaints
+    rawComplaints.value = allComplaints
     officers.value = officersData.officers
   } catch (e) {
     if (e.status === 401) {
@@ -79,6 +97,23 @@ const filtered = computed(() =>
     .filter((c) => !dateFilter.value || localDate(c.createdAt) === dateFilter.value)
     .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
 )
+
+const PAGE_SIZE = 20
+const currentPage = ref(1)
+
+const totalPages = computed(() => Math.max(1, Math.ceil(filtered.value.length / PAGE_SIZE)))
+
+const paged = computed(() => {
+  const start = (currentPage.value - 1) * PAGE_SIZE
+  return filtered.value.slice(start, start + PAGE_SIZE)
+})
+
+// Any filter change can shrink the result set below the page the
+// admin was looking at, land back on page 1 rather than showing an
+// empty table with a stale "page 4 of 1" underneath it.
+watch(filtered, () => {
+  currentPage.value = 1
+})
 
 function resetFilters() {
   searchText.value = ''
@@ -177,36 +212,46 @@ onMounted(load)
       </div>
 
       <div v-if="filtered.length === 0" class="empty-state">No complaints match these filters.</div>
-      <div v-else class="table-wrap">
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th>Category</th>
-              <th>Location</th>
-              <th>Status</th>
-              <th>Assigned</th>
-              <th>Filed</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="c in filtered" :key="c.id">
-              <td>{{ c.category }}</td>
-              <td>{{ c.location }}</td>
-              <td><StatusBadge :value="c.status" /></td>
-              <td>{{ officerName(c.assignedTo) }}</td>
-              <td>{{ new Date(c.createdAt).toLocaleDateString() }}</td>
-              <td class="row-actions">
-                <button v-if="c.status === 'submitted'" class="btn secondary" @click="doApprove(c.id)">Approve</button>
-                <button class="btn secondary" @click="router.push(`/admin/assign/${c.id}`)">{{ c.assignedTo ? 'Reassign' : 'Assign' }}</button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+      <template v-else>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Category</th>
+                <th>Location</th>
+                <th>Status</th>
+                <th>Assigned</th>
+                <th>Filed</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="c in paged" :key="c.id">
+                <td>{{ c.category }}</td>
+                <td>{{ c.location }}</td>
+                <td><StatusBadge :value="c.status" /></td>
+                <td>{{ officerName(c.assignedTo) }}</td>
+                <td>{{ new Date(c.createdAt).toLocaleDateString() }}</td>
+                <td class="row-actions">
+                  <button v-if="c.status === 'submitted'" class="btn secondary" @click="doApprove(c.id)">Approve</button>
+                  <button class="btn secondary" @click="router.push(`/admin/assign/${c.id}`)">{{ c.assignedTo ? 'Reassign' : 'Assign' }}</button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div v-if="totalPages > 1" class="pagination">
+          <button class="btn secondary" :disabled="currentPage === 1" @click="currentPage -= 1">&larr; Prev</button>
+          <span class="pagination-status">Page {{ currentPage }} of {{ totalPages }} &middot; {{ filtered.length }} complaints</span>
+          <button class="btn secondary" :disabled="currentPage === totalPages" @click="currentPage += 1">Next &rarr;</button>
+        </div>
+      </template>
     </div>
   </div>
 </template>
 <style scoped>
 .row-actions { display: flex; gap: 8px; }
+.pagination { display: flex; align-items: center; justify-content: center; gap: 16px; margin-top: 16px; }
+.pagination-status { font-size: 13px; color: var(--text-dim); }
 </style>

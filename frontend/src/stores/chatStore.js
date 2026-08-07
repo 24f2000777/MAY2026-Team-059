@@ -1,12 +1,25 @@
 import { defineStore } from 'pinia'
 import { sendChatMessage } from '../api/chatApi'
+import { uploadAttachment } from '../api/complaintApi'
 
 export const useChatStore = defineStore('chat', {
   state: () => ({
     sessionId: null,
     messages: [],
     isTyping: false,
-    error: null
+    error: null,
+
+    // GPS coords from the chat's "share location" button, once
+    // captured, resent on every message from then on (see sendMessage),
+    // since Nagrik Saathi may take several more turns before it has
+    // enough to actually file a complaint.
+    location: null,
+
+    // Photos picked before a complaint exists to attach them to.
+    // Uploaded (via the existing attachment endpoint) the moment a
+    // turn actually files a complaint, then cleared. Held as real
+    // File objects plus an object URL for the composer preview.
+    pendingImages: []
   }),
   actions: {
     // Starts a brand new conversation, a fresh session id every time.
@@ -20,6 +33,8 @@ export const useChatStore = defineStore('chat', {
       this.messages = []
       this.isTyping = false
       this.error = null
+      this.location = null
+      this.clearPendingImages()
     },
 
     // Seeds the role-specific greeting as a real message once, only on a
@@ -33,12 +48,71 @@ export const useChatStore = defineStore('chat', {
       }
     },
 
+    setLocation(coords) {
+      this.location = coords
+    },
+
+    clearLocation() {
+      this.location = null
+    },
+
+    addPendingImages(files) {
+      for (const file of files) {
+        this.pendingImages.push({ file, previewUrl: URL.createObjectURL(file) })
+      }
+    },
+
+    removePendingImage(index) {
+      URL.revokeObjectURL(this.pendingImages[index].previewUrl)
+      this.pendingImages.splice(index, 1)
+    },
+
+    clearPendingImages() {
+      for (const img of this.pendingImages) URL.revokeObjectURL(img.previewUrl)
+      this.pendingImages = []
+    },
+
+    // Uploads whatever's pending to a complaint that just got filed.
+    // Best-effort: the complaint itself is already real at this point,
+    // a failed photo upload shouldn't be reported as the whole message
+    // having failed, so failures are swallowed here and just leave the
+    // photos un-attached rather than throwing mid-conversation.
+    //
+    // Deliberately does NOT revoke the preview object URLs here: the
+    // message this image was attached to (pushed in sendMessage,
+    // before this runs) already embeds these exact URL strings to
+    // render its thumbnail, revoking now would blank out a photo the
+    // citizen can already see they sent. They're only cleaned up once
+    // nothing displays them anymore, on the next startNewConversation
+    // or explicit removePendingImage.
+    async _uploadPendingImages(complaintId, accessToken) {
+      if (this.pendingImages.length === 0) return
+      const images = this.pendingImages
+      this.pendingImages = []
+      await Promise.allSettled(
+        images.map((img) => uploadAttachment({ id: complaintId, file: img.file, accessToken }))
+      )
+    },
+
     async sendMessage({ text, accessToken }) {
       this.error = null
-      this.messages.push({ from: 'user', text })
+      this.messages.push({
+        from: 'user',
+        text,
+        images: this.pendingImages.map((img) => img.previewUrl)
+      })
       this.isTyping = true
       try {
-        const data = await sendChatMessage({ sessionId: this.sessionId, message: text, accessToken })
+        const data = await sendChatMessage({
+          sessionId: this.sessionId,
+          message: text,
+          latitude: this.location?.latitude,
+          longitude: this.location?.longitude,
+          accessToken
+        })
+        if (data.complaint) {
+          await this._uploadPendingImages(data.complaint.id, accessToken)
+        }
         this.messages.push({ from: 'bot', text: data.reply, complaint: data.complaint ?? null })
       } catch (e) {
         // Don't fake a bot reply on failure. Store the message for the

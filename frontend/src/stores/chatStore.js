@@ -77,10 +77,18 @@ export const useChatStore = defineStore('chat', {
     // a failed photo upload shouldn't be reported as the whole message
     // having failed, so failures are swallowed here and just leave the
     // photos un-attached rather than throwing mid-conversation.
+    //
+    // Deliberately does NOT revoke the preview object URLs here: the
+    // message this image was attached to (pushed in sendMessage,
+    // before this runs) already embeds these exact URL strings to
+    // render its thumbnail, revoking now would blank out a photo the
+    // citizen can already see they sent. They're only cleaned up once
+    // nothing displays them anymore, on the next startNewConversation
+    // or explicit removePendingImage.
     async _uploadPendingImages(complaintId, accessToken) {
       if (this.pendingImages.length === 0) return
       const images = this.pendingImages
-      this.clearPendingImages()
+      this.pendingImages = []
       await Promise.allSettled(
         images.map((img) => uploadAttachment({ id: complaintId, file: img.file, accessToken }))
       )

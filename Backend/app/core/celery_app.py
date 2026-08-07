@@ -7,7 +7,7 @@ celery_app = Celery(
     "nagrik_ai_worker",
     broker=settings.CELERY_BROKER_URL,
     backend=settings.CELERY_RESULT_BACKEND,
-    include=["app.tasks.email_tasks", "app.tasks.priority_tasks"],
+    include=["app.tasks.email_tasks", "app.tasks.priority_tasks", "app.tasks.complaint_tasks"],
 )
 
 celery_app.conf.update(
@@ -24,5 +24,9 @@ celery_app.conf.beat_schedule = {
     "nightly-priority-rescore": {
         "task": "rescore_all_complaints_task",
         "schedule": crontab(hour=2, minute=0),
+    },
+    "nightly-auto-close-stale-resolved": {
+        "task": "auto_close_stale_resolved_complaints_task",
+        "schedule": crontab(hour=2, minute=30),
     },
 }

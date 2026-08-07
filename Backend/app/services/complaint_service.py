@@ -12,6 +12,7 @@ duplicating any scoring/routing logic here.
 """
 
 import shutil
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from sqlalchemy import func as sa_func
@@ -864,3 +865,99 @@ async def transition_complaint_status_as_owner(complaint_id, action: str, citize
     await db.flush()
 
     return complaint
+
+
+AUTO_CLOSE_AFTER_DAYS = 7
+
+
+async def auto_close_stale_resolved_complaints(db) -> int:
+    """
+    The design doc's "System" actor for the close transition, an
+    automatic timeout for a citizen who never confirms, separate from
+    transition_complaint_status_as_owner above (the citizen-confirms
+    path). Closes every complaint that's been sitting in 'resolved'
+    for at least AUTO_CLOSE_AFTER_DAYS, reusing the same 'closed'
+    status and ComplaintUpdate audit trail shape as a manual close.
+
+    updated_by on the audit row is a required FK and there's no
+    separate "system" user account, so this attributes the change to
+    the platform's one admin account, same as anywhere else the
+    platform itself needs to act rather than a specific person.
+
+    Shared by the nightly Celery Beat job (the only caller today) the
+    same way rescore_all_complaints is, so commits its own transaction
+    rather than deferring to a request's get_db() dependency, there
+    is no request here.
+
+    Returns the number of complaints closed.
+    """
+    admin = (await db.execute(select(User).where(User.role == ROLE_ADMIN).limit(1))).scalar_one_or_none()
+    if admin is None:
+        return 0
+
+    cutoff = datetime.utcnow() - timedelta(days=AUTO_CLOSE_AFTER_DAYS)
+
+    # The most recent transition into 'resolved' for each complaint
+    # currently sitting in that status. A complaint can only be
+    # resolved once before leaving that status (closed, either here or
+    # by the citizen), so "most recent" coincides with "only" in
+    # practice, used anyway to stay correct if that ever changes.
+    latest_resolved_at = (
+        select(
+            ComplaintUpdate.complaint_id,
+            sa_func.max(ComplaintUpdate.created_at).label("resolved_at"),
+        )
+        .where(ComplaintUpdate.new_status == ComplaintStatus.RESOLVED.value)
+        .group_by(ComplaintUpdate.complaint_id)
+        .subquery()
+    )
+
+    result = await db.execute(
+        select(Complaint)
+        .join(latest_resolved_at, Complaint.id == latest_resolved_at.c.complaint_id)
+        .where(
+            Complaint.status == ComplaintStatus.RESOLVED.value,
+            latest_resolved_at.c.resolved_at <= cutoff,
+        )
+    )
+    stale_complaints = result.scalars().all()
+
+    for complaint in stale_complaints:
+        old_status = complaint.status
+        complaint.status = ComplaintStatus.CLOSED.value
+
+        db.add(ComplaintUpdate(
+            complaint_id=complaint.id,
+            updated_by=admin.id,
+            old_status=old_status,
+            new_status=complaint.status,
+            notes=f"Auto-closed after {AUTO_CLOSE_AFTER_DAYS} days with no citizen confirmation.",
+        ))
+
+        await create_notification(
+            complaint.citizen_id,
+            complaint.id,
+            "complaint_auto_closed",
+            "Complaint automatically closed",
+            f'Your complaint "{complaint.title}" was automatically closed after '
+            f"{AUTO_CLOSE_AFTER_DAYS} days with no response.",
+            db,
+        )
+
+        if complaint.assigned_to is not None:
+            # Same reasoning as the citizen-close path above: the
+            # citizen gets their own notification, the assigned staff
+            # member finding out the case is now closed is separate,
+            # genuinely new information for them.
+            await create_notification(
+                complaint.assigned_to,
+                complaint.id,
+                "complaint_closed",
+                "Complaint closed",
+                f'Complaint "{complaint.title}" was automatically closed after '
+                f"{AUTO_CLOSE_AFTER_DAYS} days with no citizen confirmation.",
+                db,
+            )
+
+    await db.commit()
+    return len(stale_complaints)

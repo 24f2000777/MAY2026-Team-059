@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from app.api.admin import router as admin_router
+from app.api.analytics import router as analytics_router
 from app.api.attachments import router as attachments_router
 from app.api.auth import router as auth_router
 from app.api.chat import router as chat_router
@@ -76,6 +77,7 @@ Path(settings.UPLOAD_DIR).mkdir(parents=True, exist_ok=True)
 app.mount(f"/{settings.UPLOAD_DIR}", StaticFiles(directory=settings.UPLOAD_DIR), name="uploads")
 
 app.include_router(admin_router)
+app.include_router(analytics_router)
 app.include_router(attachments_router)
 app.include_router(auth_router)
 app.include_router(chat_router)

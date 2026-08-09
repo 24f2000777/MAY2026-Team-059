@@ -2,7 +2,7 @@
 // and /feedback that concerns a single complaint. Same pattern as
 // authApi.js/chatApi.js: thin wrappers around request() from
 // httpClient.js, no logic of its own.
-import { request } from './httpClient'
+import { API_BASE_URL, request } from './httpClient'
 
 export function getWards({ accessToken }) {
   return request('/complaints/wards', {
@@ -54,6 +54,37 @@ export function listComplaintsPage({ accessToken, status, category, wardCode, as
   if (wardCode) params.set('ward_code', wardCode)
   if (assignedTo) params.set('assigned_to', assignedTo)
   return request(`/complaints?${params.toString()}`, { token: accessToken, includeMeta: true })
+}
+
+// GET /admin/export returns a real CSV file, not the usual JSON
+// envelope, so this bypasses request() (which always calls
+// response.json()) and triggers a browser download directly instead
+// of returning parsed data to the caller.
+export async function exportComplaintsCsv({ accessToken, status, category, wardCode, assignedTo }) {
+  const params = new URLSearchParams()
+  if (status) params.set('status', status)
+  if (category) params.set('category', category)
+  if (wardCode) params.set('ward_code', wardCode)
+  if (assignedTo) params.set('assigned_to', assignedTo)
+
+  const response = await fetch(`${API_BASE_URL}/admin/export?${params.toString()}`, {
+    headers: { Authorization: `Bearer ${accessToken}` }
+  })
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null)
+    throw new Error(payload?.message || 'Could not export complaints.')
+  }
+
+  const blob = await response.blob()
+  const filenameMatch = response.headers.get('content-disposition')?.match(/filename="(.+)"/)
+  const filename = filenameMatch?.[1] || 'complaints_export.csv'
+
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  link.click()
+  URL.revokeObjectURL(url)
 }
 
 export function getComplaint({ id, accessToken }) {

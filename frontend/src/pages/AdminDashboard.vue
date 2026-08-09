@@ -2,8 +2,8 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/authStore'
-import { approveComplaint, listComplaintsPage, listOfficers } from '../api/complaintApi'
-import { categoryLabel } from '../constants/categories'
+import { approveComplaint, exportComplaintsCsv, listComplaintsPage, listOfficers } from '../api/complaintApi'
+import { CATEGORIES, categoryLabel } from '../constants/categories'
 import StatusBadge from '../components/StatusBadge.vue'
 
 const auth = useAuthStore()
@@ -80,6 +80,14 @@ const complaints = computed(() =>
 
 const categories = computed(() => ['All', ...new Set(complaints.value.map((c) => c.category))])
 
+// The dashboard's own category filter/table both work off the
+// human-readable label (categoryLabel), the export endpoint needs
+// the real backend enum value, this maps one back to the other.
+const categoryFilterRaw = computed(() => {
+  if (categoryFilter.value === 'All') return null
+  return CATEGORIES.find((c) => c.label === categoryFilter.value)?.value || null
+})
+
 const unassignedCount = computed(() => complaints.value.filter((c) => !c.assignedTo).length)
 const openCount = computed(() => complaints.value.filter((c) => !['resolved', 'closed', 'rejected', 'withdrawn'].includes(c.status)).length)
 const resolvedCount = computed(() => complaints.value.filter((c) => c.status === 'resolved' || c.status === 'closed').length)
@@ -121,6 +129,31 @@ function resetFilters() {
   categoryFilter.value = 'All'
   areaFilter.value = ''
   dateFilter.value = ''
+}
+
+const exporting = ref(false)
+const exportError = ref('')
+
+// Only status/category go to the backend, the same filters GET
+// /admin/export actually supports. Search text/area/date are
+// client-side-only conveniences (the backend has no free-text or
+// substring match), so the export can't fully guarantee "exactly
+// what's on screen" once those are in play, just what the backend
+// itself is able to narrow down.
+async function exportCsv() {
+  exportError.value = ''
+  exporting.value = true
+  try {
+    await exportComplaintsCsv({
+      accessToken: auth.accessToken,
+      status: statusFilter.value === 'All' ? undefined : statusFilter.value,
+      category: categoryFilterRaw.value || undefined
+    })
+  } catch (e) {
+    exportError.value = e.message
+  } finally {
+    exporting.value = false
+  }
 }
 
 function officerName(id) {
@@ -209,7 +242,10 @@ onMounted(load)
         </div>
 
         <button class="btn secondary filter-reset" @click="resetFilters">Clear Filters</button>
+        <button class="btn secondary" :disabled="exporting" @click="exportCsv">{{ exporting ? 'Exporting...' : 'Export CSV' }}</button>
       </div>
+
+      <p v-if="exportError" class="error-text">{{ exportError }}</p>
 
       <div v-if="filtered.length === 0" class="empty-state">No complaints match these filters.</div>
       <template v-else>

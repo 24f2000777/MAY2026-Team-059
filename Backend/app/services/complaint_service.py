@@ -11,6 +11,8 @@ calls those endpoints. Reuses those exact services rather than
 duplicating any scoring/routing logic here.
 """
 
+import csv
+import io
 import shutil
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -167,6 +169,63 @@ async def list_complaints(
     complaints = result.scalars().all()
 
     return complaints, total
+
+
+CSV_COLUMNS = [
+    "id", "title", "category", "status", "priority_score",
+    "location_text", "ward_code", "citizen_name", "assigned_to_name",
+    "created_at", "updated_at",
+]
+
+
+async def export_complaints_csv(current_user, db, status=None, category=None, ward_code=None, assigned_to=None) -> str:
+    """
+    Builds a CSV of every complaint matching the given filters, same
+    role scoping and filter set as list_complaints (admin-only in
+    practice, enforced at the route layer, but reuses the general
+    function rather than a separate query so the two never drift).
+
+    Reuses list_complaints with an effectively unbounded per_page —
+    that function's own pagination is a route-layer concern (GET
+    /complaints caps per_page at 100 via FastAPI's Query validation,
+    not inside the function itself), an export needs every matching
+    row in one shot, not a page of them.
+
+    citizen_id/assigned_to are resolved to real names in one extra
+    batched query rather than N+1 lookups, a raw UUID column isn't
+    useful in a report meant for "leadership reporting, council
+    meetings, and RTI responses" per the API design doc.
+    """
+    complaints, _ = await list_complaints(
+        current_user, db,
+        status=status, category=category, ward_code=ward_code, assigned_to=assigned_to,
+        page=1, per_page=1_000_000,
+    )
+
+    user_ids = {c.citizen_id for c in complaints} | {c.assigned_to for c in complaints if c.assigned_to}
+    names = {}
+    if user_ids:
+        result = await db.execute(select(User.id, User.name).where(User.id.in_(user_ids)))
+        names = {uid: name for uid, name in result.all()}
+
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow(CSV_COLUMNS)
+    for c in complaints:
+        writer.writerow([
+            str(c.id),
+            c.title,
+            c.category,
+            c.status,
+            c.priority_score,
+            c.location_text or "",
+            c.ward_code or "",
+            names.get(c.citizen_id, ""),
+            names.get(c.assigned_to, "") if c.assigned_to else "",
+            c.created_at.isoformat(),
+            c.updated_at.isoformat(),
+        ])
+    return buffer.getvalue()
 
 
 async def list_complaints_by_ward(ward_code: str, db) -> list[Complaint]:

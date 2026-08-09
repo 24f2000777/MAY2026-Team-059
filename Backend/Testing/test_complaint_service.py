@@ -9,6 +9,8 @@ real integration break between create_complaint and the ML services it
 calls.
 """
 
+import csv
+import io
 import uuid
 from datetime import datetime, timedelta
 
@@ -41,6 +43,7 @@ from app.services.complaint_service import (
     delete_attachment,
     delete_complaint,
     edit_complaint,
+    export_complaints_csv,
     get_attachment,
     get_complaint_detail,
     get_complaint_history,
@@ -82,6 +85,23 @@ async def citizen(db):
         phone=f"9{uuid.uuid4().int % 10**9:09d}",
         name="Pytest Citizen",
         email=f"pytest-{uuid.uuid4()}@example.com",
+        role="citizen",
+        hashed_password="x",
+        is_active=True,
+    )
+    db.add(user)
+    await db.flush()
+    yield user
+    await db.delete(user)
+    await db.commit()
+
+
+@pytest.fixture
+async def other_citizen(db):
+    user = User(
+        phone=f"9{uuid.uuid4().int % 10**9:09d}",
+        name="Pytest Other Citizen",
+        email=f"pytest-other-{uuid.uuid4()}@example.com",
         role="citizen",
         hashed_password="x",
         is_active=True,
@@ -738,6 +758,55 @@ class TestListComplaints:
         results, total = await list_complaints(citizen, db)
         assert results == []
         assert total == 0
+
+
+class TestExportComplaintsCsv:
+    async def test_includes_a_real_complaint_with_resolved_names(self, db, citizen, admin):
+        complaint = await _make_complaint(db, citizen)
+        await db.commit()
+
+        csv_text = await export_complaints_csv(admin, db)
+        rows = list(csv.reader(io.StringIO(csv_text)))
+
+        assert rows[0] == [
+            "id", "title", "category", "status", "priority_score",
+            "location_text", "ward_code", "citizen_name", "assigned_to_name",
+            "created_at", "updated_at",
+        ]
+        matching = [r for r in rows[1:] if r[0] == str(complaint.id)]
+        assert len(matching) == 1
+        # citizen_name (index 7) should be the real name, not a raw UUID.
+        assert matching[0][7] == citizen.name
+
+        await _cleanup(db, complaint)
+
+    async def test_filters_by_status(self, db, citizen, admin):
+        complaint = await _make_complaint(db, citizen)
+        await transition_complaint_status(complaint.id, "approve", admin, None, db)
+        await db.commit()
+
+        csv_text = await export_complaints_csv(admin, db, status="approved")
+        rows = list(csv.reader(io.StringIO(csv_text)))
+
+        assert all(r[3] == "approved" for r in rows[1:])
+        assert any(r[0] == str(complaint.id) for r in rows[1:])
+
+        await _cleanup(db, complaint)
+
+    async def test_citizen_only_sees_their_own_complaints(self, db, citizen, other_citizen):
+        mine = await _make_complaint(db, citizen)
+        theirs = await _make_complaint(db, other_citizen)
+        await db.commit()
+
+        csv_text = await export_complaints_csv(citizen, db)
+        rows = list(csv.reader(io.StringIO(csv_text)))
+        ids = {r[0] for r in rows[1:]}
+
+        assert str(mine.id) in ids
+        assert str(theirs.id) not in ids
+
+        await _cleanup(db, mine)
+        await _cleanup(db, theirs)
 
 
 class TestGetComplaintDetail:

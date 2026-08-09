@@ -1,6 +1,9 @@
+from datetime import datetime
+from typing import Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Query, status
+from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.database import get_db
@@ -16,6 +19,7 @@ from ..schemas.admin import (
     StaffAccountOut,
 )
 from ..schemas.common import SuccessResponse
+from ..schemas.complaint import ComplaintCategory, ComplaintStatus
 from ..services.admin_service import (
     create_department,
     create_staff_account,
@@ -24,6 +28,7 @@ from ..services.admin_service import (
     list_officers,
     update_department_description,
 )
+from ..services.complaint_service import export_complaints_csv
 from ..utils.constants import ROLE_ADMIN
 
 router = APIRouter(
@@ -176,3 +181,38 @@ async def delete_department_route(
     await db.commit()
 
     return SuccessResponse[None](message="Department deleted.")
+
+
+@router.get(
+    "/export",
+    summary="Export filtered complaints as CSV (admin only)",
+)
+async def export_complaints_route(
+    status_filter: Optional[ComplaintStatus] = Query(None, alias="status"),
+    category: Optional[ComplaintCategory] = Query(None),
+    ward_code: Optional[str] = Query(None, max_length=5),
+    assigned_to: Optional[UUID] = Query(None),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles(ROLE_ADMIN)),
+):
+    """
+    Streams back every complaint matching the given filters as a CSV
+    file, same filter set as GET /complaints. Not wrapped in the usual
+    SuccessResponse envelope, the response body is the file itself,
+    same reasoning uploaded attachments are served as plain files
+    rather than JSON.
+    """
+    csv_body = await export_complaints_csv(
+        current_user,
+        db,
+        status=status_filter.value if status_filter else None,
+        category=category.value if category else None,
+        ward_code=ward_code,
+        assigned_to=assigned_to,
+    )
+    filename = f"complaints_export_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.csv"
+    return Response(
+        content=csv_body,
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )

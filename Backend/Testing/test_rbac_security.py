@@ -3,6 +3,17 @@ RBAC Security Audit - Attacker Perspective Tests
 
 Tests the role-based route protection against malicious inputs,
 validating the 5-Step Security Audit requirements.
+
+Targets GET /admin/departments (admin-only) and GET /ml/high-risk
+(staff-or-admin) as its real-endpoint stand-ins for "some admin-only
+route" / "some staff-or-admin route" — these tests care about the
+require_roles gate itself, not any particular endpoint's business
+logic, so any route with the right role combination works. Used to
+target app/api/dashboard.py's placeholder /dashboard/admin and
+/dashboard/internal, removed once that whole module was deleted as
+dead code (nothing in the frontend ever called it, its real
+equivalents live at /complaints, /admin, and /analytics/summary
+instead).
 """
 
 import asyncio
@@ -53,8 +64,8 @@ async def test_rbac_forged_signature(client):
         }
         forged_token = craft_malicious_token(payload, secret="wrong_secret_key_1234567890123456")
         
-        response = await client.get("/dashboard/admin", headers=auth_headers(forged_token))
-        expect_status(response, 401, "Admin dashboard access with forged signature")
+        response = await client.get("/admin/departments", headers=auth_headers(forged_token))
+        expect_status(response, 401, "Admin-only route access with forged signature")
     finally:
         await cleanup([email])
 
@@ -70,8 +81,8 @@ async def test_rbac_tampered_payload_but_wrong_signature(client):
         "type": "access"
     }
     forged_token = craft_malicious_token(payload, secret="attacker_knows_no_secret")
-    response = await client.get("/dashboard/admin", headers=auth_headers(forged_token))
-    expect_status(response, 401, "Admin dashboard access with tampered payload")
+    response = await client.get("/admin/departments", headers=auth_headers(forged_token))
+    expect_status(response, 401, "Admin-only route access with tampered payload")
 
 
 async def test_rbac_insufficient_permissions_403(client):
@@ -83,8 +94,8 @@ async def test_rbac_insufficient_permissions_403(client):
         await create_verified_user(client, email=email) # Role defaults to citizen
         access_token, _ = await login_get_tokens(client, email)
         
-        response = await client.get("/dashboard/admin", headers=auth_headers(access_token))
-        expect_status(response, 403, "Citizen attempting to access Admin dashboard")
+        response = await client.get("/admin/departments", headers=auth_headers(access_token))
+        expect_status(response, 403, "Citizen attempting to access an admin-only route")
     finally:
         await cleanup([email])
 
@@ -107,15 +118,15 @@ async def test_rbac_multiple_roles(client):
         await create_verified_user(client, email=citizen_email)
         citizen_token, _ = await login_get_tokens(client, citizen_email)
         
-        # /internal requires ROLE_STAFF or ROLE_ADMIN
-        response_admin = await client.get("/dashboard/internal", headers=auth_headers(admin_token))
-        expect_status(response_admin, 200, "Admin accessing /internal dashboard (multiple roles)")
+        # /ml/high-risk requires ROLE_STAFF or ROLE_ADMIN
+        response_admin = await client.get("/ml/high-risk", headers=auth_headers(admin_token))
+        expect_status(response_admin, 200, "Admin accessing a staff-or-admin route (multiple roles)")
         
-        response_staff = await client.get("/dashboard/internal", headers=auth_headers(staff_token))
-        expect_status(response_staff, 200, "Staff accessing /internal dashboard (multiple roles)")
+        response_staff = await client.get("/ml/high-risk", headers=auth_headers(staff_token))
+        expect_status(response_staff, 200, "Staff accessing a staff-or-admin route (multiple roles)")
 
-        response_citizen = await client.get("/dashboard/internal", headers=auth_headers(citizen_token))
-        expect_status(response_citizen, 403, "Citizen attempting to access /internal dashboard")
+        response_citizen = await client.get("/ml/high-risk", headers=auth_headers(citizen_token))
+        expect_status(response_citizen, 403, "Citizen attempting to access a staff-or-admin route")
     finally:
         await cleanup([admin_email, staff_email, citizen_email])
 
@@ -130,8 +141,8 @@ async def test_rbac_token_invalid_or_expired_401(client):
         access_token, _ = await login_get_tokens(client, email)
         
         # 401 Invalid Token (malformed)
-        response_invalid = await client.get("/dashboard/admin", headers=auth_headers("this_is_not_a_valid_token"))
-        expect_status(response_invalid, 401, "Admin dashboard access with invalid token string")
+        response_invalid = await client.get("/admin/departments", headers=auth_headers("this_is_not_a_valid_token"))
+        expect_status(response_invalid, 401, "Admin-only route access with invalid token string")
         
         # 401 Expired Token
         payload = {
@@ -141,8 +152,8 @@ async def test_rbac_token_invalid_or_expired_401(client):
             "exp": 1000 # Past date
         }
         expired_token = craft_malicious_token(payload, secret=settings.SECRET_KEY)
-        response_expired = await client.get("/dashboard/admin", headers=auth_headers(expired_token))
-        expect_status(response_expired, 401, "Admin dashboard access with expired token")
+        response_expired = await client.get("/admin/departments", headers=auth_headers(expired_token))
+        expect_status(response_expired, 401, "Admin-only route access with expired token")
     finally:
         await cleanup([email])
 

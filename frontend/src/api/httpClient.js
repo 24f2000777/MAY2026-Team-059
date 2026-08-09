@@ -9,7 +9,7 @@
 
 export const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
-export async function request(path, { method = 'GET', body, token, formData } = {}) {
+export async function request(path, { method = 'GET', body, token, formData, includeMeta = false } = {}) {
   // formData (a real FormData instance, used for attachment upload) is
   // sent as-is with no Content-Type header, the browser sets its own
   // multipart boundary automatically, setting it manually here would
@@ -43,5 +43,5 @@ export async function request(path, { method = 'GET', body, token, formData } = 
     throw error
   }
 
-  return payload?.data
+  return includeMeta ? { data: payload?.data, meta: payload?.meta } : payload?.data
 }

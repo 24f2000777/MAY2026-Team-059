@@ -1,35 +1,48 @@
 <script setup>
-import { computed } from 'vue'
+import { computed, onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/authStore'
-import { useComplaintStore } from '../stores/complaintStore'
+import { getAnalyticsSummary } from '../api/analyticsApi'
+import { categoryBreakdown } from '../constants/categories'
+import { doneCount, statusSegments } from '../constants/statuses'
 import StatCard from '../components/StatCard.vue'
 import DonutChart from '../components/DonutChart.vue'
 
 const auth = useAuthStore()
-const store = useComplaintStore()
+const router = useRouter()
 
-const myComplaints = computed(() => store.forCitizen(auth.user.id))
-const resolvedCount = computed(() => myComplaints.value.filter((c) => c.status === 'Resolved').length)
-const inProgressCount = computed(() => myComplaints.value.filter((c) => c.status === 'In Progress').length)
-const submittedCount = computed(() => myComplaints.value.filter((c) => c.status === 'Submitted').length)
+const summary = ref(null)
+const loadError = ref('')
 
-const statusSegments = computed(() => [
-  { label: 'Submitted', value: submittedCount.value, color: '#B8860B' },
-  { label: 'In Progress', value: inProgressCount.value, color: '#2F8F5B' },
-  { label: 'Resolved', value: resolvedCount.value, color: '#2A9D8F' }
-])
+async function load() {
+  loadError.value = ''
+  try {
+    summary.value = await getAnalyticsSummary({ accessToken: auth.accessToken })
+  } catch (e) {
+    if (e.status === 401) {
+      await auth.logout()
+      router.push('/login')
+      return
+    }
+    loadError.value = e.message
+  }
+}
+
+onMounted(load)
+
+const totalCount = computed(() => summary.value?.total ?? 0)
+const submittedCount = computed(() => summary.value?.status_counts.submitted ?? 0)
+const inProgressCount = computed(() => summary.value?.status_counts.in_progress ?? 0)
+const resolvedCount = computed(() => (summary.value ? doneCount(summary.value.status_counts) : 0))
+
+const statusChartSegments = computed(() => (summary.value ? statusSegments(summary.value.status_counts) : []))
+const categoryCounts = computed(() => (summary.value ? categoryBreakdown(summary.value.category_counts) : []))
+const maxCategoryCount = computed(() => Math.max(1, ...categoryCounts.value.map((c) => c.count)))
 
 const resolveRate = computed(() => {
-  if (myComplaints.value.length === 0) return '-'
-  return Math.round((resolvedCount.value / myComplaints.value.length) * 100) + '%'
+  if (!summary.value || summary.value.total === 0) return '-'
+  return Math.round((resolvedCount.value / summary.value.total) * 100) + '%'
 })
-
-const categoryCounts = computed(() => {
-  const counts = {}
-  myComplaints.value.forEach((c) => (counts[c.category] = (counts[c.category] || 0) + 1))
-  return Object.entries(counts).sort((a, b) => b[1] - a[1])
-})
-const maxCategoryCount = computed(() => Math.max(1, ...categoryCounts.value.map(([, n]) => n)))
 </script>
 
 <template>
@@ -41,8 +54,10 @@ const maxCategoryCount = computed(() => Math.max(1, ...categoryCounts.value.map(
       </div>
     </div>
 
+    <p v-if="loadError" class="error-text">{{ loadError }}</p>
+
     <div class="stat-strip">
-      <StatCard label="Total Filed" :value="myComplaints.length" tone="accent" />
+      <StatCard label="Total Filed" :value="totalCount" tone="accent" />
       <StatCard label="Submitted" :value="submittedCount" tone="warn" />
       <StatCard label="In Progress" :value="inProgressCount" tone="accent" />
       <StatCard label="Resolved" :value="resolvedCount" tone="ok" />
@@ -51,26 +66,27 @@ const maxCategoryCount = computed(() => Math.max(1, ...categoryCounts.value.map(
     <div class="grid cols-2">
       <div class="card chart-anim" style="animation-delay: .05s;">
         <h3>Status Breakdown</h3>
-        <DonutChart :segments="statusSegments" />
+        <div v-if="statusChartSegments.length === 0" class="empty-state">You haven't filed any complaints yet.</div>
+        <DonutChart v-else :segments="statusChartSegments" />
       </div>
 
       <div class="card chart-anim" style="animation-delay: .1s;">
         <h3>Category Breakdown</h3>
         <div v-if="categoryCounts.length === 0" class="empty-state">You haven't filed any complaints yet.</div>
         <div v-else class="bar-chart">
-          <div v-for="[category, count] in categoryCounts" :key="category" class="bar-row">
-            <span class="bar-label">{{ category }}</span>
+          <div v-for="c in categoryCounts" :key="c.label" class="bar-row">
+            <span class="bar-label">{{ c.label }}</span>
             <div class="bar-track">
-              <div class="bar-fill animated-fill" :style="{ width: (count / maxCategoryCount) * 100 + '%' }"></div>
+              <div class="bar-fill animated-fill" :style="{ width: (c.count / maxCategoryCount) * 100 + '%' }"></div>
             </div>
-            <span class="bar-value">{{ count }}</span>
+            <span class="bar-value">{{ c.count }}</span>
           </div>
         </div>
       </div>
 
       <div class="card chart-anim" style="animation-delay: .15s;">
         <h3>Resolution Rate</h3>
-        <p class="page-intro" style="margin-top: 0;">Share of your complaints marked Resolved.</p>
+        <p class="page-intro" style="margin-top: 0;">Share of your complaints marked resolved or closed.</p>
         <p style="font-size: 40px; font-weight: 900; color: var(--ink); margin: 8px 0 0 0;">{{ resolveRate }}</p>
       </div>
     </div>

@@ -18,3 +18,12 @@ export const CATEGORIES = [
 export function categoryLabel(value) {
   return CATEGORIES.find(c => c.value === value)?.label || value
 }
+
+// Turns an analytics endpoint's category_counts map into
+// [{ label, count }], sorted highest first, for the bar-chart style
+// category breakdown the analytics pages share.
+export function categoryBreakdown(categoryCounts) {
+  return Object.entries(categoryCounts)
+    .map(([value, count]) => ({ label: categoryLabel(value), count }))
+    .sort((a, b) => b.count - a.count)
+}

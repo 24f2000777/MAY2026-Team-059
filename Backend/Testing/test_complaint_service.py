@@ -10,9 +10,10 @@ calls.
 """
 
 import uuid
+from datetime import datetime, timedelta
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from app.core.database import AsyncSessionLocal
 from app.model import (
@@ -32,8 +33,10 @@ from app.schemas.complaint import (
 )
 from app.core.config import settings
 from app.services.complaint_service import (
+    AUTO_CLOSE_AFTER_DAYS,
     add_complaint_note,
     assign_complaint,
+    auto_close_stale_resolved_complaints,
     create_complaint,
     delete_attachment,
     delete_complaint,
@@ -1374,6 +1377,95 @@ class TestCloseComplaint:
     async def test_rejects_a_nonexistent_complaint(self, db, citizen):
         with pytest.raises(ComplaintNotFoundError):
             await transition_complaint_status_as_owner(uuid.uuid4(), "close", citizen, db)
+
+
+async def _resolve_and_backdate(db, citizen, admin, staff, days_ago):
+    """
+    Files a complaint through to 'resolved', then backdates the
+    ComplaintUpdate row that recorded that resolve transition, so the
+    auto-close job sees it as having sat there for `days_ago` days.
+    create_complaint/transition_complaint_status don't accept a
+    created_at override (correctly, a real caller never should), this
+    reaches past them directly at the DB layer, test-only.
+    """
+    complaint = await _make_complaint(db, citizen)
+    await transition_complaint_status(complaint.id, "approve", admin, None, db)
+    complaint.assigned_to = staff.id
+    await db.flush()
+    await transition_complaint_status(complaint.id, "start", staff, None, db)
+    await transition_complaint_status(complaint.id, "resolve", staff, "Fixed.", db)
+    await db.commit()
+
+    await db.execute(
+        update(ComplaintUpdate)
+        .where(ComplaintUpdate.complaint_id == complaint.id, ComplaintUpdate.new_status == "resolved")
+        .values(created_at=datetime.utcnow() - timedelta(days=days_ago))
+    )
+    await db.commit()
+
+    return complaint
+
+
+class TestAutoCloseStaleResolvedComplaints:
+    async def test_closes_a_complaint_resolved_more_than_7_days_ago(self, db, citizen, admin, staff):
+        complaint = await _resolve_and_backdate(db, citizen, admin, staff, AUTO_CLOSE_AFTER_DAYS + 1)
+
+        closed_count = await auto_close_stale_resolved_complaints(db)
+
+        await db.refresh(complaint)
+        assert complaint.status == "closed"
+        assert closed_count >= 1
+
+        result = await db.execute(
+            select(Notification).where(
+                Notification.complaint_id == complaint.id,
+                Notification.user_id == citizen.id,
+                Notification.type == "complaint_auto_closed",
+            )
+        )
+        assert result.scalar_one_or_none() is not None
+
+        result = await db.execute(
+            select(Notification).where(
+                Notification.complaint_id == complaint.id,
+                Notification.user_id == staff.id,
+                Notification.type == "complaint_closed",
+            )
+        )
+        assert result.scalar_one_or_none() is not None
+
+        await _cleanup(db, complaint)
+
+    async def test_leaves_a_recently_resolved_complaint_alone(self, db, citizen, admin, staff):
+        complaint = await _resolve_and_backdate(db, citizen, admin, staff, 1)
+
+        await auto_close_stale_resolved_complaints(db)
+
+        await db.refresh(complaint)
+        assert complaint.status == "resolved"
+
+        await _cleanup(db, complaint)
+
+    async def test_does_not_touch_a_complaint_already_closed_by_the_citizen(self, db, citizen, admin, staff):
+        complaint = await _resolve_and_backdate(db, citizen, admin, staff, AUTO_CLOSE_AFTER_DAYS + 1)
+        await transition_complaint_status_as_owner(complaint.id, "close", citizen, db)
+        await db.commit()
+
+        closed_count = await auto_close_stale_resolved_complaints(db)
+
+        await db.refresh(complaint)
+        assert complaint.status == "closed"
+        # It was already closed by the citizen, not by this job, this
+        # complaint specifically shouldn't be counted as newly closed.
+        result = await db.execute(
+            select(ComplaintUpdate).where(
+                ComplaintUpdate.complaint_id == complaint.id,
+                ComplaintUpdate.notes.ilike("Auto-closed%"),
+            )
+        )
+        assert result.scalar_one_or_none() is None
+
+        await _cleanup(db, complaint)
 
 
 class TestGetAttachment:

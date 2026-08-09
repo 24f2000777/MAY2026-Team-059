@@ -1,5 +1,4 @@
 <script setup>
-/*Mock reset flow */
 import { ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/authStore'
@@ -9,23 +8,28 @@ const router = useRouter()
 const auth = useAuthStore()
 
 const email = ref(route.query.email || '')
+const otp = ref('')
 const newPassword = ref('')
 const confirmPassword = ref('')
 const error = ref('')
 const success = ref(false)
+const loading = ref(false)
 
-function submit() {
+async function submit() {
   error.value = ''
   if (newPassword.value !== confirmPassword.value) {
     error.value = 'Passwords do not match.'
     return
   }
+  loading.value = true
   try {
-    auth.completeReset(email.value, newPassword.value)
+    await auth.completeReset(email.value, otp.value, newPassword.value)
     success.value = true
     setTimeout(() => router.push('/login'), 1800)
   } catch (e) {
     error.value = e.message
+  } finally {
+    loading.value = false
   }
 }
 </script>
@@ -44,7 +48,7 @@ function submit() {
       </router-link>
       <div class="auth-panel-copy">
         <h1>Almost there.</h1>
-        <p>Choose a new password for {{ email || 'your account' }}.</p>
+        <p>Enter the code we emailed to {{ email || 'your account' }} along with a new password.</p>
       </div>
     </div>
 
@@ -63,17 +67,21 @@ function submit() {
             <input v-model="email" type="email" placeholder="you@example.com" required />
           </div>
           <div class="field">
+            <label>6-Digit Code</label>
+            <input v-model="otp" type="text" maxlength="6" placeholder="000000" required autocomplete="one-time-code" />
+          </div>
+          <div class="field">
             <label>New Password</label>
-            <input v-model="newPassword" type="password" placeholder="New password" required minlength="6" />
+            <input v-model="newPassword" type="password" placeholder="New password" required minlength="8" />
           </div>
           <div class="field">
             <label>Confirm New Password</label>
-            <input v-model="confirmPassword" type="password" placeholder="Re-enter new password" required minlength="6" />
+            <input v-model="confirmPassword" type="password" placeholder="Re-enter new password" required minlength="8" />
           </div>
 
           <p v-if="error" class="error-text">{{ error }}</p>
 
-          <button class="btn block" type="submit">Update Password</button>
+          <button class="btn block" type="submit" :disabled="loading">{{ loading ? 'Updating...' : 'Update Password' }}</button>
         </form>
 
         <p class="switch-link">

@@ -1,18 +1,16 @@
 import { defineStore } from 'pinia'
 import {
-  requestPasswordReset, resetPassword, updateProfile, changePassword
-} from '../api/client'
-import {
   registerUser as apiRegister,
   verifyOtp as apiVerifyOtp,
   resendOtp as apiResendOtp,
   loginUser as apiLogin,
-  logoutUser as apiLogout
+  logoutUser as apiLogout,
+  forgotPassword as apiForgotPassword,
+  resetPassword as apiResetPassword,
+  updateProfile as apiUpdateProfile,
+  changePassword as apiChangePassword
 } from '../api/authApi'
 
-// Login/register/logout now hit the real backend (see api/authApi.js).
-// Profile/password-reset actions below are still on the localStorage
-// mock (api/client.js) and haven't been wired up yet.
 const SESSION_KEY = 'nagrik_session'
 
 function readSession() {
@@ -90,20 +88,23 @@ export const useAuthStore = defineStore('auth', {
       }
     },
 
-    // --- Not yet wired to the real backend ---
     requestReset(email) {
-      return requestPasswordReset(email)
+      return apiForgotPassword({ email })
     },
-    completeReset(email, newPassword) {
-      return resetPassword(email, newPassword)
+
+    completeReset(email, otp, newPassword) {
+      return apiResetPassword({ email, otp, newPassword })
     },
-    updateProfile(details) {
-      this.user = updateProfile(this.user.id, details)
+
+    async updateProfile({ name, phone }) {
+      const user = await apiUpdateProfile({ name, phone, accessToken: this.accessToken })
+      this.user = user
+      writeSession({ user: this.user, accessToken: this.accessToken, refreshToken: this.refreshToken })
       return this.user
     },
+
     changePassword(currentPassword, newPassword) {
-      this.user = changePassword(this.user.id, currentPassword, newPassword)
-      return this.user
+      return apiChangePassword({ currentPassword, newPassword, accessToken: this.accessToken })
     }
   }
 })

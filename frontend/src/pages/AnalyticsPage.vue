@@ -1,81 +1,54 @@
 <script setup>
-import { computed } from 'vue'
-import { useComplaintStore } from '../stores/complaintStore'
+import { computed, onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
+import { useAuthStore } from '../stores/authStore'
+import { getAnalyticsSummary } from '../api/analyticsApi'
+import { categoryBreakdown } from '../constants/categories'
+import { doneCount, openCount, statusSegments } from '../constants/statuses'
 import StatCard from '../components/StatCard.vue'
 import DonutChart from '../components/DonutChart.vue'
 import LineChart from '../components/LineChart.vue'
 
-const store = useComplaintStore()
+const auth = useAuthStore()
+const router = useRouter()
 
-const totalCount = computed(() => store.complaints.length)
-const openCount = computed(() => store.complaints.filter((c) => c.status !== 'Resolved').length)
-const resolvedCount = computed(() => store.complaints.filter((c) => c.status === 'Resolved').length)
-const avgPriority = computed(() => {
-  if (store.complaints.length === 0) return 0
-  return Math.round(store.complaints.reduce((sum, c) => sum + c.priorityScore, 0) / store.complaints.length)
-})
+const summary = ref(null)
+const loadError = ref('')
 
-const statusSegments = computed(() => [
-  { label: 'Submitted', value: store.complaints.filter((c) => c.status === 'Submitted').length, color: '#B8860B' },
-  { label: 'In Progress', value: store.complaints.filter((c) => c.status === 'In Progress').length, color: '#2F8F5B' },
-  { label: 'Resolved', value: resolvedCount.value, color: '#2A9D8F' }
-])
-
-const categoryCounts = computed(() => {
-  const counts = {}
-  store.complaints.forEach((c) => (counts[c.category] = (counts[c.category] || 0) + 1))
-  return Object.entries(counts).sort((a, b) => b[1] - a[1])
-})
-const maxCategoryCount = computed(() => Math.max(1, ...categoryCounts.value.map(([, n]) => n)))
-
-const resolutionTimes = computed(() => {
-  const byCategory = {}
-  store.complaints.forEach((c) => {
-    if (c.status !== 'Resolved') return
-    const entry = [...c.history].reverse().find((h) => h.status === 'Resolved')
-    if (!entry) return
-    const hours = (entry.at - c.createdAt) / (1000 * 60 * 60)
-    if (!byCategory[c.category]) byCategory[c.category] = []
-    byCategory[c.category].push(hours)
-  })
-  return Object.entries(byCategory).map(([category, list]) => ({
-    category,
-    avgHours: Math.round(list.reduce((a, b) => a + b, 0) / list.length)
-  }))
-})
-const maxResolutionHours = computed(() => Math.max(1, ...resolutionTimes.value.map((r) => r.avgHours)))
-
-const areaCounts = computed(() => {
-  const counts = {}
-  store.complaints.forEach((c) => (counts[c.location] = (counts[c.location] || 0) + 1))
-  return Object.entries(counts).sort((a, b) => b[1] - a[1])
-})
-const maxAreaCount = computed(() => Math.max(1, ...areaCounts.value.map(([, n]) => n)))
-
-function heatColor(count) {
-  const intensity = count / maxAreaCount.value
-  return `rgba(47, 143, 91, ${0.12 + intensity * 0.5})`
+async function load() {
+  loadError.value = ''
+  try {
+    summary.value = await getAnalyticsSummary({ accessToken: auth.accessToken })
+  } catch (e) {
+    if (e.status === 401) {
+      await auth.logout()
+      router.push('/login')
+      return
+    }
+    loadError.value = e.message
+  }
 }
 
-const filingTrend = computed(() => {
-  const days = 14
-  const baseline = [3, 4, 3, 5, 6, 5, 7, 6, 8, 7, 9, 8, 10, 9]
-  const now = new Date()
-  const realByDay = {}
-  store.complaints.forEach((c) => {
-    const key = new Date(c.createdAt).toISOString().slice(0, 10)
-    realByDay[key] = (realByDay[key] || 0) + 1
-  })
+onMounted(load)
 
-  return Array.from({ length: days }).map((_, i) => {
-    const d = new Date(now)
-    d.setDate(d.getDate() - (days - 1 - i))
-    const key = d.toISOString().slice(0, 10)
-    return {
-      label: d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' }),
-      value: baseline[i] + (realByDay[key] || 0)
-    }
-  })
+const totalCount = computed(() => summary.value?.total ?? 0)
+const openCountValue = computed(() => (summary.value ? openCount(summary.value.total, summary.value.status_counts) : 0))
+const resolvedCount = computed(() => (summary.value ? doneCount(summary.value.status_counts) : 0))
+const resolutionRate = computed(() => {
+  if (!summary.value || summary.value.total === 0) return '-'
+  return Math.round((resolvedCount.value / summary.value.total) * 100) + '%'
+})
+
+const statusChartSegments = computed(() => (summary.value ? statusSegments(summary.value.status_counts) : []))
+const categoryCounts = computed(() => (summary.value ? categoryBreakdown(summary.value.category_counts) : []))
+const maxCategoryCount = computed(() => Math.max(1, ...categoryCounts.value.map((c) => c.count)))
+
+const filingTrend = computed(() => {
+  if (!summary.value) return []
+  return summary.value.filing_trend.map((point) => ({
+    label: new Date(point.date).toLocaleDateString(undefined, { day: 'numeric', month: 'short', timeZone: 'UTC' }),
+    value: point.count
+  }))
 })
 </script>
 
@@ -84,15 +57,17 @@ const filingTrend = computed(() => {
     <div class="header-row">
       <div>
         <h2>Analytics</h2>
-        <p class="page-intro">A live view of complaint volume, status, and resolution performance.</p>
+        <p class="page-intro">A live view of complaint volume and status across every ward.</p>
       </div>
     </div>
 
+    <p v-if="loadError" class="error-text">{{ loadError }}</p>
+
     <div class="stat-strip">
       <StatCard label="Total Complaints" :value="totalCount" tone="accent" />
-      <StatCard label="Open" :value="openCount" tone="warn" />
+      <StatCard label="Open" :value="openCountValue" tone="warn" />
       <StatCard label="Resolved" :value="resolvedCount" tone="ok" />
-      <StatCard label="Avg. Priority Score" :value="avgPriority" tone="danger" />
+      <StatCard label="Resolution Rate" :value="resolutionRate" tone="danger" />
     </div>
 
     <div class="card chart-anim" style="animation-delay: .05s;">
@@ -103,46 +78,20 @@ const filingTrend = computed(() => {
     <div class="grid cols-2">
       <div class="card chart-anim" style="animation-delay: .1s;">
         <h3>Status Distribution</h3>
-        <DonutChart :segments="statusSegments" />
+        <div v-if="statusChartSegments.length === 0" class="empty-state">No data yet.</div>
+        <DonutChart v-else :segments="statusChartSegments" />
       </div>
 
       <div class="card chart-anim" style="animation-delay: .15s;">
         <h3>Category Distribution</h3>
         <div v-if="categoryCounts.length === 0" class="empty-state">No data yet.</div>
         <div v-else class="bar-chart">
-          <div v-for="[category, count] in categoryCounts" :key="category" class="bar-row">
-            <span class="bar-label">{{ category }}</span>
+          <div v-for="c in categoryCounts" :key="c.label" class="bar-row">
+            <span class="bar-label">{{ c.label }}</span>
             <div class="bar-track">
-              <div class="bar-fill animated-fill" :style="{ width: (count / maxCategoryCount) * 100 + '%' }"></div>
+              <div class="bar-fill animated-fill" :style="{ width: (c.count / maxCategoryCount) * 100 + '%' }"></div>
             </div>
-            <span class="bar-value">{{ count }}</span>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <div class="grid cols-2">
-      <div class="card chart-anim" style="animation-delay: .2s;">
-        <h3>Avg. Resolution Time (hrs)</h3>
-        <div v-if="resolutionTimes.length === 0" class="empty-state">No resolved complaints yet.</div>
-        <div v-else class="bar-chart">
-          <div v-for="r in resolutionTimes" :key="r.category" class="bar-row">
-            <span class="bar-label">{{ r.category }}</span>
-            <div class="bar-track">
-              <div class="bar-fill alt animated-fill" :style="{ width: (r.avgHours / maxResolutionHours) * 100 + '%' }"></div>
-            </div>
-            <span class="bar-value">{{ r.avgHours }}h</span>
-          </div>
-        </div>
-      </div>
-
-      <div class="card chart-anim" style="animation-delay: .25s;">
-        <h3>Complaint Density by Area</h3>
-        <div v-if="areaCounts.length === 0" class="empty-state">No data yet.</div>
-        <div v-else class="heatmap">
-          <div v-for="[area, count] in areaCounts" :key="area" class="heat-cell" :style="{ background: heatColor(count) }">
-            <strong>{{ area }}</strong>
-            <span>{{ count }} report{{ count === 1 ? '' : 's' }}</span>
+            <span class="bar-value">{{ c.count }}</span>
           </div>
         </div>
       </div>

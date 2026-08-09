@@ -110,9 +110,18 @@ class KnowledgeBaseIndex:
 
     def __init__(self):
         self.store = load_knowledge_base()
+        self._rebuild_lock = threading.Lock()
 
     def rebuild(self, extra_documents: list[Document] | None = None) -> None:
-        self.store = build_knowledge_base(extra_documents)
+        # build_knowledge_base() writes to the same on-disk INDEX_DIR
+        # every time (save_local isn't atomic), so two rebuilds
+        # running at once could interleave their writes and corrupt
+        # the files load_knowledge_base() reads on the next server
+        # start. Only one rebuild runs at a time; a second admin
+        # click while one is in flight just waits its turn instead of
+        # racing it.
+        with self._rebuild_lock:
+            self.store = build_knowledge_base(extra_documents)
 
 
 knowledge_base_index = KnowledgeBaseIndex()

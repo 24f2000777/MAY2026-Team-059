@@ -168,3 +168,17 @@ class ChatSession(Base):
     message = Column(Text, nullable=False)
     retrieved_docs = Column(JSONB, nullable=True)
     created_at = Column(DateTime, server_default=func.now())
+
+
+# ─── TABLE 9: KNOWLEDGE_BASE_DOCUMENTS ──────────────────
+# admin-added text entries for Nagrik Saathi's RAG knowledge base,
+# on top of the static PDFs baked into app/chatbot/data. Only rows
+# here can be listed/deleted through the admin API, the static PDFs
+# aren't represented in the DB at all.
+class KnowledgeBaseDocument(Base):
+    __tablename__ = "knowledge_base_documents"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    title = Column(String(200), nullable=False)
+    content = Column(Text, nullable=False)
+    created_at = Column(DateTime, server_default=func.now())

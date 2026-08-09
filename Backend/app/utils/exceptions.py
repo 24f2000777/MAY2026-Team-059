@@ -377,3 +377,30 @@ class DepartmentInUseError(DepartmentError):
     constraint violation text.
     """
     error_code = "DEPT_003"
+
+
+# =====================================================
+# Knowledge Base (RAG chatbot admin management)
+# =====================================================
+
+class KnowledgeBaseError(Exception):
+    """
+    Base class for knowledge-base-domain errors, same shape as
+    DepartmentError/ComplaintError above.
+    """
+
+    error_code: str = "KB_000"
+
+    def __init__(self, message: str, error_code: str | None = None):
+        super().__init__(message)
+        if error_code is not None:
+            self.error_code = error_code
+
+
+class KnowledgeBaseDocumentNotFoundError(KnowledgeBaseError):
+    """
+    Raised when the requested KB document doesn't exist. Only
+    admin-added documents are DB rows, so this can never refer to one
+    of the static PDFs baked into app/chatbot/data.
+    """
+    error_code = "KB_001"

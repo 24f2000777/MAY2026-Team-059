@@ -6,7 +6,7 @@ from langgraph.checkpoint.memory import MemorySaver
 from langchain_core.messages import AIMessage, HumanMessage
 
 from .extractor import extract_complaint_info
-from .knowledge_base import load_knowledge_base
+from .knowledge_base import knowledge_base_index
 from .providers import safe_chat_call, SAFE_FALLBACK_REPLY
 
 BOT_NAME = "Nagrik Saathi"
@@ -30,11 +30,6 @@ PERSONA = (
     "conversation, say you're not sure and suggest calling the BMC helpline at 1916 "
     "instead of guessing."
 )
-
-# loaded once when this module is imported, not on every question, since building
-# the faiss index and embedding model takes a moment
-knowledge_base_store = load_knowledge_base()
-
 
 MAX_LOCATION_ATTEMPTS = 2
 
@@ -276,7 +271,7 @@ def handle_question(state):
     last_message = state["messages"][-1].content
 
     try:
-        results = knowledge_base_store.similarity_search(last_message, k=5)
+        results = knowledge_base_index.store.similarity_search(last_message, k=5)
         context = "\n\n".join(doc.page_content for doc in results)
     except Exception as e:
         print(f"knowledge base search failed: {e}")

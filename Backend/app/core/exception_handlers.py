@@ -68,6 +68,8 @@ from app.utils.exceptions import (
     DepartmentNotFoundError,
     DepartmentNameAlreadyExistsError,
     DepartmentInUseError,
+    KnowledgeBaseError,
+    KnowledgeBaseDocumentNotFoundError,
 )
 
 
@@ -362,6 +364,25 @@ async def handle_department_error(
     Fallback for any DepartmentError subclass that does not have a
     more specific handler registered above, same reasoning as
     handle_complaint_error above.
+    """
+    return _error_response(status.HTTP_400_BAD_REQUEST, exc)
+
+
+async def handle_knowledge_base_document_not_found(
+    request: Request,
+    exc: KnowledgeBaseDocumentNotFoundError,
+) -> JSONResponse:
+    return _error_response(status.HTTP_404_NOT_FOUND, exc)
+
+
+async def handle_knowledge_base_error(
+    request: Request,
+    exc: KnowledgeBaseError,
+) -> JSONResponse:
+    """
+    Fallback for any KnowledgeBaseError subclass that does not have a
+    more specific handler registered above, same reasoning as
+    handle_department_error above.
     """
     return _error_response(status.HTTP_400_BAD_REQUEST, exc)
 
@@ -663,6 +684,17 @@ def register_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(
         DepartmentError,
         handle_department_error,
+    )
+
+    app.add_exception_handler(
+        KnowledgeBaseDocumentNotFoundError,
+        handle_knowledge_base_document_not_found,
+    )
+
+    # Catch-all fallback for any other KnowledgeBaseError subclass.
+    app.add_exception_handler(
+        KnowledgeBaseError,
+        handle_knowledge_base_error,
     )
 
     # FastAPI/Pydantic's own request validation errors (422),

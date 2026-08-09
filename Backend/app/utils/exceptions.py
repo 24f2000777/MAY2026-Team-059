@@ -57,6 +57,43 @@ class UserNotFoundError(AuthenticationError):
     error_code = "AUTH_009"
 
 
+class CannotModifySelfError(AuthenticationError):
+    """
+    Raised when an admin tries to deactivate their own account or
+    change their own role through the general user-management
+    endpoints. Both are self-lockout risks (an admin who deactivates
+    or demotes themselves has no way back in without a direct DB
+    edit), scripts/create_admin.py already refuses to run a second
+    time, this is the same defensive posture applied to modifying the
+    one that already exists.
+    """
+    error_code = "AUTH_013"
+
+
+class CannotDeactivateLastAdminError(AuthenticationError):
+    """
+    Raised when deactivating a user would leave the platform with
+    zero active admins, a full platform lockout, not just a
+    self-lockout. Whether the target is themselves or someone else
+    doesn't matter, the constraint is on the platform ending up with
+    no one who can administer it.
+    """
+    error_code = "AUTH_014"
+
+
+class CannotChangeAdminRoleError(AuthenticationError):
+    """
+    Raised when attempting to change the role of an account that
+    currently has role=admin. The platform has exactly one admin by
+    design (see scripts/create_admin.py), role changes through this
+    endpoint are for citizen<->staff only, promoting to admin isn't
+    possible here at all (the request schema itself only accepts
+    those two values), and demoting the existing admin away from
+    admin isn't supported through this endpoint either.
+    """
+    error_code = "AUTH_015"
+
+
 class InvalidCredentialsError(AuthenticationError):
     """Raised when email or password is incorrect."""
     error_code = "AUTH_001"

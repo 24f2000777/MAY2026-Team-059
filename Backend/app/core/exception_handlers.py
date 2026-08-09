@@ -38,6 +38,9 @@ from app.utils.exceptions import (
     PhoneAlreadyExistsError,
     AccountAlreadyVerifiedError,
     UserNotFoundError,
+    CannotModifySelfError,
+    CannotDeactivateLastAdminError,
+    CannotChangeAdminRoleError,
     InvalidCredentialsError,
     InvalidTokenError,
     EmailNotVerifiedError,
@@ -131,6 +134,27 @@ async def handle_user_not_found(
     exc: UserNotFoundError,
 ) -> JSONResponse:
     return _error_response(status.HTTP_404_NOT_FOUND, exc)
+
+
+async def handle_cannot_modify_self(
+    request: Request,
+    exc: CannotModifySelfError,
+) -> JSONResponse:
+    return _error_response(status.HTTP_409_CONFLICT, exc)
+
+
+async def handle_cannot_deactivate_last_admin(
+    request: Request,
+    exc: CannotDeactivateLastAdminError,
+) -> JSONResponse:
+    return _error_response(status.HTTP_409_CONFLICT, exc)
+
+
+async def handle_cannot_change_admin_role(
+    request: Request,
+    exc: CannotChangeAdminRoleError,
+) -> JSONResponse:
+    return _error_response(status.HTTP_409_CONFLICT, exc)
 
 
 async def handle_invalid_credentials(
@@ -479,6 +503,21 @@ def register_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(
         UserNotFoundError,
         handle_user_not_found,
+    )
+
+    app.add_exception_handler(
+        CannotModifySelfError,
+        handle_cannot_modify_self,
+    )
+
+    app.add_exception_handler(
+        CannotDeactivateLastAdminError,
+        handle_cannot_deactivate_last_admin,
+    )
+
+    app.add_exception_handler(
+        CannotChangeAdminRoleError,
+        handle_cannot_change_admin_role,
     )
 
     app.add_exception_handler(

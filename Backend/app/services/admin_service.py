@@ -5,17 +5,22 @@ account is never created here, or through any API route, see
 scripts/create_admin.py for that.
 """
 
-from sqlalchemy import select
+from sqlalchemy import func as sa_func
+from sqlalchemy import or_, select
 
 from app.core.security import hash_password
 from app.model import Complaint, Department, User
-from app.utils.constants import ROLE_STAFF
+from app.utils.constants import ROLE_ADMIN, ROLE_STAFF
 from app.utils.exceptions import (
+    CannotChangeAdminRoleError,
+    CannotDeactivateLastAdminError,
+    CannotModifySelfError,
     DepartmentInUseError,
     DepartmentNameAlreadyExistsError,
     DepartmentNotFoundError,
     EmailAlreadyExistsError,
     PhoneAlreadyExistsError,
+    UserNotFoundError,
 )
 
 
@@ -143,3 +148,124 @@ async def delete_department(department_id, db) -> None:
 
     await db.delete(department)
     await db.flush()
+
+
+async def list_users(
+    role: str | None,
+    is_active: bool | None,
+    search: str | None,
+    page: int,
+    per_page: int,
+    db,
+) -> tuple[list[User], int]:
+    """
+    Every user (any role), newest first, backing GET /admin/users.
+    search matches name/email/phone by substring, case-insensitive.
+    """
+    query = select(User)
+    if role is not None:
+        query = query.where(User.role == role)
+    if is_active is not None:
+        query = query.where(User.is_active == is_active)
+    if search:
+        pattern = f"%{search}%"
+        query = query.where(
+            or_(
+                User.name.ilike(pattern),
+                User.email.ilike(pattern),
+                User.phone.ilike(pattern),
+            )
+        )
+
+    count_result = await db.execute(select(sa_func.count()).select_from(query.subquery()))
+    total = count_result.scalar_one()
+
+    query = query.order_by(User.created_at.desc()).offset((page - 1) * per_page).limit(per_page)
+    result = await db.execute(query)
+    return result.scalars().all(), total
+
+
+async def get_user_detail(user_id, db) -> tuple[User, list[Complaint]]:
+    """
+    A single user plus their complaint history, backing
+    GET /admin/users/{id}. complaints covers both directions a user
+    can relate to a complaint: ones a citizen filed, or ones assigned
+    to a staff member, whichever applies to this user's role.
+
+    Raises:
+        UserNotFoundError: 404, if the user doesn't exist.
+    """
+    user = await db.get(User, user_id)
+    if user is None:
+        raise UserNotFoundError("User not found.")
+
+    result = await db.execute(
+        select(Complaint)
+        .where(or_(Complaint.citizen_id == user_id, Complaint.assigned_to == user_id))
+        .order_by(Complaint.created_at.desc())
+    )
+    return user, result.scalars().all()
+
+
+async def update_user_status(user_id, is_active: bool, current_user: User, db) -> User:
+    """
+    Activates or deactivates a user, backing PATCH /admin/users/{id}/status.
+
+    Raises:
+        UserNotFoundError: 404, if the user doesn't exist.
+        CannotModifySelfError: 409, deactivating your own account is a
+            self-lockout, there's no way back in without a direct DB edit.
+        CannotDeactivateLastAdminError: 409, if this would leave the
+            platform with zero active admins.
+    """
+    user = await db.get(User, user_id)
+    if user is None:
+        raise UserNotFoundError("User not found.")
+
+    if user.id == current_user.id and not is_active:
+        raise CannotModifySelfError("You cannot deactivate your own account.")
+
+    if not is_active and user.role == ROLE_ADMIN:
+        remaining = await db.execute(
+            select(sa_func.count())
+            .select_from(User)
+            .where(User.role == ROLE_ADMIN, User.is_active == True, User.id != user_id)  # noqa: E712
+        )
+        if remaining.scalar_one() == 0:
+            raise CannotDeactivateLastAdminError(
+                "Cannot deactivate the platform's only active admin."
+            )
+
+    user.is_active = is_active
+    await db.flush()
+    return user
+
+
+async def update_user_role(user_id, role: str, current_user: User, db) -> User:
+    """
+    Changes a user's role, backing PATCH /admin/users/{id}/role.
+    role is restricted to citizen/staff at the schema layer
+    (UpdateUserRoleRequest), promoting to admin isn't possible here.
+
+    Raises:
+        UserNotFoundError: 404, if the user doesn't exist.
+        CannotModifySelfError: 409, changing your own role is a
+            self-lockout risk.
+        CannotChangeAdminRoleError: 409, the platform has exactly one
+            admin by design, this endpoint can't touch that account's role.
+    """
+    user = await db.get(User, user_id)
+    if user is None:
+        raise UserNotFoundError("User not found.")
+
+    if user.id == current_user.id:
+        raise CannotModifySelfError("You cannot change your own role.")
+
+    if user.role == ROLE_ADMIN:
+        raise CannotChangeAdminRoleError(
+            "Cannot change the admin account's role through this endpoint."
+        )
+
+    user.role = role
+    await db.flush()
+    return user

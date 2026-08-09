@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, status
@@ -17,6 +17,12 @@ from ..schemas.admin import (
     DepartmentUpdateRequest,
     OfficerListResponse,
     StaffAccountOut,
+    UpdateUserRoleRequest,
+    UpdateUserStatusRequest,
+    UserComplaintSummary,
+    UserDetailResponse,
+    UserListResponse,
+    UserOut,
 )
 from ..schemas.common import SuccessResponse
 from ..schemas.complaint import ComplaintCategory, ComplaintStatus
@@ -24,9 +30,13 @@ from ..services.admin_service import (
     create_department,
     create_staff_account,
     delete_department,
+    get_user_detail,
     list_departments,
     list_officers,
+    list_users,
     update_department_description,
+    update_user_role,
+    update_user_status,
 )
 from ..services.complaint_service import export_complaints_csv
 from ..utils.constants import ROLE_ADMIN
@@ -215,4 +225,119 @@ async def export_complaints_route(
         content=csv_body,
         media_type="text/csv",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get(
+    "/users",
+    response_model=SuccessResponse[UserListResponse],
+    summary="List all users, any role, filterable and paginated (admin only)",
+)
+async def list_users_route(
+    role: Optional[Literal["citizen", "staff", "admin"]] = Query(None),
+    is_active: Optional[bool] = Query(None),
+    search: Optional[str] = Query(None, max_length=200, description="Matches name, email, or phone"),
+    page: int = Query(1, ge=1),
+    per_page: int = Query(20, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles(ROLE_ADMIN)),
+):
+    """List every user on the platform, not just staff (see GET /admin/officers for that)."""
+    users, total = await list_users(role, is_active, search, page, per_page, db)
+    return SuccessResponse[UserListResponse](
+        message="Users retrieved.",
+        data=UserListResponse(users=[UserOut.model_validate(u) for u in users]),
+        meta={
+            "page": page,
+            "per_page": per_page,
+            "total": total,
+            "total_pages": (total + per_page - 1) // per_page if total else 0,
+        },
+    )
+
+
+@router.get(
+    "/users/{user_id}",
+    response_model=SuccessResponse[UserDetailResponse],
+    summary="Get a user's profile plus their complaint history (admin only)",
+)
+async def get_user_detail_route(
+    user_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles(ROLE_ADMIN)),
+):
+    """
+    complaints covers both directions a user can relate to a
+    complaint: ones a citizen filed, or ones assigned to a staff
+    member, whichever applies to this user's role.
+
+    Raises:
+        UserNotFoundError: 404, if the user doesn't exist.
+    """
+    user, complaints = await get_user_detail(user_id, db)
+    return SuccessResponse[UserDetailResponse](
+        message="User retrieved.",
+        data=UserDetailResponse(
+            user=UserOut.model_validate(user),
+            complaints=[UserComplaintSummary.model_validate(c) for c in complaints],
+        ),
+    )
+
+
+@router.patch(
+    "/users/{user_id}/status",
+    response_model=SuccessResponse[UserOut],
+    summary="Activate or deactivate a user (admin only)",
+)
+async def update_user_status_route(
+    user_id: UUID,
+    body: UpdateUserStatusRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles(ROLE_ADMIN)),
+):
+    """
+    Raises:
+        UserNotFoundError: 404, if the user doesn't exist.
+        CannotModifySelfError: 409, deactivating your own account is a
+            self-lockout risk.
+        CannotDeactivateLastAdminError: 409, if this would leave the
+            platform with zero active admins.
+    """
+    user = await update_user_status(user_id, body.is_active, current_user, db)
+    await db.commit()
+
+    return SuccessResponse[UserOut](
+        message="User status updated.",
+        data=UserOut.model_validate(user),
+    )
+
+
+@router.patch(
+    "/users/{user_id}/role",
+    response_model=SuccessResponse[UserOut],
+    summary="Change a user's role between citizen and staff (admin only)",
+)
+async def update_user_role_route(
+    user_id: UUID,
+    body: UpdateUserRoleRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles(ROLE_ADMIN)),
+):
+    """
+    role only accepts citizen/staff (enforced by the request schema),
+    promoting to admin isn't possible through this endpoint at all.
+
+    Raises:
+        UserNotFoundError: 404, if the user doesn't exist.
+        CannotModifySelfError: 409, changing your own role is a
+            self-lockout risk.
+        CannotChangeAdminRoleError: 409, this endpoint can't touch the
+            admin account's role.
+    """
+    user = await update_user_role(user_id, body.role, current_user, db)
+    await db.commit()
+
+    return SuccessResponse[UserOut](
+        message="User role updated.",
+        data=UserOut.model_validate(user),
     )

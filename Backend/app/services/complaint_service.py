@@ -177,6 +177,23 @@ CSV_COLUMNS = [
     "created_at", "updated_at",
 ]
 
+_FORMULA_LEAD_CHARS = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _csv_safe(value: str) -> str:
+    """
+    Defuses CSV/formula injection (CWE-1236): title and location_text
+    are citizen-controlled free text with no character restrictions,
+    a title like '=HYPERLINK("http://evil.com","click")' would run as
+    a live formula the moment an admin opens this export in Excel or
+    Sheets. Prefixing a leading formula-trigger character with a
+    single quote is the standard defense, spreadsheet apps then treat
+    the whole cell as literal text instead of evaluating it.
+    """
+    if value and value[0] in _FORMULA_LEAD_CHARS:
+        return f"'{value}"
+    return value
+
 
 async def export_complaints_csv(current_user, db, status=None, category=None, ward_code=None, assigned_to=None) -> str:
     """
@@ -214,14 +231,14 @@ async def export_complaints_csv(current_user, db, status=None, category=None, wa
     for c in complaints:
         writer.writerow([
             str(c.id),
-            c.title,
+            _csv_safe(c.title),
             c.category,
             c.status,
             c.priority_score,
-            c.location_text or "",
+            _csv_safe(c.location_text or ""),
             c.ward_code or "",
-            names.get(c.citizen_id, ""),
-            names.get(c.assigned_to, "") if c.assigned_to else "",
+            _csv_safe(names.get(c.citizen_id, "")),
+            _csv_safe(names.get(c.assigned_to, "")) if c.assigned_to else "",
             c.created_at.isoformat(),
             c.updated_at.isoformat(),
         ])

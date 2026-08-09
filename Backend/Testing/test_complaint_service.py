@@ -808,6 +808,29 @@ class TestExportComplaintsCsv:
         await _cleanup(db, mine)
         await _cleanup(db, theirs)
 
+    async def test_defuses_a_formula_injection_attempt_in_the_title(self, db, citizen, admin):
+        # title is citizen-controlled free text with no character
+        # restriction, a title starting with '=' would run as a live
+        # formula the moment an admin opens the export in Excel/Sheets
+        # (CWE-1236) unless it's neutralized first.
+        data = ComplaintCreate(
+            title='=HYPERLINK("http://evil.example","click")',
+            description="This description is long enough to satisfy the minimum length rule.",
+            category="pothole",
+            location=ComplaintLocation(address="Near Patel Chowk, Patan"),
+        )
+        complaint = await create_complaint(citizen.id, data, db)
+        await db.commit()
+
+        csv_text = await export_complaints_csv(admin, db)
+        rows = list(csv.reader(io.StringIO(csv_text)))
+        matching = [r for r in rows[1:] if r[0] == str(complaint.id)]
+
+        assert len(matching) == 1
+        assert matching[0][1].startswith("'=")
+
+        await _cleanup(db, complaint)
+
 
 class TestGetComplaintDetail:
     async def test_owner_citizen_can_view_their_own_complaint(self, db, citizen):

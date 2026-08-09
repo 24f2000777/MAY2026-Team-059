@@ -61,6 +61,10 @@ from app.utils.exceptions import (
     AttachmentNotFoundError,
     NotificationError,
     NotificationNotFoundError,
+    DepartmentError,
+    DepartmentNotFoundError,
+    DepartmentNameAlreadyExistsError,
+    DepartmentInUseError,
 )
 
 
@@ -299,6 +303,39 @@ async def handle_notification_error(
 ) -> JSONResponse:
     """
     Fallback for any NotificationError subclass that does not have a
+    more specific handler registered above, same reasoning as
+    handle_complaint_error above.
+    """
+    return _error_response(status.HTTP_400_BAD_REQUEST, exc)
+
+
+async def handle_department_not_found(
+    request: Request,
+    exc: DepartmentNotFoundError,
+) -> JSONResponse:
+    return _error_response(status.HTTP_404_NOT_FOUND, exc)
+
+
+async def handle_department_name_already_exists(
+    request: Request,
+    exc: DepartmentNameAlreadyExistsError,
+) -> JSONResponse:
+    return _error_response(status.HTTP_409_CONFLICT, exc)
+
+
+async def handle_department_in_use(
+    request: Request,
+    exc: DepartmentInUseError,
+) -> JSONResponse:
+    return _error_response(status.HTTP_409_CONFLICT, exc)
+
+
+async def handle_department_error(
+    request: Request,
+    exc: DepartmentError,
+) -> JSONResponse:
+    """
+    Fallback for any DepartmentError subclass that does not have a
     more specific handler registered above, same reasoning as
     handle_complaint_error above.
     """
@@ -566,6 +603,27 @@ def register_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(
         NotificationError,
         handle_notification_error,
+    )
+
+    app.add_exception_handler(
+        DepartmentNotFoundError,
+        handle_department_not_found,
+    )
+
+    app.add_exception_handler(
+        DepartmentNameAlreadyExistsError,
+        handle_department_name_already_exists,
+    )
+
+    app.add_exception_handler(
+        DepartmentInUseError,
+        handle_department_in_use,
+    )
+
+    # Catch-all fallback for any other DepartmentError subclass.
+    app.add_exception_handler(
+        DepartmentError,
+        handle_department_error,
     )
 
     # FastAPI/Pydantic's own request validation errors (422),

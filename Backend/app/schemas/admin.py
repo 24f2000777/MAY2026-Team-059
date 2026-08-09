@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
@@ -36,6 +37,60 @@ class OfficerListResponse(BaseModel):
     """Response schema for GET /admin/officers."""
 
     officers: list[StaffAccountOut] = Field(default_factory=list)
+
+
+# Same shape as StaffAccountOut (id/name/phone/email/role/is_active/
+# created_at), aliased rather than duplicated: the general user list
+# below can return any role, not just staff, "UserOut" reads right in
+# that context where "StaffAccountOut" wouldn't for a citizen row.
+UserOut = StaffAccountOut
+
+
+class UserListResponse(BaseModel):
+    """Response schema for GET /admin/users."""
+
+    users: list[UserOut] = Field(default_factory=list)
+
+
+class UserComplaintSummary(BaseModel):
+    """One row in GET /admin/users/{id}'s complaint history."""
+
+    id: UUID
+    title: str
+    category: str
+    status: str
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class UserDetailResponse(BaseModel):
+    """
+    Response schema for GET /admin/users/{id}. complaints covers
+    both directions a user can relate to a complaint: ones a citizen
+    filed, or ones assigned to a staff member, whichever applies to
+    this particular user's role.
+    """
+
+    user: UserOut
+    complaints: list[UserComplaintSummary] = Field(default_factory=list)
+
+
+class UpdateUserStatusRequest(BaseModel):
+    """Request body for PATCH /admin/users/{id}/status."""
+
+    is_active: bool
+
+
+class UpdateUserRoleRequest(BaseModel):
+    """
+    Request body for PATCH /admin/users/{id}/role. Deliberately only
+    accepts citizen/staff, promoting to admin isn't possible through
+    this endpoint at all, the platform has exactly one admin by
+    design (see scripts/create_admin.py).
+    """
+
+    role: Literal["citizen", "staff"]
 
 
 class DepartmentCreateRequest(BaseModel):

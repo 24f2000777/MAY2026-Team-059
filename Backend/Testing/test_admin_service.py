@@ -10,6 +10,7 @@ suites in this project.
 import uuid
 
 import pytest
+from sqlalchemy import select
 
 from app.core.database import AsyncSessionLocal
 from app.model import Complaint, User
@@ -18,17 +19,25 @@ from app.services.admin_service import (
     create_department,
     create_staff_account,
     delete_department,
+    get_user_detail,
     list_departments,
     list_officers,
+    list_users,
     update_department_description,
+    update_user_role,
+    update_user_status,
 )
 from app.services.complaint_service import create_complaint
 from app.utils.exceptions import (
+    CannotChangeAdminRoleError,
+    CannotDeactivateLastAdminError,
+    CannotModifySelfError,
     DepartmentInUseError,
     DepartmentNameAlreadyExistsError,
     DepartmentNotFoundError,
     EmailAlreadyExistsError,
     PhoneAlreadyExistsError,
+    UserNotFoundError,
 )
 
 
@@ -228,3 +237,182 @@ class TestDeleteDepartment:
         await db.delete(complaint)
         await db.delete(department)
         await db.commit()
+
+
+class TestListUsers:
+    async def test_filters_by_role(self, db, citizen):
+        staff = await create_staff_account("Officer Filter", _unique_phone(), _unique_email(), "TestPass@123", db)
+        await db.commit()
+
+        users, total = await list_users(role="staff", is_active=None, search=None, page=1, per_page=100, db=db)
+
+        assert any(u.id == staff.id for u in users)
+        assert all(u.role == "staff" for u in users)
+        assert total >= 1
+
+        await db.delete(staff)
+        await db.commit()
+
+    async def test_search_matches_name(self, db):
+        staff = await create_staff_account(
+            "Zzyzx Unique Searchable Name", _unique_phone(), _unique_email(), "TestPass@123", db
+        )
+        await db.commit()
+
+        users, total = await list_users(
+            role=None, is_active=None, search="Zzyzx Unique Searchable", page=1, per_page=20, db=db
+        )
+
+        assert total == 1
+        assert users[0].id == staff.id
+
+        await db.delete(staff)
+        await db.commit()
+
+    async def test_filters_by_is_active(self, db):
+        staff = await create_staff_account("Officer Active", _unique_phone(), _unique_email(), "TestPass@123", db)
+        await db.commit()
+
+        active_users, _ = await list_users(role=None, is_active=True, search=None, page=1, per_page=100, db=db)
+        assert any(u.id == staff.id for u in active_users)
+
+        inactive_users, _ = await list_users(role=None, is_active=False, search=None, page=1, per_page=100, db=db)
+        assert all(u.id != staff.id for u in inactive_users)
+
+        await db.delete(staff)
+        await db.commit()
+
+
+class TestGetUserDetail:
+    async def test_returns_a_citizens_filed_complaints(self, db, citizen):
+        data = ComplaintCreate(
+            title="Broken streetlight near market",
+            description="The streetlight outside the main market has been broken for a week.",
+            category="streetlight",
+            location=ComplaintLocation(address="Market Road, Patan"),
+        )
+        complaint = await create_complaint(citizen.id, data, db)
+        await db.commit()
+
+        user, complaints = await get_user_detail(citizen.id, db)
+
+        assert user.id == citizen.id
+        assert any(c.id == complaint.id for c in complaints)
+
+        await db.delete(complaint)
+        await db.commit()
+
+    async def test_rejects_a_nonexistent_user(self, db):
+        with pytest.raises(UserNotFoundError):
+            await get_user_detail(uuid.uuid4(), db)
+
+
+class TestUpdateUserStatus:
+    async def test_deactivates_another_user(self, db, citizen):
+        admin = User(
+            phone=_unique_phone(),
+            name="Pytest Admin Actor",
+            email=_unique_email(),
+            role="admin",
+            hashed_password="x",
+            is_active=True,
+        )
+        db.add(admin)
+        await db.flush()
+
+        updated = await update_user_status(citizen.id, False, admin, db)
+        await db.commit()
+
+        assert updated.is_active is False
+
+        await db.delete(admin)
+        await db.commit()
+
+    async def test_rejects_self_deactivation(self, db, citizen):
+        with pytest.raises(CannotModifySelfError):
+            await update_user_status(citizen.id, False, citizen, db)
+
+    async def test_rejects_deactivating_the_last_active_admin(self, db, citizen):
+        # This is a shared DB with a real platform admin already in it,
+        # so "last admin" has to be engineered: temporarily deactivate
+        # every other currently-active admin, restoring them in a
+        # finally block no matter what happens in the test body.
+        result = await db.execute(select(User).where(User.role == "admin", User.is_active == True))  # noqa: E712
+        other_active_admins = result.scalars().all()
+
+        admin = User(
+            phone=_unique_phone(),
+            name="Pytest Sole Admin",
+            email=_unique_email(),
+            role="admin",
+            hashed_password="x",
+            is_active=True,
+        )
+        db.add(admin)
+        await db.flush()
+
+        for other in other_active_admins:
+            other.is_active = False
+        await db.commit()
+
+        try:
+            with pytest.raises(CannotDeactivateLastAdminError):
+                await update_user_status(admin.id, False, citizen, db)
+        finally:
+            for other in other_active_admins:
+                other.is_active = True
+            await db.commit()
+            await db.delete(admin)
+            await db.commit()
+
+    async def test_rejects_a_nonexistent_user(self, db, citizen):
+        with pytest.raises(UserNotFoundError):
+            await update_user_status(uuid.uuid4(), False, citizen, db)
+
+
+class TestUpdateUserRole:
+    async def test_changes_a_citizens_role_to_staff(self, db, citizen):
+        admin = User(
+            phone=_unique_phone(),
+            name="Pytest Admin Role Actor",
+            email=_unique_email(),
+            role="admin",
+            hashed_password="x",
+            is_active=True,
+        )
+        db.add(admin)
+        await db.flush()
+
+        updated = await update_user_role(citizen.id, "staff", admin, db)
+        await db.commit()
+
+        assert updated.role == "staff"
+
+        await db.delete(admin)
+        await db.commit()
+
+    async def test_rejects_self_role_change(self, db, citizen):
+        with pytest.raises(CannotModifySelfError):
+            await update_user_role(citizen.id, "staff", citizen, db)
+
+    async def test_rejects_changing_the_admin_accounts_role(self, db, citizen):
+        admin = User(
+            phone=_unique_phone(),
+            name="Pytest Untouchable Admin",
+            email=_unique_email(),
+            role="admin",
+            hashed_password="x",
+            is_active=True,
+        )
+        db.add(admin)
+        await db.flush()
+
+        with pytest.raises(CannotChangeAdminRoleError):
+            await update_user_role(admin.id, "staff", citizen, db)
+
+        await db.delete(admin)
+        await db.commit()
+
+    async def test_rejects_a_nonexistent_user(self, db, citizen):
+        with pytest.raises(UserNotFoundError):
+            await update_user_role(uuid.uuid4(), "staff", citizen, db)

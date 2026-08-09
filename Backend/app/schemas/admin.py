@@ -36,3 +36,41 @@ class OfficerListResponse(BaseModel):
     """Response schema for GET /admin/officers."""
 
     officers: list[StaffAccountOut] = Field(default_factory=list)
+
+
+class DepartmentCreateRequest(BaseModel):
+    """
+    Request body for POST /admin/departments. See
+    admin_service.create_department for what a name outside the fixed
+    DEPARTMENT_NAMES list does and doesn't get you.
+    """
+
+    name: str = Field(..., min_length=2, max_length=100)
+    description: str | None = Field(default=None, max_length=1000)
+
+
+class DepartmentUpdateRequest(BaseModel):
+    """
+    Request body for PATCH /admin/departments/{id}. name isn't here on
+    purpose, it isn't editable through this endpoint, see
+    admin_service.update_department_description for why.
+    """
+
+    description: str = Field(..., max_length=1000)
+
+
+class DepartmentOut(BaseModel):
+    """Response schema for department CRUD endpoints."""
+
+    id: UUID
+    name: str
+    description: str | None
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class DepartmentListResponse(BaseModel):
+    """Response schema for GET /admin/departments."""
+
+    departments: list[DepartmentOut] = Field(default_factory=list)

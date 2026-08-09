@@ -295,3 +295,48 @@ class NotificationNotFoundError(NotificationError):
     belongs to someone else).
     """
     error_code = "NOTIF_001"
+
+
+# =====================================================
+# Departments
+# =====================================================
+
+class DepartmentError(Exception):
+    """
+    Base class for department-domain errors, same shape as
+    ComplaintError/AttachmentError/NotificationError above.
+    """
+
+    error_code: str = "DEPT_000"
+
+    def __init__(self, message: str, error_code: str | None = None):
+        super().__init__(message)
+        if error_code is not None:
+            self.error_code = error_code
+
+
+class DepartmentNotFoundError(DepartmentError):
+    """Raised when the requested department does not exist."""
+    error_code = "DEPT_001"
+
+
+class DepartmentNameAlreadyExistsError(DepartmentError):
+    """
+    Raised when creating a department whose name collides with an
+    existing one, name has a unique constraint at the DB level too,
+    this just turns that into a clean 409 instead of a raw
+    IntegrityError.
+    """
+    error_code = "DEPT_002"
+
+
+class DepartmentInUseError(DepartmentError):
+    """
+    Raised when trying to delete a department that still has staff
+    or complaints referencing it. Both FKs are nullable and have no
+    ON DELETE behavior configured, so an unguarded delete would just
+    fail with a DB-level IntegrityError, this gives a clearer message
+    and lets the caller know why, rather than trying to interpret raw
+    constraint violation text.
+    """
+    error_code = "DEPT_003"

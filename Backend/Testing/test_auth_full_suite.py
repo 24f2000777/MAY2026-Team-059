@@ -1090,117 +1090,19 @@ async def test_logout_no_auth(client):
 
 
 # ==========================================================
-# DASHBOARD / RBAC
-# ==========================================================
-
-async def test_dashboard_route_resolves_by_role(client):
-    title("GET /dashboard — resolves to the caller's own role")
-    email = unique_email()
-    try:
-        await create_verified_user(client, email=email)
-        access_token, _ = await login_get_tokens(client, email)
-
-        response = await client.get("/dashboard", headers=auth_headers(access_token))
-        ok = expect_status(response, 200, "Get dashboard route")
-        if ok:
-            expect(
-                response.json()["data"]["role"] == ROLE_CITIZEN,
-                "Dashboard route matches the citizen role",
-                f"Unexpected role in response: {response.json()}",
-            )
-    finally:
-        await cleanup([email])
-
-
-async def test_citizen_can_access_citizen_dashboard(client):
-    title("DASHBOARD — citizen can access their own dashboard")
-    email = unique_email()
-    try:
-        await create_verified_user_with_role(client, ROLE_CITIZEN, email=email)
-        access_token, _ = await login_get_tokens(client, email)
-
-        response = await client.get(
-            "/dashboard/citizen", headers=auth_headers(access_token)
-        )
-        expect_status(response, 200, "Citizen accessing /dashboard/citizen")
-    finally:
-        await cleanup([email])
-
-
-async def test_citizen_cannot_access_staff_dashboard(client):
-    title("DASHBOARD — citizen rejected from staff dashboard")
-    email = unique_email()
-    try:
-        await create_verified_user_with_role(client, ROLE_CITIZEN, email=email)
-        access_token, _ = await login_get_tokens(client, email)
-
-        response = await client.get(
-            "/dashboard/staff", headers=auth_headers(access_token)
-        )
-        expect_status(response, 403, "Citizen accessing /dashboard/staff")
-    finally:
-        await cleanup([email])
-
-
-async def test_citizen_cannot_access_admin_dashboard(client):
-    title("DASHBOARD — citizen rejected from admin dashboard")
-    email = unique_email()
-    try:
-        await create_verified_user_with_role(client, ROLE_CITIZEN, email=email)
-        access_token, _ = await login_get_tokens(client, email)
-
-        response = await client.get(
-            "/dashboard/admin", headers=auth_headers(access_token)
-        )
-        expect_status(response, 403, "Citizen accessing /dashboard/admin")
-    finally:
-        await cleanup([email])
-
-
-async def test_staff_can_access_staff_dashboard_only(client):
-    title("DASHBOARD — staff can access staff, not admin")
-    email = unique_email()
-    try:
-        await create_verified_user_with_role(client, ROLE_STAFF, email=email)
-        access_token, _ = await login_get_tokens(client, email)
-
-        staff_response = await client.get(
-            "/dashboard/staff", headers=auth_headers(access_token)
-        )
-        expect_status(staff_response, 200, "Staff accessing /dashboard/staff")
-
-        admin_response = await client.get(
-            "/dashboard/admin", headers=auth_headers(access_token)
-        )
-        expect_status(admin_response, 403, "Staff accessing /dashboard/admin")
-    finally:
-        await cleanup([email])
-
-
-async def test_admin_can_access_admin_dashboard(client):
-    title("DASHBOARD — admin can access admin dashboard")
-    email = unique_email()
-    try:
-        await create_verified_user_with_role(client, ROLE_ADMIN, email=email)
-        access_token, _ = await login_get_tokens(client, email)
-
-        response = await client.get(
-            "/dashboard/admin", headers=auth_headers(access_token)
-        )
-        expect_status(response, 200, "Admin accessing /dashboard/admin")
-    finally:
-        await cleanup([email])
-
-
-async def test_dashboard_no_auth(client):
-    title("DASHBOARD — no Authorization header")
-    response = await client.get("/dashboard/citizen")
-    expect_status(response, 401, "Dashboard route without a token")
-
-
-# ==========================================================
 # Main Runner
 # ==========================================================
+#
+# A "DASHBOARD / RBAC" section lived here: 7 tests exercising
+# GET /dashboard and /dashboard/{role}. Removed along with
+# app/api/dashboard.py itself, that module was always placeholder
+# content (per its own docstring) that never got replaced with real
+# data, the real per-role dashboards ended up living at /complaints,
+# /complaints/mine, /admin, and /analytics/summary instead, none of
+# which the frontend ever reached through /dashboard/*. RBAC coverage
+# for role gating itself lives on in test_rbac_security.py, repointed
+# to real endpoints (GET /admin/departments, GET /ml/high-risk) the
+# same way.
 
 TESTS = [
     # Register
@@ -1261,14 +1163,6 @@ TESTS = [
     test_logout_without_refresh_token_leaves_it_valid,
     test_double_logout_second_call_rejected,
     test_logout_no_auth,
-    # Dashboard / RBAC
-    test_dashboard_route_resolves_by_role,
-    test_citizen_can_access_citizen_dashboard,
-    test_citizen_cannot_access_staff_dashboard,
-    test_citizen_cannot_access_admin_dashboard,
-    test_staff_can_access_staff_dashboard_only,
-    test_admin_can_access_admin_dashboard,
-    test_dashboard_no_auth,
 ]
 
 

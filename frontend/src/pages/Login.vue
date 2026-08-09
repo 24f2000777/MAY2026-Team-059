@@ -59,12 +59,12 @@ async function submit() {
 
         <form @submit.prevent="submit">
           <div class="field">
-            <label>Email</label>
-            <input v-model="email" type="email" placeholder="you@example.com" required autocomplete="email" />
+            <label for="login-email">Email</label>
+            <input id="login-email" v-model="email" type="email" placeholder="you@example.com" required autocomplete="email" />
           </div>
           <div class="field">
-            <label>Password</label>
-            <input v-model="password" type="password" placeholder="Password" required autocomplete="current-password" />
+            <label for="login-password">Password</label>
+            <input id="login-password" v-model="password" type="password" placeholder="Password" required autocomplete="current-password" />
           </div>
           <p style="text-align: right; margin: -8px 0 16px 0;">
           <router-link to="/forgot-password" style="font-size: 12px; color: var(--accent); text-decoration: none; font-weight: 600;">Forgot password?</router-link>

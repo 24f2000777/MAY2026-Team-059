@@ -41,6 +41,15 @@ dist/
 htmlcov/
 
 # ======================================================
+# Local Celery Beat State
+# ======================================================
+
+# Celery beat's local scheduler state (last-run timestamps for the
+# nightly jobs), regenerated on every beat startup, not shared state.
+celerybeat-schedule.db
+celerybeat.pid
+
+# ======================================================
 # Type Checking
 # ======================================================
 

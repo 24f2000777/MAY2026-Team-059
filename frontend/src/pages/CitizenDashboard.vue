@@ -28,6 +28,7 @@ const STATUSES = [
 const searchText = ref('')
 const statusFilter = ref('All')
 const loadError = ref('')
+const loading = ref(true)
 const rawComplaints = ref([])
 
 // Maps the real MyComplaintOut shape (snake_case, enum values) into what
@@ -63,6 +64,8 @@ onMounted(async () => {
       return
     }
     loadError.value = e.message
+  } finally {
+    loading.value = false
   }
 })
 </script>
@@ -100,34 +103,38 @@ onMounted(async () => {
 
     <p v-if="loadError" class="error-text">{{ loadError }}</p>
 
-    <div v-if="allComplaints.length > 0" class="card">
-      <div class="filter-toolbar">
-        <div class="filter-group">
-          <label>Search</label>
-          <input v-model="searchText" type="text" placeholder="Category or location..." />
-        </div>
-        <div class="filter-group">
-          <label>Status</label>
-          <select v-model="statusFilter">
-            <option v-for="s in STATUSES" :key="s.value" :value="s.value">{{ s.label }}</option>
-          </select>
+    <p v-if="loading" class="page-intro">Loading...</p>
+
+    <template v-else>
+      <div v-if="allComplaints.length > 0" class="card">
+        <div class="filter-toolbar">
+          <div class="filter-group">
+            <label>Search</label>
+            <input v-model="searchText" type="text" placeholder="Category or location..." />
+          </div>
+          <div class="filter-group">
+            <label>Status</label>
+            <select v-model="statusFilter">
+              <option v-for="s in STATUSES" :key="s.value" :value="s.value">{{ s.label }}</option>
+            </select>
+          </div>
         </div>
       </div>
-    </div>
 
-    <div v-if="allComplaints.length === 0" class="empty-state">
-      You haven't filed any complaints yet. Click "Report Issue" above to file your first one.
-    </div>
-    <div v-else-if="myComplaints.length === 0" class="empty-state">
-      No complaints match your search.
-    </div>
+      <div v-if="allComplaints.length === 0" class="empty-state">
+        You haven't filed any complaints yet. Click "Report Issue" above to file your first one.
+      </div>
+      <div v-else-if="myComplaints.length === 0" class="empty-state">
+        No complaints match your search.
+      </div>
 
-    <div v-else class="grid cols-2">
-      <ComplaintCard v-for="c in myComplaints" :key="c.id" :complaint="c" :showPriority="true">
-        <template #actions>
-          <button class="btn secondary" @click="router.push(`/citizen/${c.id}`)">View Details</button>
-        </template>
-      </ComplaintCard>
-    </div>
+      <div v-else class="grid cols-2">
+        <ComplaintCard v-for="c in myComplaints" :key="c.id" :complaint="c" :showPriority="true">
+          <template #actions>
+            <button class="btn secondary" @click="router.push(`/citizen/${c.id}`)">View Details</button>
+          </template>
+        </ComplaintCard>
+      </div>
+    </template>
   </div>
 </template>

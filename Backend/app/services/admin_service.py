@@ -226,12 +226,20 @@ async def update_user_status(user_id, is_active: bool, current_user: User, db) -
         raise CannotModifySelfError("You cannot deactivate your own account.")
 
     if not is_active and user.role == ROLE_ADMIN:
-        remaining = await db.execute(
-            select(sa_func.count())
-            .select_from(User)
-            .where(User.role == ROLE_ADMIN, User.is_active == True, User.id != user_id)  # noqa: E712
+        # FOR UPDATE locks every currently-active admin row (not just
+        # the others), so two concurrent deactivate-a-different-admin
+        # requests can't both read "one other admin left" and both
+        # succeed, leaving zero. The second request blocks until the
+        # first commits, then re-reads the now-updated is_active
+        # values, and sees the real remaining count.
+        result = await db.execute(
+            select(User.id)
+            .where(User.role == ROLE_ADMIN, User.is_active == True)  # noqa: E712
+            .with_for_update()
         )
-        if remaining.scalar_one() == 0:
+        active_admin_ids = result.scalars().all()
+        remaining = [admin_id for admin_id in active_admin_ids if admin_id != user_id]
+        if len(remaining) == 0:
             raise CannotDeactivateLastAdminError(
                 "Cannot deactivate the platform's only active admin."
             )

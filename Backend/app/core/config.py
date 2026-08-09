@@ -6,8 +6,10 @@ All settings are loaded automatically from the .env file.
 Example:
     from app.core.config import settings
 
-    print(settings.DATABASE_URL)
-    print(settings.SECRET_KEY)
+    engine = create_async_engine(settings.DATABASE_URL)
+
+Avoid printing or logging settings.SECRET_KEY, settings.OTP_SECRET_KEY,
+or DATABASE_URL anywhere, they're credentials, not debug output.
 """
 
 from typing import Optional
@@ -98,6 +100,15 @@ class Settings(BaseSettings):
     OTP_RESEND_RATE_LIMIT_MAX_ATTEMPTS: int = 3
 
     OTP_RESEND_RATE_LIMIT_WINDOW_SECONDS: int = 3600
+
+    # Caps how many login attempts a single email can make in a
+    # rolling window, so a known email's password can't just be
+    # brute-forced with unlimited guesses. Keyed by email rather
+    # than IP, same reasoning as the other auth rate limits above,
+    # an attacker can rotate IPs but not the email they're targeting.
+    LOGIN_RATE_LIMIT_MAX_ATTEMPTS: int = 5
+
+    LOGIN_RATE_LIMIT_WINDOW_SECONDS: int = 900
 
     OTP_SECRET_KEY: str = Field(min_length=32)
 

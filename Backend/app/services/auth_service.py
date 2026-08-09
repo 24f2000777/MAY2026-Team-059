@@ -522,6 +522,22 @@ async def login_user(
     """
 
     # -------------------------------------------------
+    # Rate limit — checked first, before anything about
+    # the email is looked up, same reasoning as
+    # forgot_password below. Without this, the timing-safe
+    # check above stops response-time enumeration but does
+    # nothing to stop unlimited password guesses against a
+    # known email.
+    # -------------------------------------------------
+
+    await enforce_rate_limit(
+        scope="login",
+        identifier=request.email,
+        max_attempts=settings.LOGIN_RATE_LIMIT_MAX_ATTEMPTS,
+        window_seconds=settings.LOGIN_RATE_LIMIT_WINDOW_SECONDS,
+    )
+
+    # -------------------------------------------------
     # Find user
     # -------------------------------------------------
 

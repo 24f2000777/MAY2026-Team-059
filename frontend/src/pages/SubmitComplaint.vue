@@ -190,15 +190,15 @@ function fileAnother() {
 
     <form v-else class="card" @submit.prevent="submit">
       <div class="field">
-        <label>Category</label>
-        <select v-model="category">
+        <label for="complaint-category">Category</label>
+        <select id="complaint-category" v-model="category">
           <option v-for="c in CATEGORIES" :key="c.value" :value="c.value">{{ c.label }}</option>
         </select>
       </div>
 
       <div class="field">
-        <label>Ward (optional, improves priority scoring)</label>
-        <select v-model="wardCode">
+        <label for="complaint-ward">Ward (optional, improves priority scoring)</label>
+        <select id="complaint-ward" v-model="wardCode">
           <option value="">Not sure / skip</option>
           <option v-for="w in wards" :key="w.code" :value="w.code">{{ w.area }} ({{ w.code }})</option>
         </select>
@@ -206,13 +206,13 @@ function fileAnother() {
       </div>
 
       <div class="field">
-        <label>Describe the issue</label>
-        <textarea v-model="description" rows="4" required maxlength="1000" placeholder="At least 20 characters"></textarea>
+        <label for="complaint-description">Describe the issue</label>
+        <textarea id="complaint-description" v-model="description" rows="4" required maxlength="1000" placeholder="At least 20 characters"></textarea>
       </div>
 
       <div class="field">
-        <label>Location</label>
-        <input v-model="address" placeholder="Address or landmark" />
+        <label for="complaint-address">Location</label>
+        <input id="complaint-address" v-model="address" placeholder="Address or landmark" />
         <button class="btn secondary" type="button" @click="useMyLocation" :disabled="isLocating">
           {{ isLocating ? 'Locating…' : coords ? 'Location shared ✓' : 'Use my current location' }}
         </button>
@@ -220,8 +220,8 @@ function fileAnother() {
       </div>
 
       <div class="field">
-        <label>Photos (optional)</label>
-        <input ref="fileInput" type="file" accept="image/*" multiple class="hidden-file-input" @change="onPhotosPicked" />
+        <label id="complaint-photos-label">Photos (optional)</label>
+        <input ref="fileInput" type="file" accept="image/*" multiple class="hidden-file-input" aria-labelledby="complaint-photos-label" @change="onPhotosPicked" />
         <button class="btn secondary" type="button" @click="triggerFilePicker">
           Add photos
         </button>

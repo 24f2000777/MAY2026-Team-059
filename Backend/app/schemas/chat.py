@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -60,3 +61,37 @@ class ChatMessageOut(BaseModel):
 class ChatHistoryResponse(BaseModel):
     session_id: str
     messages: list[ChatMessageOut]
+
+
+class KnowledgeBaseDocumentCreateRequest(BaseModel):
+    """Request body for POST /chat/knowledge-base."""
+
+    title: str = Field(..., min_length=2, max_length=200)
+    content: str = Field(..., min_length=1, max_length=20000)
+
+
+class KnowledgeBaseDocumentOut(BaseModel):
+    """
+    One entry in GET /chat/knowledge-base. id is null for the static
+    PDFs baked into app/chatbot/data, they aren't DB rows and can't be
+    deleted through this API, only admin-added documents (source
+    "admin") can be.
+    """
+
+    id: UUID | None
+    title: str
+    source: Literal["static", "admin"]
+    created_at: datetime | None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class KnowledgeBaseDocumentListResponse(BaseModel):
+    documents: list[KnowledgeBaseDocumentOut] = Field(default_factory=list)
+
+
+class RebuildIndexResponse(BaseModel):
+    """Response for POST /chat/rebuild-index."""
+
+    admin_document_count: int
+    chunk_count: int

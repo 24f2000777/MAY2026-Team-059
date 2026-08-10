@@ -210,6 +210,41 @@ class TestChatCreatesRealComplaints:
             await db.delete(h)
         await db.commit()
 
+    async def test_photo_prompt_still_files_when_the_reply_is_off_topic(self, db, citizen):
+        # Regression test: the photo-confirmation step used to treat
+        # ANY reply as "continue", including one that was actually a
+        # pivot to something else entirely, silently going ahead as if
+        # that new message never happened. It should still file (the
+        # complaint was already fully validated before this step), but
+        # the reply now says so explicitly instead of just ignoring
+        # whatever the citizen actually said.
+        session_id = f"pytest-session-{uuid.uuid4()}"
+        message = (
+            "There is a big dangerous pothole on Linking Road near Bandra station, "
+            "it has been there for weeks and cars keep swerving to avoid it."
+        )
+
+        await send_chat_message(session_id, citizen.id, message, db)
+
+        reply, filed_complaint = await send_chat_message(
+            session_id,
+            citizen.id,
+            "actually, there's also a streetlight that's been broken for a month on the same road",
+            db,
+        )
+
+        assert filed_complaint is not None, "the already-validated complaint must still get filed"
+        assert "send that on its own" in reply, "an off-topic reply should be acknowledged, not silently dropped"
+
+        result = await db.execute(select(Complaint).where(Complaint.citizen_id == citizen.id))
+        complaints = result.scalars().all()
+        assert len(complaints) == 1
+
+        history = await get_chat_history(session_id, citizen.id, db)
+        for h in history:
+            await db.delete(h)
+        await db.commit()
+
     async def test_extracted_info_does_not_leak_into_a_later_unrelated_turn(self, db, citizen):
         # Regression check for the update_state() clearing in
         # send_message_and_extract: without it, a complaint filed on

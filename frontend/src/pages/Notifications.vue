@@ -94,7 +94,11 @@ onMounted(load)
         v-for="item in notifications" :key="item.id"
         class="card notif-card"
         :class="{ unread: !item.is_read }"
+        role="button"
+        tabindex="0"
         @click="open(item)"
+        @keydown.enter="open(item)"
+        @keydown.space.prevent="open(item)"
       >
         <span class="notif-icon" :class="`accent-${item.type}`">{{ iconFor(item.type) }}</span>
         <div class="notif-body">

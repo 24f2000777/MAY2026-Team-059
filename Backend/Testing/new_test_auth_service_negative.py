@@ -34,6 +34,7 @@ from uuid import uuid4
 # that this script lives in Testing/ instead of Backend/ directly.
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
+import pytest
 from jose import jwt
 
 from sqlalchemy import delete
@@ -88,9 +89,35 @@ def _capture_reset_email(*, recipient: str, otp: str) -> None:
     CAPTURED_OTPS[(OTP_RESET_PASSWORD, recipient)] = otp
 
 
-# Patch the names auth_service.py actually calls.
-auth_service_module.send_verification_email = _capture_verification_email
-auth_service_module.send_password_reset_email = _capture_reset_email
+@pytest.fixture(autouse=True, scope="module")
+def _patch_email_sending():
+    """
+    Patches the names auth_service.py actually calls, scoped to just
+    this module's test run and restored immediately after.
+
+    This used to be two unconditional assignments at import time,
+    with no teardown, permanently replacing the real
+    send_verification_email/send_password_reset_email for the whole
+    pytest process the moment this file was collected. Collection
+    happens for every file up front, before any test runs, so any
+    other file collected in the same pytest invocation (e.g.
+    test_auth_full_suite.py, which relies on a real email actually
+    being sent to read its OTP back out of the test inbox) would
+    silently stop receiving real emails and fail across the board,
+    even though each file passed fine on its own. Restoring the
+    originals here means this module's patch can't leak into any
+    other file's tests, and other collected modules are unaffected.
+    """
+    original_verify = auth_service_module.send_verification_email
+    original_reset = auth_service_module.send_password_reset_email
+
+    auth_service_module.send_verification_email = _capture_verification_email
+    auth_service_module.send_password_reset_email = _capture_reset_email
+
+    yield
+
+    auth_service_module.send_verification_email = original_verify
+    auth_service_module.send_password_reset_email = original_reset
 
 
 def get_otp(purpose: str, email: str) -> str:
@@ -818,4 +845,10 @@ async def main():
 
 
 if __name__ == "__main__":
+    # Running this file directly (not through pytest) never triggers
+    # the _patch_email_sending fixture above, that only fires inside
+    # a pytest session, so the patch has to be applied by hand here
+    # for the standalone CLI path this file's docstring documents.
+    auth_service_module.send_verification_email = _capture_verification_email
+    auth_service_module.send_password_reset_email = _capture_reset_email
     asyncio.run(main())

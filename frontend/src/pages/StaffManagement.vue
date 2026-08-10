@@ -88,22 +88,22 @@ async function submit() {
 
       <form @submit.prevent="submit">
         <div class="field">
-          <label>Full Name</label>
-          <input v-model="name" type="text" placeholder="Staff member's name" required autocomplete="name" />
+          <label for="staff-name">Full Name</label>
+          <input id="staff-name" v-model="name" type="text" placeholder="Staff member's name" required autocomplete="name" />
         </div>
         <div class="field-row">
           <div class="field">
-            <label>Phone Number</label>
-            <input v-model="phone" type="text" placeholder="10-digit phone number" maxlength="10" required autocomplete="tel" />
+            <label for="staff-phone">Phone Number</label>
+            <input id="staff-phone" v-model="phone" type="text" placeholder="10-digit phone number" maxlength="10" required autocomplete="tel" />
           </div>
           <div class="field">
-            <label>Email</label>
-            <input v-model="email" type="email" placeholder="staff@example.com" required autocomplete="email" />
+            <label for="staff-email">Email</label>
+            <input id="staff-email" v-model="email" type="email" placeholder="staff@example.com" required autocomplete="email" />
           </div>
         </div>
         <div class="field">
-          <label>Password</label>
-          <input v-model="password" type="password" placeholder="At least 8 characters" required minlength="8" autocomplete="new-password" />
+          <label for="staff-password">Password</label>
+          <input id="staff-password" v-model="password" type="password" placeholder="At least 8 characters" required minlength="8" autocomplete="new-password" />
         </div>
 
         <p v-if="formError" class="error-text">{{ formError }}</p>

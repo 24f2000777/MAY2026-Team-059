@@ -223,9 +223,10 @@ def ask_about_photo(info):
     filing: ask if the citizen wants to attach a photo. The bot has no
     way to know whether one's already staged in the composer (that's
     frontend-only state until a complaint id exists to upload against),
-    so this always asks rather than guessing — answering with anything
-    at all, including "no", just moves on to handle_photo_followup,
-    which actually files it.
+    so this always asks rather than guessing — the complaint files on
+    the very next turn regardless of what's said back, see
+    handle_photo_followup for why that's still true even when the
+    reply turns out to be about something else entirely.
     """
     reply = (
         "Got it, that's everything I need. Want to add a photo of the issue? "
@@ -241,17 +242,53 @@ def ask_about_photo(info):
     }
 
 
+def looks_like_a_photo_confirmation_answer(message):
+    # A citizen can always pivot instead of answering, same as
+    # looks_like_a_location_answer above. The difference is what
+    # happens on "no": there's nothing to extract from this reply
+    # either way, category+location are already validated, so the
+    # complaint still gets filed regardless — this only decides
+    # whether the reply also needs a line acknowledging that whatever
+    # they actually said didn't get addressed, so it isn't just
+    # silently dropped.
+    prompt = (
+        "You just asked a citizen if they want to attach a photo to the complaint "
+        "you're about to file, and told them any reply at all continues without "
+        "one. Does their reply below actually engage with that (agreeing, "
+        "declining, saying they attached one, or just a casual 'ok'/'no'/'done')? "
+        "Or does it raise a new topic, a different complaint, or a real question "
+        "that has nothing to do with the photo? Reply with exactly one word, yes "
+        f'or no.\n\nTheir reply: "{message}"'
+    )
+    answer = safe_chat_call(prompt, default_reply="yes").strip().lower()
+    return "yes" in answer
+
+
 def handle_photo_followup(state):
     """
     Reached once the citizen replies to ask_about_photo's prompt.
-    Whatever they said is just the signal to continue, not something
-    to extract anything from, the actual photo (if any) already
-    reached the composer independently — see chatStore.js's
-    pendingImages, uploaded once this turn's reply carries a real
-    complaint id.
+    Files the complaint unconditionally, category+location were
+    already validated before this step, so there's no reason to
+    withhold filing just because the reply wasn't really about the
+    photo. The actual photo (if any) already reached the composer
+    independently — see chatStore.js's pendingImages, uploaded once
+    this turn's reply carries a real complaint id.
+
+    If the reply doesn't look like it was actually engaging with the
+    photo question, the confirmation gets one extra line pointing
+    that out, rather than silently going ahead as if whatever they
+    said never happened.
     """
+    last_message = state["messages"][-1].content
     info = dict(state.get("pending_complaint") or {})
     reply = build_confirmation_reply(info)
+
+    if not looks_like_a_photo_confirmation_answer(last_message):
+        reply += (
+            " Looked like you also mentioned something else there, go ahead and "
+            "send that on its own and I'll help with it too."
+        )
+
     return {
         "extracted_info": info,
         "awaiting_location": False,

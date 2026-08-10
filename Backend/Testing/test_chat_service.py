@@ -169,14 +169,23 @@ class TestChatCreatesRealComplaints:
     does), not just reply as if it had.
     """
 
-    async def test_a_clear_single_turn_complaint_gets_filed(self, db, citizen):
+    async def test_a_clear_complaint_gets_filed_after_the_photo_prompt(self, db, citizen):
+        # Category and location both land in one message, so the very
+        # next turn is Nagrik Saathi asking about an optional photo
+        # (see conversation_graph.ask_about_photo), not a filed
+        # complaint yet — filing happens on the turn after that,
+        # regardless of what the citizen actually says back.
         session_id = f"pytest-session-{uuid.uuid4()}"
         message = (
             "There is a big dangerous pothole on Linking Road near Bandra station, "
             "it has been there for weeks and cars keep swerving to avoid it."
         )
 
-        reply, filed_complaint = await send_chat_message(session_id, citizen.id, message, db)
+        first_reply, first_filed = await send_chat_message(session_id, citizen.id, message, db)
+        assert isinstance(first_reply, str) and len(first_reply) > 0
+        assert first_filed is None, "filing waits for the photo-prompt turn, not this one"
+
+        reply, filed_complaint = await send_chat_message(session_id, citizen.id, "no thanks", db)
         assert isinstance(reply, str) and len(reply) > 0
 
         result = await db.execute(select(Complaint).where(Complaint.citizen_id == citizen.id))
@@ -237,7 +246,10 @@ class TestChatCreatesRealComplaints:
         message = "Pothole in Bandra"
         assert len(message) < 20, "this test only proves anything if the message is short"
 
-        reply, filed_complaint = await send_chat_message(session_id, citizen.id, message, db)
+        await send_chat_message(session_id, citizen.id, message, db)
+        # Category + location already in one message -> next turn is the
+        # optional-photo prompt, filing happens the turn after that.
+        reply, filed_complaint = await send_chat_message(session_id, citizen.id, "no thanks", db)
         assert isinstance(reply, str) and len(reply) > 0
 
         result = await db.execute(select(Complaint).where(Complaint.citizen_id == citizen.id))
@@ -281,7 +293,11 @@ class TestChatCreatesRealComplaints:
             "it has been there for over a week and smells terrible."
         )
 
-        reply, filed_complaint = await send_chat_message(session_id, citizen.id, message, db)
+        await send_chat_message(session_id, citizen.id, message, db)
+        # Category + location already in one message -> that first turn
+        # is just the optional-photo prompt, the actual filing attempt
+        # (and the simulated failure) happens on this second one.
+        reply, filed_complaint = await send_chat_message(session_id, citizen.id, "no thanks", db)
         assert isinstance(reply, str) and len(reply) > 0
         assert filed_complaint is None, "a failed filing attempt must not return a complaint"
 
@@ -291,11 +307,11 @@ class TestChatCreatesRealComplaints:
             "Complaint row committed"
         )
 
-        # the two chat messages themselves (user + assistant reply) must
-        # survive the savepoint rollback, only the complaint attempt
-        # should be undone
+        # all four chat messages (two user turns + two assistant replies)
+        # must survive the savepoint rollback, only the complaint attempt
+        # itself should be undone
         history = await get_chat_history(session_id, citizen.id, db)
-        assert len(history) == 2
+        assert len(history) == 4
 
         for h in history:
             await db.delete(h)

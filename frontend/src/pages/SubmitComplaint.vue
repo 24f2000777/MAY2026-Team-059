@@ -1,7 +1,14 @@
 <script setup>
 import { ref, onMounted, onBeforeUnmount } from 'vue'
+import { useRouter } from 'vue-router'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
+import { useAuthStore } from '../stores/authStore'
+import { getWards, createComplaint, uploadAttachment } from '../api/complaintApi'
+import { CATEGORIES, categoryLabel } from '../constants/categories'
+
+const auth = useAuthStore()
+const router = useRouter()
 
 const filedComplaint = ref(null)
 
@@ -13,11 +20,18 @@ const address = ref('')
 const coords = ref(null)
 const isLocating = ref(false)
 const locatingError = ref('')
+const wards = ref([])
 const wardsError = ref('')
 const photosError = ref('')
 const error = ref('')
 const isSubmitting = ref(false)
 const attachmentsFailed = ref(false)
+
+// Server enforces the real limits (MAX_ATTACHMENTS_PER_COMPLAINT,
+// MAX_UPLOAD_SIZE_BYTES), these just match the defaults for a nicer
+// error before ever hitting the network.
+const MAX_PHOTOS = 5
+const MAX_PHOTO_BYTES = 5 * 1024 * 1024
 
 const photos = ref([])
 const fileInput = ref(null)
@@ -26,27 +40,11 @@ const mapContainer = ref(null)
 let map = null
 let marker = null
 
-const CATEGORIES = [
-  { value: 'roads', label: 'Roads & Potholes' },
-  { value: 'water', label: 'Water Supply' },
-  { value: 'sanitation', label: 'Sanitation & Waste' },
-  { value: 'streetlights', label: 'Street Lights' },
-  { value: 'drainage', label: 'Drainage' },
-  { value: 'electricity', label: 'Electricity' },
-  { value: 'other', label: 'Other' }
-]
-
-const wards = ref([
-  { code: 'W01', area: 'Ward 1' },
-  { code: 'W02', area: 'Ward 2' },
-  { code: 'W03', area: 'Ward 3' },
-  { code: 'W04', area: 'Ward 4' },
-  { code: 'W05', area: 'Ward 5' }
-])
-
-function categoryLabel(value) {
-  return CATEGORIES.find(c => c.value === value)?.label || value
-}
+// Mumbai (BMC's jurisdiction), not the Leaflet/OSM demo default of
+// New Delhi — this is where the map should open before a citizen has
+// picked a real location yet.
+const DEFAULT_MAP_CENTER = [19.0760, 72.8777]
+const DEFAULT_MAP_ZOOM = 12
 
 function updateLocation(lat, lng) {
   coords.value = {
@@ -140,15 +138,21 @@ function onPhotosPicked(event) {
   photosError.value = ''
 
   const files = Array.from(event.target.files || [])
+  if (fileInput.value) fileInput.value.value = '' // allow picking the exact same file again later
 
   if (files.length === 0) return
+
+  if (photos.value.length + files.length > MAX_PHOTOS) {
+    photosError.value = `You can attach up to ${MAX_PHOTOS} photos.`
+    return
+  }
 
   const validFiles = files.filter(file => {
     if (!file.type.startsWith('image/')) {
       return false
     }
 
-    if (file.size > 5 * 1024 * 1024) {
+    if (file.size > MAX_PHOTO_BYTES) {
       return false
     }
 
@@ -166,10 +170,6 @@ function onPhotosPicked(event) {
       previewUrl: URL.createObjectURL(file)
     })
   })
-
-  if (fileInput.value) {
-    fileInput.value.value = ''
-  }
 }
 
 function removePhoto(index) {
@@ -208,49 +208,71 @@ function fileAnother() {
   }
 
   if (map) {
-    map.setView([28.6139, 77.2090], 12)
+    map.setView(DEFAULT_MAP_CENTER, DEFAULT_MAP_ZOOM)
   }
 }
 
 async function submit() {
   error.value = ''
 
+  if (!category.value) {
+    error.value = 'Please select a category.'
+    return
+  }
+
   if (description.value.trim().length < 20) {
     error.value = 'Please describe the issue in at least 20 characters.'
     return
   }
 
-  if (!coords.value) {
-    error.value = 'Please select the complaint location on the map.'
+  if (!coords.value && !address.value.trim()) {
+    error.value = 'Please select the complaint location on the map, or type an address.'
     return
   }
 
   isSubmitting.value = true
 
   try {
-    /* Replace this section with your existing API submission logic */
-
-    await new Promise(resolve => setTimeout(resolve, 800))
-
-    filedComplaint.value = {
+    const title = `${categoryLabel(category.value)} - ${description.value.trim()}`.slice(0, 100)
+    const data = await createComplaint({
+      title,
+      description: description.value.trim(),
       category: category.value,
-      status: 'submitted',
-      priority_score: 0,
-      created_at: new Date().toISOString()
-    }
+      location: {
+        latitude: coords.value?.latitude ?? null,
+        longitude: coords.value?.longitude ?? null,
+        address: address.value.trim() || null
+      },
+      wardCode: wardCode.value || null,
+      accessToken: auth.accessToken
+    })
+    filedComplaint.value = data
 
-    attachmentsFailed.value = false
-  } catch (err) {
-    error.value = 'Unable to submit the complaint. Please try again.'
+    // Best-effort: the complaint is already real at this point, a
+    // failed photo upload shouldn't undo the filing or block the
+    // confirmation, just surface that something didn't attach.
+    if (photos.value.length > 0) {
+      const results = await Promise.allSettled(
+        photos.value.map(p => uploadAttachment({ id: data.id, file: p.file, accessToken: auth.accessToken }))
+      )
+      attachmentsFailed.value = results.some(r => r.status === 'rejected')
+    }
+  } catch (e) {
+    if (e.status === 401) {
+      await auth.logout()
+      router.push('/login')
+      return
+    }
+    error.value = e.message || 'Unable to submit the complaint. Please try again.'
   } finally {
     isSubmitting.value = false
   }
 }
 
-onMounted(() => {
+onMounted(async () => {
   map = L.map(mapContainer.value, {
     zoomControl: true
-  }).setView([28.6139, 77.2090], 12)
+  }).setView(DEFAULT_MAP_CENTER, DEFAULT_MAP_ZOOM)
 
   L.tileLayer(
     'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
@@ -261,6 +283,25 @@ onMounted(() => {
   ).addTo(map)
 
   map.on('click', handleMapClick)
+
+  try {
+    const data = await getWards({ accessToken: auth.accessToken })
+    wards.value = data.wards
+  } catch (e) {
+    if (e.status === 401) {
+      // Same reasoning as NagrikSaathi.vue's onMounted: isLoggedIn only
+      // checks that a token is present, not that it's still valid, so
+      // clear the stale session before redirecting or the guest-route
+      // guard would just bounce back here.
+      await auth.logout()
+      router.push('/login')
+      return
+    }
+    // A citizen can still submit without picking a ward (it's optional,
+    // priority scoring falls back to a dataset-average estimate), so any
+    // other failure shouldn't block the whole form.
+    wardsError.value = 'Could not load the ward list. You can still submit without picking one.'
+  }
 })
 
 onBeforeUnmount(() => {

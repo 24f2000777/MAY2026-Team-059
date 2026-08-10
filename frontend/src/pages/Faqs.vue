@@ -30,7 +30,18 @@ function toggle(i) {
     </div>
 
     <div class="list-stack">
-      <div v-for="(item, i) in faqs" :key="i" class="card" style="cursor: pointer;" @click="toggle(i)">
+      <div
+        v-for="(item, i) in faqs"
+        :key="i"
+        class="card"
+        style="cursor: pointer;"
+        role="button"
+        tabindex="0"
+        :aria-expanded="openIndex === i"
+        @click="toggle(i)"
+        @keydown.enter="toggle(i)"
+        @keydown.space.prevent="toggle(i)"
+      >
         <div style="display: flex; justify-content: space-between; align-items: center;">
           <strong>{{ item.q }}</strong>
           <span style="font-size: 20px; color: var(--accent); font-weight: 700;">{{ openIndex === i ? '−' : '+' }}</span>

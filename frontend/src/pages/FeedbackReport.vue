@@ -1,4 +1,3 @@
-```vue
 <script setup>
 import { ref, computed } from 'vue'
 import { useAuthStore } from '../stores/authStore'

@@ -2,9 +2,18 @@
 import { onMounted, ref, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/authStore'
-import { assignComplaint, getComplaint, listOfficers } from '../api/complaintApi'
+import { assignComplaint, getComplaint, listAttachments, listOfficers } from '../api/complaintApi'
+import { API_BASE_URL } from '../api/httpClient'
 import { categoryLabel } from '../constants/categories'
 import StatusBadge from '../components/StatusBadge.vue'
+
+// image_url comes back as a path relative to the backend's own
+// origin (local filesystem storage in dev, see the backend's
+// storage.py), not the frontend's, so it needs the API's origin
+// prepended before it's usable in an <img> src.
+function attachmentUrl(imageUrl) {
+  return `${API_BASE_URL}${imageUrl}`
+}
 
 const route = useRoute()
 const router = useRouter()
@@ -12,6 +21,7 @@ const auth = useAuthStore()
 
 const complaint = ref(null)
 const officers = ref([])
+const attachments = ref([])
 const selectedStaff = ref('')
 const loading = ref(true)
 const loadError = ref('')
@@ -30,18 +40,23 @@ const hasAssignment = computed(() => {
 
 onMounted(async () => {
   try {
-    const [detail, officersData] = await Promise.all([
+    const [detail, officersData, attachmentsData] = await Promise.all([
       getComplaint({
         id: route.params.id,
         accessToken: auth.accessToken
       }),
       listOfficers({
         accessToken: auth.accessToken
+      }),
+      listAttachments({
+        id: route.params.id,
+        accessToken: auth.accessToken
       })
     ])
 
     complaint.value = detail
     officers.value = officersData.officers
+    attachments.value = attachmentsData.attachments
     selectedStaff.value = detail.assigned_to || ''
   } catch (e) {
     if (e.status === 401) {
@@ -224,6 +239,31 @@ function goBack() {
               </span>
             </div>
 
+          </div>
+
+        </section>
+
+        <!-- Attachments -->
+        <section v-if="attachments.length > 0" class="detail-card">
+
+          <div class="section-heading">
+            <div>
+              <p class="section-kicker">Evidence</p>
+              <h2>Attachments</h2>
+            </div>
+          </div>
+
+          <div class="attachment-grid">
+            <a
+              v-for="a in attachments"
+              :key="a.id"
+              :href="attachmentUrl(a.image_url)"
+              target="_blank"
+              rel="noopener"
+              class="attachment-thumb"
+            >
+              <img :src="attachmentUrl(a.image_url)" alt="Attachment" />
+            </a>
           </div>
 
         </section>
@@ -578,6 +618,27 @@ function goBack() {
 
 .detail-card {
   padding: 24px;
+}
+
+.attachment-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.attachment-thumb {
+  display: block;
+  width: 96px;
+  height: 96px;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+
+.attachment-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .section-heading {

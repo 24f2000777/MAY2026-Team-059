@@ -110,8 +110,9 @@ async function submit() {
         <form @submit.prevent="submit">
 
           <div class="field">
-            <label>Full Name</label>
+            <label for="staff-name">Full Name</label>
             <input
+              id="staff-name"
               v-model="name"
               type="text"
               placeholder="Staff member's name"
@@ -121,8 +122,9 @@ async function submit() {
           </div>
 
           <div class="field">
-            <label>Phone Number</label>
+            <label for="staff-phone">Phone Number</label>
             <input
+              id="staff-phone"
               v-model="phone"
               type="text"
               placeholder="10-digit phone number"
@@ -133,8 +135,9 @@ async function submit() {
           </div>
 
           <div class="field">
-            <label>Email Address</label>
+            <label for="staff-email">Email Address</label>
             <input
+              id="staff-email"
               v-model="email"
               type="email"
               placeholder="staff@example.com"
@@ -144,8 +147,9 @@ async function submit() {
           </div>
 
           <div class="field">
-            <label>Temporary Password</label>
+            <label for="staff-password">Temporary Password</label>
             <input
+              id="staff-password"
               v-model="password"
               type="password"
               placeholder="At least 8 characters"

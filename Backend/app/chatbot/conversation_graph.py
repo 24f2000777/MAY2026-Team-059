@@ -41,6 +41,7 @@ class ConversationState(TypedDict):
     pending_complaint: Optional[dict]
     awaiting_location: Optional[bool]
     location_attempts: Optional[int]
+    awaiting_photo_confirmation: Optional[bool]
 
 
 def looks_like_a_location_answer(message):
@@ -78,6 +79,12 @@ def entry_node(state):
 
 
 def route_after_entry(state):
+    # Whatever the citizen says here just means "continue", the actual
+    # photo attach happens through the composer's own upload button,
+    # independent of chat text, so unlike the location follow-up below
+    # there's nothing here worth validating before moving on.
+    if state.get("awaiting_photo_confirmation"):
+        return "photo_followup"
     if state.get("awaiting_location"):
         return "location_followup"
     return "classify_intent"
@@ -193,6 +200,7 @@ def finalize_complaint(info, attempts=0):
             "pending_complaint": info,
             "awaiting_location": True,
             "location_attempts": attempts + 1,
+            "awaiting_photo_confirmation": False,
             "messages": [AIMessage(content=reply)],
         }
 
@@ -202,15 +210,54 @@ def finalize_complaint(info, attempts=0):
             "awaiting_location": False,
             "pending_complaint": None,
             "location_attempts": 0,
+            "awaiting_photo_confirmation": False,
             "messages": [AIMessage(content=reply)],
         }
 
+    return ask_about_photo(info)
+
+
+def ask_about_photo(info):
+    """
+    Category and location are both good, one turn left before actually
+    filing: ask if the citizen wants to attach a photo. The bot has no
+    way to know whether one's already staged in the composer (that's
+    frontend-only state until a complaint id exists to upload against),
+    so this always asks rather than guessing — answering with anything
+    at all, including "no", just moves on to handle_photo_followup,
+    which actually files it.
+    """
+    reply = (
+        "Got it, that's everything I need. Want to add a photo of the issue? "
+        "It's optional, use the photo button below if you have one, or just send "
+        "anything to continue without it."
+    )
+    return {
+        "pending_complaint": info,
+        "awaiting_location": False,
+        "location_attempts": 0,
+        "awaiting_photo_confirmation": True,
+        "messages": [AIMessage(content=reply)],
+    }
+
+
+def handle_photo_followup(state):
+    """
+    Reached once the citizen replies to ask_about_photo's prompt.
+    Whatever they said is just the signal to continue, not something
+    to extract anything from, the actual photo (if any) already
+    reached the composer independently — see chatStore.js's
+    pendingImages, uploaded once this turn's reply carries a real
+    complaint id.
+    """
+    info = dict(state.get("pending_complaint") or {})
     reply = build_confirmation_reply(info)
     return {
         "extracted_info": info,
         "awaiting_location": False,
         "pending_complaint": None,
         "location_attempts": 0,
+        "awaiting_photo_confirmation": False,
         "messages": [AIMessage(content=reply)],
     }
 
@@ -335,6 +382,7 @@ graph_builder.add_node("entry", entry_node)
 graph_builder.add_node("classify_intent", classify_intent)
 graph_builder.add_node("handle_complaint", handle_complaint)
 graph_builder.add_node("handle_location_followup", handle_location_followup)
+graph_builder.add_node("handle_photo_followup", handle_photo_followup)
 graph_builder.add_node("handle_question", handle_question)
 graph_builder.add_node("handle_chitchat", handle_chitchat)
 
@@ -342,7 +390,11 @@ graph_builder.add_edge(START, "entry")
 graph_builder.add_conditional_edges(
     "entry",
     route_after_entry,
-    {"classify_intent": "classify_intent", "location_followup": "handle_location_followup"},
+    {
+        "classify_intent": "classify_intent",
+        "location_followup": "handle_location_followup",
+        "photo_followup": "handle_photo_followup",
+    },
 )
 graph_builder.add_conditional_edges(
     "classify_intent",
@@ -355,6 +407,7 @@ graph_builder.add_conditional_edges(
 )
 graph_builder.add_edge("handle_complaint", END)
 graph_builder.add_edge("handle_location_followup", END)
+graph_builder.add_edge("handle_photo_followup", END)
 graph_builder.add_edge("handle_question", END)
 graph_builder.add_edge("handle_chitchat", END)
 

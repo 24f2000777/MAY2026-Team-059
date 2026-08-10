@@ -5,6 +5,7 @@ import { useAuthStore } from '../stores/authStore'
 import { approveComplaint, exportComplaintsCsv, listComplaintsPage, listOfficers } from '../api/complaintApi'
 import { CATEGORIES, categoryLabel } from '../constants/categories'
 import StatusBadge from '../components/StatusBadge.vue'
+import NotificationBanner from '../components/NotificationBanner.vue'
 
 const auth = useAuthStore()
 const router = useRouter()
@@ -31,19 +32,24 @@ function localDate(iso) {
 
 // The backend caps a single page at 100 complaints. Fetching just
 // page 1 used to silently drop everything past that, with no
-// indication anything was missing. Loops through every page instead,
-// so search/filter still work across the whole dataset, the table
-// below paginates the (already filtered) results for display.
+// indication anything was missing. Fetches every page instead, so
+// search/filter still work across the whole dataset, the table below
+// paginates the (already filtered) results for display. Page 1 has to
+// go first to learn total_pages, but the rest don't depend on each
+// other, so they're fetched in parallel rather than one round trip at
+// a time - the main reason this page used to feel slow to load.
 async function loadAllComplaints() {
-  const all = []
-  let page = 1
-  let totalPages = 1
-  do {
-    const { data, meta } = await listComplaintsPage({ accessToken: auth.accessToken, page, perPage: 100 })
-    all.push(...data.complaints)
-    totalPages = meta?.total_pages || 1
-    page += 1
-  } while (page <= totalPages)
+  const first = await listComplaintsPage({ accessToken: auth.accessToken, page: 1, perPage: 100 })
+  const all = [...first.data.complaints]
+  const totalPages = first.meta?.total_pages || 1
+  if (totalPages > 1) {
+    const rest = await Promise.all(
+      Array.from({ length: totalPages - 1 }, (_, i) =>
+        listComplaintsPage({ accessToken: auth.accessToken, page: i + 2, perPage: 100 })
+      )
+    )
+    for (const { data } of rest) all.push(...data.complaints)
+  }
   return all
 }
 
@@ -176,6 +182,7 @@ onMounted(load)
 
 <template>
   <div class="app-content">
+    <NotificationBanner />
     <div class="ops-hero">
       <div class="ops-hero-intro">
         <p class="ops-hero-eyebrow">Operations Overview</p>

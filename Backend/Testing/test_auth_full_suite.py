@@ -79,8 +79,36 @@ def _capture_reset_email(*, recipient: str, otp: str) -> None:
     CAPTURED_OTPS[(OTP_RESET_PASSWORD, recipient)] = otp
 
 
-auth_service_module.send_verification_email = _capture_verification_email
-auth_service_module.send_password_reset_email = _capture_reset_email
+@pytest.fixture(autouse=True, scope="module")
+def _patch_email_sending():
+    """
+    Patches the names auth_service.py actually calls, scoped to just
+    this module's test run and restored immediately after.
+
+    This used to be two unconditional assignments at import time,
+    with no teardown, permanently replacing the real
+    send_verification_email/send_password_reset_email for the whole
+    pytest process the moment this file was collected — collection
+    happens for every file up front, before any test runs. Any other
+    file collected in the same pytest invocation that does the same
+    thing (new_test_auth_service_negative.py did, see its own
+    _patch_email_sending fixture) would silently overwrite this
+    file's patch with its own, so whichever file's patch ends up
+    active when a given test actually runs decides which CAPTURED_OTPS
+    dict the OTP lands in — a caller reading from the wrong one gets
+    "RuntimeError: No OTP captured", even though every test here
+    passes fine when this file runs alone.
+    """
+    original_verify = auth_service_module.send_verification_email
+    original_reset = auth_service_module.send_password_reset_email
+
+    auth_service_module.send_verification_email = _capture_verification_email
+    auth_service_module.send_password_reset_email = _capture_reset_email
+
+    yield
+
+    auth_service_module.send_verification_email = original_verify
+    auth_service_module.send_password_reset_email = original_reset
 
 
 # ==========================================================
@@ -1209,4 +1237,11 @@ async def main():
 
 
 if __name__ == "__main__":
+    # Running this file directly (not through pytest) never triggers
+    # the _patch_email_sending fixture above, that only fires inside
+    # a pytest session, so the patch has to be applied by hand here
+    # for the standalone "python test_auth_full_suite.py" path this
+    # file's own docstring documents.
+    auth_service_module.send_verification_email = _capture_verification_email
+    auth_service_module.send_password_reset_email = _capture_reset_email
     asyncio.run(main())

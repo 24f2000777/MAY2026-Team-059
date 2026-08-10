@@ -39,10 +39,18 @@ async def send_message(
     both to chat_sessions. complaint is populated only on the turn
     that actually filed one (category + location both confirmed),
     letting the frontend show a filing confirmation inline without a
-    second request.
+    second request. Only ever populated for a citizen caller, staff
+    don't file complaints through this chat (see chat_service.py and
+    conversation_graph.route_by_intent).
     """
     reply, complaint = await send_chat_message(
-        body.session_id, current_user.id, body.message, db, body.latitude, body.longitude
+        body.session_id,
+        current_user.id,
+        body.message,
+        db,
+        body.latitude,
+        body.longitude,
+        user_role=current_user.role,
     )
     return SuccessResponse[ChatMessageResponse](
         message="Message sent.",

@@ -66,6 +66,25 @@ async def citizen(db):
 
 
 @pytest.fixture
+async def staff(db):
+    user = User(
+        phone=f"9{uuid.uuid4().int % 10**9:09d}",
+        name="Pytest Staff",
+        email=f"pytest-staff-{uuid.uuid4()}@example.com",
+        role="staff",
+        hashed_password="x",
+        is_active=True,
+    )
+    db.add(user)
+    await db.flush()
+    yield user
+    # Staff never file complaints through chat (that's the whole point
+    # of these tests), so no Complaint cleanup needed, unlike citizen.
+    await db.delete(user)
+    await db.commit()
+
+
+@pytest.fixture
 async def other_citizen(db):
     user = _make_citizen()
     db.add(user)
@@ -348,6 +367,106 @@ class TestChatCreatesRealComplaints:
         history = await get_chat_history(session_id, citizen.id, db)
         assert len(history) == 4
 
+        for h in history:
+            await db.delete(h)
+        await db.commit()
+
+
+class TestStaffCannotFileComplaintsViaChat:
+    """
+    Staff never file complaints through chat, that's a citizen-only
+    flow (see conversation_graph.route_by_intent redirecting "complaint"
+    intent to handle_staff_no_filing for a staff caller). Regression
+    coverage for a real bug: a staff member's message that was never a
+    genuine complaint report ("i want you to generate a prompt to
+    register a complaint") used to get misclassified and the
+    extraction step hallucinated a fake complaint (a "streetlight
+    failure near Andheri" that was never mentioned anywhere) out of it.
+    """
+
+    async def test_a_genuine_complaint_shaped_message_from_staff_is_not_filed(self, db, staff):
+        session_id = f"pytest-session-{uuid.uuid4()}"
+        message = (
+            "There is a big dangerous pothole on Linking Road near Bandra station, "
+            "it has been there for weeks and cars keep swerving to avoid it."
+        )
+
+        reply, filed_complaint = await send_chat_message(
+            session_id, staff.id, message, db, user_role="staff"
+        )
+
+        assert isinstance(reply, str) and len(reply) > 0
+        assert filed_complaint is None
+
+        result = await db.execute(select(Complaint).where(Complaint.citizen_id == staff.id))
+        assert result.scalars().all() == []
+
+        history = await get_chat_history(session_id, staff.id, db)
+        for h in history:
+            await db.delete(h)
+        await db.commit()
+
+    async def test_a_meta_request_about_registering_does_not_get_hallucinated_into_a_complaint(
+        self, db, staff
+    ):
+        # This is the exact reported bug: neither message here describes
+        # a real problem, but the old classify_intent prompt tagged the
+        # first one as "complaint" and extraction invented a category
+        # and location from nothing. Two turns, same as the original
+        # report (a meta-request, then an unrelated follow-up), neither
+        # should ever result in a filed complaint.
+        session_id = f"pytest-session-{uuid.uuid4()}"
+
+        first_reply, first_filed = await send_chat_message(
+            session_id, staff.id, "i want you to generate a prompt to register a complaint", db, user_role="staff"
+        )
+        assert isinstance(first_reply, str) and len(first_reply) > 0
+        assert first_filed is None
+
+        second_reply, second_filed = await send_chat_message(
+            session_id, staff.id, "i love you", db, user_role="staff"
+        )
+        assert isinstance(second_reply, str) and len(second_reply) > 0
+        assert second_filed is None
+
+        result = await db.execute(select(Complaint).where(Complaint.citizen_id == staff.id))
+        assert result.scalars().all() == [], (
+            "no complaint should ever be filed for a staff caller, regardless of what "
+            "the conversation was misclassified as"
+        )
+
+        history = await get_chat_history(session_id, staff.id, db)
+        for h in history:
+            await db.delete(h)
+        await db.commit()
+
+
+class TestCitizenMetaRequestsDoNotHallucinateAComplaint:
+    """
+    Same regression as TestStaffCannotFileComplaintsViaChat, but for a
+    citizen caller: a meta-request about the registration feature
+    should never be misread as an actual complaint report either,
+    the fix (classify_intent routing these to app_help instead of
+    leaving them ambiguous) applies regardless of role.
+    """
+
+    async def test_a_meta_request_about_registering_is_not_filed_as_a_complaint(self, db, citizen):
+        session_id = f"pytest-session-{uuid.uuid4()}"
+
+        reply, filed_complaint = await send_chat_message(
+            session_id, citizen.id, "i want you to generate a prompt to register a complaint", db
+        )
+
+        assert isinstance(reply, str) and len(reply) > 0
+        assert filed_complaint is None, (
+            "a meta-request about the registration feature is not itself a complaint "
+            "report and must not get filed as one"
+        )
+
+        result = await db.execute(select(Complaint).where(Complaint.citizen_id == citizen.id))
+        assert result.scalars().all() == []
+
+        history = await get_chat_history(session_id, citizen.id, db)
         for h in history:
             await db.delete(h)
         await db.commit()

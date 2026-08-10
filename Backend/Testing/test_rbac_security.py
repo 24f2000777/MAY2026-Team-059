@@ -24,6 +24,7 @@ from uuid import uuid4
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 import httpx
+import pytest
 from jose import jwt as jose_jwt
 
 from app.main import app
@@ -42,7 +43,39 @@ from test_auth_full_suite import (
     failed,
     PASSED,
     FAILED,
+    auth_service_module,
+    _capture_verification_email,
+    _capture_reset_email,
 )
+
+
+@pytest.fixture(autouse=True, scope="module")
+def _patch_email_sending():
+    """
+    create_verified_user (imported above) goes through register_user,
+    which needs send_verification_email patched to capture the OTP
+    instead of actually emailing it — see test_auth_full_suite.py's
+    own _patch_email_sending for the full reasoning.
+
+    That fixture only activates while test_auth_full_suite.py's own
+    tests are being collected. This file only imports plain functions
+    from it, it never collects that file's tests, so running this
+    file on its own (or bundled with anything other than
+    test_auth_full_suite.py) previously left the real
+    send_verification_email in place and create_verified_user's OTP
+    capture found nothing, failing with "No OTP captured". This file
+    needs its own copy of the same patch for the same reason.
+    """
+    original_verify = auth_service_module.send_verification_email
+    original_reset = auth_service_module.send_password_reset_email
+
+    auth_service_module.send_verification_email = _capture_verification_email
+    auth_service_module.send_password_reset_email = _capture_reset_email
+
+    yield
+
+    auth_service_module.send_verification_email = original_verify
+    auth_service_module.send_password_reset_email = original_reset
 
 def craft_malicious_token(payload: dict, secret: str = settings.SECRET_KEY) -> str:
     return jose_jwt.encode(payload, secret, algorithm=settings.ALGORITHM)

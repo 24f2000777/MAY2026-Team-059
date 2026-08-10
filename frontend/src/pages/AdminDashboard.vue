@@ -74,7 +74,8 @@ const complaints = computed(() =>
     status: c.status,
     location: c.location_text || 'No location recorded',
     assignedTo: c.assigned_to,
-    createdAt: c.created_at
+    createdAt: c.created_at,
+    priorityScore: c.priority_score
   }))
 )
 
@@ -103,7 +104,7 @@ const filtered = computed(() =>
     .filter((c) => categoryFilter.value === 'All' || c.category === categoryFilter.value)
     .filter((c) => !areaFilter.value || c.location.toLowerCase().includes(areaFilter.value.toLowerCase()))
     .filter((c) => !dateFilter.value || localDate(c.createdAt) === dateFilter.value)
-    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+    .sort((a, b) => b.priorityScore - a.priorityScore)
 )
 
 const PAGE_SIZE = 20
@@ -253,6 +254,7 @@ onMounted(load)
           <table class="data-table">
             <thead>
               <tr>
+                <th>Priority</th>
                 <th>Category</th>
                 <th>Location</th>
                 <th>Status</th>
@@ -263,6 +265,7 @@ onMounted(load)
             </thead>
             <tbody>
               <tr v-for="c in paged" :key="c.id">
+                <td><span class="cc-priority">{{ c.priorityScore }}</span></td>
                 <td>{{ c.category }}</td>
                 <td>{{ c.location }}</td>
                 <td><StatusBadge :value="c.status" /></td>

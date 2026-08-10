@@ -1,37 +1,45 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '../stores/authStore'
 
-import Login from '../pages/Login.vue'
-import Register from '../pages/Register.vue'
-import LandingPage from '../pages/LandingPage.vue'
-import VerifyOtp from '../pages/VerifyOtp.vue'
-import ForgotPassword from '../pages/ForgotPassword.vue'
-import ResetPassword from '../pages/ResetPassword.vue'
+// Every route component is lazy-loaded (dynamic import) instead of
+// imported at the top of this file. A static import here pulls that
+// page (and everything it imports) into the same eagerly-loaded
+// module graph as every other route, so visiting any single page,
+// even the login screen, used to fetch and parse all ~25 pages'
+// worth of JS before first paint. Dynamic imports let Vite split
+// each route into its own chunk, fetched only when that route is
+// actually visited.
+const Login = () => import('../pages/Login.vue')
+const Register = () => import('../pages/Register.vue')
+const LandingPage = () => import('../pages/LandingPage.vue')
+const VerifyOtp = () => import('../pages/VerifyOtp.vue')
+const ForgotPassword = () => import('../pages/ForgotPassword.vue')
+const ResetPassword = () => import('../pages/ResetPassword.vue')
 
-import CitizenDashboard from '../pages/CitizenDashboard.vue'
-import SubmitComplaint from '../pages/SubmitComplaint.vue'
-import ComplaintDetail from '../pages/ComplaintDetail.vue'
-import RateReview from '../pages/RateReview.vue'
-import CitizenAnalytics from '../pages/CitizenAnalytics.vue'
+const CitizenDashboard = () => import('../pages/CitizenDashboard.vue')
+const SubmitComplaint = () => import('../pages/SubmitComplaint.vue')
+const ComplaintDetail = () => import('../pages/ComplaintDetail.vue')
+const RateReview = () => import('../pages/RateReview.vue')
+const CitizenAnalytics = () => import('../pages/CitizenAnalytics.vue')
 
-import StaffDashboard from '../pages/StaffDashboard.vue'
-import ComplaintUpdate from '../pages/ComplaintUpdate.vue'
-import StaffAnalytics from '../pages/StaffAnalytics.vue'
+const StaffDashboard = () => import('../pages/StaffDashboard.vue')
+const ComplaintUpdate = () => import('../pages/ComplaintUpdate.vue')
+const StaffAnalytics = () => import('../pages/StaffAnalytics.vue')
 
-import AdminDashboard from '../pages/AdminDashboard.vue'
-import AssignmentPage from '../pages/AssignmentPage.vue'
-import AnalyticsPage from '../pages/AnalyticsPage.vue'
-import StaffManagement from '../pages/StaffManagement.vue'
+const AdminDashboard = () => import('../pages/AdminDashboard.vue')
+const AssignmentPage = () => import('../pages/AssignmentPage.vue')
+const AnalyticsPage = () => import('../pages/AnalyticsPage.vue')
+const StaffManagement = () => import('../pages/StaffManagement.vue')
 
-import NagrikSaathi from '../pages/NagrikSaathi.vue'
-import Notifications from '../pages/Notifications.vue'
-import Profile from '../pages/Profile.vue'
-import FeedbackReport from '../pages/FeedbackReport.vue'
-import Faqs from '../pages/Faqs.vue'
-import PrivacyPolicy from '../pages/PrivacyPolicy.vue'
-import TermsOfService from '../pages/TermsOfService.vue'
-import ContactUs from '../pages/ContactUs.vue'
-import NotFound from '../pages/NotFound.vue'
+const NagrikSaathi = () => import('../pages/NagrikSaathi.vue')
+const Notifications = () => import('../pages/Notifications.vue')
+const Profile = () => import('../pages/Profile.vue')
+const FeedbackReport = () => import('../pages/FeedbackReport.vue')
+const Faqs = () => import('../pages/Faqs.vue')
+const PrivacyPolicy = () => import('../pages/PrivacyPolicy.vue')
+const TermsOfService = () => import('../pages/TermsOfService.vue')
+const ContactUs = () => import('../pages/ContactUs.vue')
+const NotFound = () => import('../pages/NotFound.vue')
 
 const routes = [
   { path: '/', name: 'landing', component: LandingPage, meta: { guest: true } },

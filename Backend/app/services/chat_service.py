@@ -16,6 +16,7 @@ from app.model import ChatSession, Complaint
 from app.schemas.complaint import ComplaintCreate, ComplaintLocation
 from app.services.category_service import BMC_TO_OUR_CATEGORY
 from app.services.complaint_service import create_complaint
+from app.utils.constants import ROLE_CITIZEN
 from app.utils.exceptions import ChatSessionAccessDeniedError
 
 logger = logging.getLogger(__name__)
@@ -110,10 +111,16 @@ async def _file_complaint_from_chat(
 
 
 async def send_chat_message(
-    session_id: str, user_id, message: str, db, latitude: float | None = None, longitude: float | None = None
+    session_id: str,
+    user_id,
+    message: str,
+    db,
+    latitude: float | None = None,
+    longitude: float | None = None,
+    user_role: str = ROLE_CITIZEN,
 ) -> tuple[str, Complaint | None]:
     """
-    Logs the citizen's message, gets Nagrik Saathi's reply, logs that
+    Logs the caller's message, gets Nagrik Saathi's reply, logs that
     too, and returns (reply, complaint). Both messages are saved even
     though the conversation graph itself never raises (it has its own
     internal fallback chain), so a chat session always has a complete
@@ -124,6 +131,15 @@ async def send_chat_message(
     it, scored and routed the same way POST /complaints does, and
     returns it alongside the reply so the route can surface it to the
     frontend. complaint is None on every turn that didn't file one.
+
+    user_role ('citizen' or 'staff') is passed into the conversation
+    graph so it can gate what the conversation is allowed to do — a
+    staff caller is redirected away from complaint filing entirely
+    (see conversation_graph.route_by_intent), so extracted_info should
+    never come back non-None for one. The `user_role == ROLE_CITIZEN`
+    check below is defense in depth on top of that graph-level gate,
+    not the only thing preventing a complaint from being filed on a
+    staff member's behalf.
 
     latitude/longitude are optional GPS coords from the chat UI's
     "share location" button. The frontend resends whatever it last
@@ -138,12 +154,14 @@ async def send_chat_message(
     # it in a thread so it doesn't stall the event loop for other
     # requests. The surrounding db calls stay on this coroutine's own
     # event loop.
-    reply, extracted_info = await run_in_threadpool(send_message_and_extract, message, session_id)
+    reply, extracted_info = await run_in_threadpool(
+        send_message_and_extract, message, session_id, user_role
+    )
 
     db.add(ChatSession(session_id=session_id, user_id=user_id, role="assistant", message=reply))
 
     complaint = None
-    if extracted_info is not None:
+    if extracted_info is not None and user_role == ROLE_CITIZEN:
         complaint = await _file_complaint_from_chat(user_id, extracted_info, db, latitude, longitude)
 
     # flush, not commit: transaction boundaries belong to the get_db

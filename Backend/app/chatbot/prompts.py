@@ -43,6 +43,12 @@ extraction_prompt = ChatPromptTemplate.from_messages([
      "doesn't genuinely fit even loosely), set complaint_category to null. Do not force "
      "a match into the closest sounding category just because something needs to be "
      "picked, only pick a category when it genuinely fits.\n\n"
+     "This includes messages asking you to do something (generate text, write an "
+     "example, explain how filing works) rather than actually describing a real problem "
+     "the person is experiencing right now — those are not complaints even if the word "
+     '"complaint" appears in them, set complaint_category to null for these too. Every '
+     "field you return must come from something actually stated in the message, never "
+     "invented to make a plausible-sounding complaint out of a message that isn't one.\n\n"
      f"severity must be exactly one of {SEVERITY_LEVELS}. Default to Medium if the message "
      "gives no clue about urgency. Only use Critical or High when the message clearly signals "
      "danger or something urgent.\n\n"

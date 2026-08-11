@@ -6,6 +6,7 @@ import 'leaflet/dist/leaflet.css'
 import { useAuthStore } from '../stores/authStore'
 import { getWards, createComplaint, uploadAttachment } from '../api/complaintApi'
 import { CATEGORIES, categoryLabel } from '../constants/categories'
+import { reverseGeocode } from '../utils/geocode'
 
 const auth = useAuthStore()
 const router = useRouter()
@@ -59,7 +60,7 @@ function updateLocation(lat, lng) {
       draggable: true
     }).addTo(map)
 
-    marker.on('dragend', () => {
+    marker.on('dragend', async () => {
       const position = marker.getLatLng()
 
       coords.value = {
@@ -67,31 +68,16 @@ function updateLocation(lat, lng) {
         longitude: position.lng
       }
 
-      reverseGeocode(position.lat, position.lng)
+      const resolved = await reverseGeocode(position.lat, position.lng)
+      if (resolved) address.value = resolved
     })
   }
 
   map.setView([lat, lng], 16)
 
-  reverseGeocode(lat, lng)
-}
-
-async function reverseGeocode(lat, lng) {
-  try {
-    const response = await fetch(
-      `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}`
-    )
-
-    if (!response.ok) return
-
-    const data = await response.json()
-
-    if (data.display_name) {
-      address.value = data.display_name
-    }
-  } catch {
-    /* Keep coordinates even if address lookup fails */
-  }
+  reverseGeocode(lat, lng).then((resolved) => {
+    if (resolved) address.value = resolved
+  })
 }
 
 function useMyLocation() {

@@ -42,6 +42,14 @@ class ConversationState(TypedDict):
     awaiting_location: Optional[bool]
     location_attempts: Optional[int]
     awaiting_photo_confirmation: Optional[bool]
+    # GPS coords plus the frontend's reverse-geocoded address for them
+    # (see geocode.js), sent once a citizen taps the chat's location
+    # button. gps_address (not just "address") to keep every call site
+    # explicit that this came from GPS and can be trusted outright,
+    # unlike a location string the LLM pulled out of typed text.
+    latitude: Optional[float]
+    longitude: Optional[float]
+    gps_address: Optional[str]
     # 'citizen' or 'staff'. Citizens can file complaints through chat,
     # staff can't (that's not their workflow, see route_by_intent) —
     # everything else (BMC policy/procedure Q&A, app help) is open to
@@ -72,6 +80,11 @@ def entry_node(state):
     # their mind and ask something else instead, in which case we drop the
     # half finished complaint rather than force feeding it a location forever
     if not state.get("awaiting_location"):
+        return {}
+
+    # A shared GPS pin is never a derail, unlike typed text there's no
+    # ambiguity to check, so skip the LLM call entirely when one's here.
+    if state.get("gps_address"):
         return {}
 
     last_message = state["messages"][-1].content
@@ -182,6 +195,26 @@ def is_within_bmc_jurisdiction(location):
     return "yes" in answer
 
 
+# Rough bounding box around Greater Mumbai (BMC's jurisdiction), used only
+# when a location came from GPS - deterministic and exact, unlike
+# is_within_bmc_jurisdiction above, which stays the fallback for typed-text
+# locations where there's no lat/long to check against. Deliberately a bit
+# generous past the city-proper boundary (Thane creek, Navi Mumbai fringe)
+# so a legitimate GPS fix near the edge doesn't get falsely rejected - this
+# is a sanity check, not an authoritative jurisdiction boundary.
+MUMBAI_LAT_MIN, MUMBAI_LAT_MAX = 18.85, 19.35
+MUMBAI_LNG_MIN, MUMBAI_LNG_MAX = 72.75, 73.05
+
+
+def is_within_mumbai_bounds(latitude, longitude):
+    if latitude is None or longitude is None:
+        return True  # nothing to check against, don't false-reject
+    return (
+        MUMBAI_LAT_MIN <= latitude <= MUMBAI_LAT_MAX
+        and MUMBAI_LNG_MIN <= longitude <= MUMBAI_LNG_MAX
+    )
+
+
 def is_location_specific_enough(location):
     # "near my building" or "my area" aren't real places, running those through
     # the jurisdiction check gives a confusing wrong answer, so catch this first
@@ -205,16 +238,37 @@ def is_location_specific_enough(location):
 # reply.
 
 
-def finalize_complaint(info, attempts=0):
+def finalize_complaint(info, attempts=0, has_gps=False):
     """
     Runs the checks that need to happen once we have a category and a location,
     whichever turn they actually arrived on, and either logs the complaint or
     explains why it can't be logged. attempts caps how many times we'll ask for
     a more specific location before just accepting whatever we were given, so
     this can never turn into an endless loop.
+
+    has_gps means info["location"] came from a shared GPS pin (reverse
+    geocoded on the frontend), not the LLM guessing at typed text. A GPS
+    fix is exact by definition, so both LLM checks below are skipped in
+    favor of a plain coordinate bounding-box check instead.
     """
+    if has_gps:
+        if not is_within_mumbai_bounds(info.get("latitude"), info.get("longitude")):
+            reply = build_out_of_jurisdiction_reply(info["location"])
+            return {
+                "awaiting_location": False,
+                "pending_complaint": None,
+                "location_attempts": 0,
+                "awaiting_photo_confirmation": False,
+                "messages": [AIMessage(content=reply)],
+            }
+        return ask_about_photo(info)
+
     if attempts < MAX_LOCATION_ATTEMPTS and not is_location_specific_enough(info["location"]):
-        reply = "Could you be a bit more specific about the area, like a neighborhood, street, or nearby landmark?"
+        reply = (
+            "Could you be a bit more specific about the area, like a neighborhood, "
+            "street, or nearby landmark? Or tap the pin button below to share your "
+            "exact location instead."
+        )
         return {
             "pending_complaint": info,
             "awaiting_location": True,
@@ -313,6 +367,13 @@ def handle_photo_followup(state):
         "awaiting_location": False,
         "pending_complaint": None,
         "location_attempts": 0,
+        # This complaint's location is already locked into info/pending_complaint
+        # above, clear the raw GPS state so a stale fix from several turns back
+        # can't silently attach itself to a later, unrelated complaint in the
+        # same conversation thread.
+        "latitude": None,
+        "longitude": None,
+        "gps_address": None,
         "awaiting_photo_confirmation": False,
         "messages": [AIMessage(content=reply)],
     }
@@ -337,9 +398,25 @@ def handle_complaint(state):
     # location-followup one, so create_complaint has real complaint text
     # to store rather than just "near <location>" from a followup turn.
     extracted_info["description"] = last_message
+    # Same reasoning: finalize_complaint's GPS bounding-box check needs
+    # coordinates regardless of which turn it actually runs on.
+    extracted_info["latitude"] = state.get("latitude")
+    extracted_info["longitude"] = state.get("longitude")
+
+    # A shared GPS pin always wins over whatever the LLM pulled out of
+    # the typed text, it's more precise by definition - this also keeps
+    # has_gps meaning what finalize_complaint needs it to mean: "location
+    # is the GPS address," not just "GPS happened to also be available."
+    gps_address = state.get("gps_address")
+    if gps_address:
+        extracted_info["location"] = gps_address
 
     if not extracted_info.get("location"):
-        reply = "Got it, that sounds annoying. Just one more thing, which area or landmark is this near?"
+        reply = (
+            "Got it, that sounds annoying. Just one more thing, which area or "
+            "landmark is this near? Or tap the pin button below to share your "
+            "exact location."
+        )
         return {
             "pending_complaint": extracted_info,
             "awaiting_location": True,
@@ -347,7 +424,7 @@ def handle_complaint(state):
             "messages": [AIMessage(content=reply)],
         }
 
-    return finalize_complaint(extracted_info)
+    return finalize_complaint(extracted_info, has_gps=bool(gps_address))
 
 
 def clean_up_location_text(raw_text):
@@ -362,11 +439,18 @@ def clean_up_location_text(raw_text):
 
 
 def handle_location_followup(state):
-    last_message = state["messages"][-1].content
     pending = dict(state.get("pending_complaint") or {})
-    pending["location"] = clean_up_location_text(last_message)
+    pending["latitude"] = state.get("latitude")
+    pending["longitude"] = state.get("longitude")
     attempts = state.get("location_attempts") or 0
 
+    gps_address = state.get("gps_address")
+    if gps_address:
+        pending["location"] = gps_address
+        return finalize_complaint(pending, attempts=attempts, has_gps=True)
+
+    last_message = state["messages"][-1].content
+    pending["location"] = clean_up_location_text(last_message)
     return finalize_complaint(pending, attempts=attempts)
 
 
@@ -588,7 +672,9 @@ def safe_send_message(message, thread_id, role="citizen"):
         return SAFE_FALLBACK_REPLY
 
 
-def send_message_and_extract(message, thread_id, role="citizen"):
+def send_message_and_extract(
+    message, thread_id, role="citizen", latitude=None, longitude=None, gps_address=None
+):
     """
     Like safe_send_message, but also returns the info finalize_complaint
     extracted on this specific turn (category/severity/location/
@@ -602,6 +688,12 @@ def send_message_and_extract(message, thread_id, role="citizen"):
     redirects "complaint" intent away from handle_complaint for staff),
     so this never files a complaint on a staff member's behalf.
 
+    latitude/longitude/gps_address are the chat UI's "share location"
+    button state (see chat_service.send_chat_message), passed on every
+    turn the same way role is - so the turn that actually needs them
+    (asking for or finalizing a location) always has them, whichever
+    turn that ends up being.
+
     extracted_info lives in the checkpointed graph state, which persists
     across turns for this thread_id. Once read here, it's immediately
     cleared via update_state so a later, unrelated turn (chitchat, a
@@ -611,7 +703,13 @@ def send_message_and_extract(message, thread_id, role="citizen"):
     config = {"configurable": {"thread_id": thread_id}}
     try:
         result = conversation_graph.invoke(
-            {"messages": [HumanMessage(content=message)], "role": role},
+            {
+                "messages": [HumanMessage(content=message)],
+                "role": role,
+                "latitude": latitude,
+                "longitude": longitude,
+                "gps_address": gps_address,
+            },
             config=config,
         )
         reply = result["messages"][-1].content

@@ -17,6 +17,13 @@ class ChatMessageRequest(BaseModel):
     latitude: float | None = Field(default=None, ge=-90, le=90)
     longitude: float | None = Field(default=None, ge=-180, le=180)
 
+    # Reverse-geocoded from latitude/longitude on the frontend (see
+    # geocode.js), a clean human-readable address paired with the raw
+    # coordinates above. Deterministic, not LLM-guessed, so the
+    # conversation graph trusts it outright instead of running its
+    # usual "is this specific enough"/"is this in Mumbai" checks on it.
+    address: str | None = Field(default=None, max_length=250)
+
     @model_validator(mode="after")
     def validate_coords_paired(self):
         if (self.latitude is None) != (self.longitude is None):

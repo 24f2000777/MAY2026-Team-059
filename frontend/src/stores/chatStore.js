@@ -117,6 +117,7 @@ export const useChatStore = defineStore('chat', {
           message: text,
           latitude: this.location?.latitude,
           longitude: this.location?.longitude,
+          address: this.location?.address,
           accessToken
         })
         if (data.complaint) {

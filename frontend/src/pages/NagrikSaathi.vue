@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/authStore'
 import { useChatStore } from '../stores/chatStore'
 import { getMyComplaints } from '../api/complaintApi'
+import { reverseGeocode } from '../utils/geocode'
 import StatusBadge from '../components/StatusBadge.vue'
 
 const auth = useAuthStore()
@@ -152,8 +153,17 @@ function shareLocation() {
     return
   }
   navigator.geolocation.getCurrentPosition(
-    (position) => {
-      chat.setLocation({ latitude: position.coords.latitude, longitude: position.coords.longitude })
+    async (position) => {
+      const { latitude, longitude } = position.coords
+      // Reverse geocoded here so the bot gets a real address instead of
+      // having to guess one from whatever's typed - see conversation_graph.py,
+      // a shared GPS pin skips its usual "is this specific enough" checks
+      // entirely and trusts this address outright. Still set the coords even
+      // if geocoding itself fails (address stays null), so the backend can
+      // fall back to the ordinary typed-text flow for that turn instead of
+      // silently trusting an address it doesn't actually have.
+      const address = await reverseGeocode(latitude, longitude)
+      chat.setLocation({ latitude, longitude, address })
     },
     () => {
       chat.error = 'Could not get your location. You can still describe it in your message.'
@@ -164,12 +174,15 @@ function shareLocation() {
 async function send() {
   let text = draft.value.trim()
 
-  // A photo on its own is a valid message (the citizen may just want
-  // to show something), the backend still needs some non-empty text
-  // though, so fall back to a placeholder rather than blocking send
-  // entirely when there's nothing typed but a photo is attached.
+  // A photo or a shared location on their own are valid messages (the
+  // citizen may just want to show/point at something), the backend
+  // still needs some non-empty text though, so fall back to a
+  // placeholder rather than blocking send entirely when there's
+  // nothing typed but a photo or location is attached.
   if (!text && chat.pendingImages.length > 0) {
     text = 'Sharing a photo.'
+  } else if (!text && chat.location) {
+    text = 'Sharing my location.'
   }
 
   if (!text) return

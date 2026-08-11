@@ -117,6 +117,7 @@ async def send_chat_message(
     db,
     latitude: float | None = None,
     longitude: float | None = None,
+    address: str | None = None,
     user_role: str = ROLE_CITIZEN,
 ) -> tuple[str, Complaint | None]:
     """
@@ -142,9 +143,12 @@ async def send_chat_message(
     staff member's behalf.
 
     latitude/longitude are optional GPS coords from the chat UI's
-    "share location" button. The frontend resends whatever it last
-    captured on every turn, so they're just passed straight through
-    to whichever turn ends up actually filing the complaint.
+    "share location" button, address is the frontend's reverse-geocoded
+    string for that same fix. The frontend resends whatever it last
+    captured on every turn, so they're passed into the conversation
+    graph itself now (not just used after filing) - a citizen sharing
+    their location this way should never get asked "which area is
+    this near", the graph needs these before it decides that.
     """
     await _check_session_ownership(session_id, user_id, db)
 
@@ -155,7 +159,7 @@ async def send_chat_message(
     # requests. The surrounding db calls stay on this coroutine's own
     # event loop.
     reply, extracted_info = await run_in_threadpool(
-        send_message_and_extract, message, session_id, user_role
+        send_message_and_extract, message, session_id, user_role, latitude, longitude, address
     )
 
     db.add(ChatSession(session_id=session_id, user_id=user_id, role="assistant", message=reply))

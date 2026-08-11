@@ -50,6 +50,7 @@ async def send_message(
         db,
         body.latitude,
         body.longitude,
+        body.address,
         user_role=current_user.role,
     )
     return SuccessResponse[ChatMessageResponse](

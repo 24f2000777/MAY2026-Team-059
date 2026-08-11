@@ -9,6 +9,20 @@ from .providers import (
 )
 
 
+def _location_is_grounded(location, user_query):
+    """
+    Rejects a location the model claims to have found if none of its
+    words actually appear anywhere in the message it supposedly came
+    from — a cheap, deterministic check that catches the exact failure
+    mode temperature=0 on the extraction LLM (see providers.py) reduces
+    but can't fully rule out: a plausible-sounding place name invented
+    for a message that never mentioned one at all.
+    """
+    query_words = set(user_query.lower().split())
+    location_words = [w.strip(".,!?()") for w in location.lower().split()]
+    return any(len(w) >= 3 and w in query_words for w in location_words)
+
+
 def extract_complaint_info(user_query):
     # extraction_chain has its own provider fallbacks built in (see
     # providers.py) — up to 3 sequential provider attempts inside this one
@@ -26,6 +40,8 @@ def extract_complaint_info(user_query):
     category = result.complaint_category.strip() if result.complaint_category else None
     severity = result.severity.strip()
     location = result.location.strip() if result.location else None
+    if location and not _location_is_grounded(location, user_query):
+        location = None
 
     if category is not None and category not in CATEGORIES:
         raise ValueError(f"llm returned an invalid category: {category}")

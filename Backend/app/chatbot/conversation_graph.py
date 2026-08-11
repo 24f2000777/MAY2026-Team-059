@@ -302,9 +302,8 @@ def ask_about_photo(info):
     reply turns out to be about something else entirely.
     """
     reply = (
-        "Got it, that's everything I need. Want to add a photo of the issue? "
-        "It's optional, use the photo button below if you have one, or just send "
-        "anything to continue without it."
+        "Got it, that's everything I need. You can add a photo using the button "
+        "below if you have one, or type \"skip\" to continue without one."
     )
     return {
         "pending_complaint": info,

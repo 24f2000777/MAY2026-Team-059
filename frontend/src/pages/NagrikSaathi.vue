@@ -777,8 +777,8 @@ async function send() {
   max-width: min(680px, 72%);
   padding: 11px 14px;
   border-radius: 15px;
-  font-size: 13px;
-  line-height: 1.55;
+  font-size: 15px;
+  line-height: 1.6;
   overflow-wrap: anywhere;
 }
 
@@ -998,7 +998,7 @@ async function send() {
   border-radius: 999px;
   background: #f8faf7;
   color: var(--text);
-  font-size: 13px;
+  font-size: 15px;
 }
 
 .chat-input input::placeholder {
@@ -1241,7 +1241,7 @@ footer {
 
   .chat-bubble {
     max-width: 88%;
-    font-size: 13px;
+    font-size: 14px;
   }
 
   .chat-input {

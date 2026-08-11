@@ -122,6 +122,12 @@ export const useChatStore = defineStore('chat', {
         })
         if (data.complaint) {
           await this._uploadPendingImages(data.complaint.id, accessToken)
+          // This location was already spent on the complaint that just
+          // filed (see conversation_graph.py's matching cleanup on the
+          // backend side) - clearing it here is what makes the "Location
+          // shared" chip disappear from the composer instead of lingering
+          // as if it still applies to whatever's said next.
+          this.clearLocation()
         }
         this.messages.push({ from: 'bot', text: data.reply, complaint: data.complaint ?? null })
       } catch (e) {

@@ -41,6 +41,7 @@ from app.utils.exceptions import (
     CannotModifySelfError,
     CannotDeactivateLastAdminError,
     CannotChangeAdminRoleError,
+    UserNotStaffError,
     InvalidCredentialsError,
     InvalidTokenError,
     EmailNotVerifiedError,
@@ -155,6 +156,13 @@ async def handle_cannot_deactivate_last_admin(
 async def handle_cannot_change_admin_role(
     request: Request,
     exc: CannotChangeAdminRoleError,
+) -> JSONResponse:
+    return _error_response(status.HTTP_409_CONFLICT, exc)
+
+
+async def handle_user_not_staff(
+    request: Request,
+    exc: UserNotStaffError,
 ) -> JSONResponse:
     return _error_response(status.HTTP_409_CONFLICT, exc)
 
@@ -539,6 +547,11 @@ def register_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(
         CannotChangeAdminRoleError,
         handle_cannot_change_admin_role,
+    )
+
+    app.add_exception_handler(
+        UserNotStaffError,
+        handle_user_not_staff,
     )
 
     app.add_exception_handler(

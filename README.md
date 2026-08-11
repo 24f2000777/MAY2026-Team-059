@@ -98,8 +98,11 @@ Everyone points at the same Supabase database, so there's exactly one admin acco
 
 ```
 email:    admin@nagrikai.team
-password: Nagrik@2026
+password: TestPass123!
 ```
+
+> [!NOTE]
+> Password was reset during testing (2026-08-11), the old `Nagrik@2026` no longer works. If you change it again, update this section so the next person isn't stuck.
 
 > [!WARNING]
 > This account can hard-delete complaints and manage every user. Keep it out of anywhere public, screenshots included. Use it to create staff accounts too, through `POST /admin/users`, there's no signup page for staff or admin.

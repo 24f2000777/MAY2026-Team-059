@@ -10,6 +10,7 @@ from ..core.database import get_db
 from ..dependencies.roles import require_roles
 from ..model import User
 from ..schemas.admin import (
+    AssignStaffDepartmentRequest,
     CreateStaffRequest,
     DepartmentCreateRequest,
     DepartmentListResponse,
@@ -27,6 +28,7 @@ from ..schemas.admin import (
 from ..schemas.common import SuccessResponse
 from ..schemas.complaint import ComplaintCategory, ComplaintStatus
 from ..services.admin_service import (
+    assign_staff_department,
     create_department,
     create_staff_account,
     delete_department,
@@ -83,8 +85,12 @@ async def create_staff_account_route(
     Raises:
         EmailAlreadyExistsError: 409, if the email is already registered.
         PhoneAlreadyExistsError: 409, if the phone is already registered.
+        DepartmentNotFoundError: 404, if department_id is given but
+            doesn't match a real department.
     """
-    staff = await create_staff_account(body.name, body.phone, body.email, body.password, db)
+    staff = await create_staff_account(
+        body.name, body.phone, body.email, body.password, db, department_id=body.department_id
+    )
     await db.commit()
 
     return SuccessResponse[StaffAccountOut](
@@ -339,5 +345,35 @@ async def update_user_role_route(
 
     return SuccessResponse[UserOut](
         message="User role updated.",
+        data=UserOut.model_validate(user),
+    )
+
+
+@router.patch(
+    "/users/{user_id}/department",
+    response_model=SuccessResponse[UserOut],
+    summary="Assign or unassign a staff member's department (admin only)",
+)
+async def assign_staff_department_route(
+    user_id: UUID,
+    body: AssignStaffDepartmentRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles(ROLE_ADMIN)),
+):
+    """
+    department_id: null unassigns the staff member from whatever
+    department they're currently in.
+
+    Raises:
+        UserNotFoundError: 404, if the user doesn't exist.
+        UserNotStaffError: 409, if the user isn't a staff account.
+        DepartmentNotFoundError: 404, if department_id is given but
+            doesn't match a real department.
+    """
+    user = await assign_staff_department(user_id, body.department_id, db)
+    await db.commit()
+
+    return SuccessResponse[UserOut](
+        message="Staff department updated.",
         data=UserOut.model_validate(user),
     )

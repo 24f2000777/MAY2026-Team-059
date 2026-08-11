@@ -2,12 +2,20 @@
 import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/authStore'
-import { createStaffAccount, listOfficers } from '../api/complaintApi'
+import {
+  assignStaffDepartment,
+  createDepartment,
+  createStaffAccount,
+  deleteDepartment,
+  listDepartments,
+  listOfficers
+} from '../api/complaintApi'
 
 const auth = useAuthStore()
 const router = useRouter()
 
 const officers = ref([])
+const departments = ref([])
 const loading = ref(true)
 const loadError = ref('')
 
@@ -15,17 +23,34 @@ const name = ref('')
 const phone = ref('')
 const email = ref('')
 const password = ref('')
+const departmentId = ref('')
 const formError = ref('')
 const successMessage = ref('')
 const saving = ref(false)
+
+// Per-officer "reassign department" dropdown state, keyed by officer id,
+// so changing one row's select doesn't touch any other row's in-flight state.
+const reassigning = ref({})
+const reassignError = ref({})
+
+const deptName = ref('')
+const deptDescription = ref('')
+const deptFormError = ref('')
+const deptSaving = ref(false)
+const deptDeletingId = ref(null)
+const deptError = ref({})
 
 const phonePattern = /^[0-9]{10}$/
 
 async function load() {
   loadError.value = ''
   try {
-    const data = await listOfficers({ accessToken: auth.accessToken })
-    officers.value = data.officers
+    const [officersData, departmentsData] = await Promise.all([
+      listOfficers({ accessToken: auth.accessToken }),
+      listDepartments({ accessToken: auth.accessToken })
+    ])
+    officers.value = officersData.officers
+    departments.value = departmentsData.departments
   } catch (e) {
     if (e.status === 401) {
       await auth.logout()
@@ -60,6 +85,7 @@ async function submit() {
       phone: phone.value,
       email: email.value,
       password: password.value,
+      departmentId: departmentId.value || null,
       accessToken: auth.accessToken
     })
     successMessage.value = `${name.value} can now log in as staff.`
@@ -67,11 +93,66 @@ async function submit() {
     phone.value = ''
     email.value = ''
     password.value = ''
+    departmentId.value = ''
     await load()
   } catch (e) {
     formError.value = e.message
   } finally {
     saving.value = false
+  }
+}
+
+async function reassign(officer, newDepartmentId) {
+  reassignError.value = { ...reassignError.value, [officer.id]: '' }
+  reassigning.value = { ...reassigning.value, [officer.id]: true }
+  try {
+    await assignStaffDepartment({
+      userId: officer.id,
+      departmentId: newDepartmentId || null,
+      accessToken: auth.accessToken
+    })
+    officer.department_id = newDepartmentId || null
+  } catch (e) {
+    reassignError.value = { ...reassignError.value, [officer.id]: e.message }
+  } finally {
+    reassigning.value = { ...reassigning.value, [officer.id]: false }
+  }
+}
+
+async function submitDepartment() {
+  deptFormError.value = ''
+  if (deptName.value.trim().length < 2) {
+    deptFormError.value = 'Enter a department name (at least 2 characters).'
+    return
+  }
+
+  deptSaving.value = true
+  try {
+    await createDepartment({
+      name: deptName.value.trim(),
+      description: deptDescription.value.trim(),
+      accessToken: auth.accessToken
+    })
+    deptName.value = ''
+    deptDescription.value = ''
+    await load()
+  } catch (e) {
+    deptFormError.value = e.message
+  } finally {
+    deptSaving.value = false
+  }
+}
+
+async function removeDepartment(dept) {
+  deptError.value = { ...deptError.value, [dept.id]: '' }
+  deptDeletingId.value = dept.id
+  try {
+    await deleteDepartment({ id: dept.id, accessToken: auth.accessToken })
+    await load()
+  } catch (e) {
+    deptError.value = { ...deptError.value, [dept.id]: e.message }
+  } finally {
+    deptDeletingId.value = null
   }
 }
 </script>
@@ -162,6 +243,19 @@ async function submit() {
             </p>
           </div>
 
+          <div class="field">
+            <label for="staff-department">Department</label>
+            <select id="staff-department" v-model="departmentId">
+              <option value="">Unassigned</option>
+              <option v-for="d in departments" :key="d.id" :value="d.id">
+                {{ d.name }}
+              </option>
+            </select>
+            <p class="field-help">
+              Optional, can also be set or changed later from the staff list.
+            </p>
+          </div>
+
           <p v-if="formError" class="form-message error">
             {{ formError }}
           </p>
@@ -219,6 +313,7 @@ async function submit() {
               <tr>
                 <th>Staff Member</th>
                 <th>Contact</th>
+                <th>Department</th>
                 <th>Status</th>
               </tr>
             </thead>
@@ -248,6 +343,23 @@ async function submit() {
                 </td>
 
                 <td>
+                  <select
+                    class="dept-select"
+                    :value="o.department_id || ''"
+                    :disabled="reassigning[o.id]"
+                    @change="reassign(o, $event.target.value)"
+                  >
+                    <option value="">Unassigned</option>
+                    <option v-for="d in departments" :key="d.id" :value="d.id">
+                      {{ d.name }}
+                    </option>
+                  </select>
+                  <p v-if="reassignError[o.id]" class="dept-row-error">
+                    {{ reassignError[o.id] }}
+                  </p>
+                </td>
+
+                <td>
                   <span
                     class="status-pill"
                     :class="o.is_active ? 'active' : 'inactive'"
@@ -261,6 +373,106 @@ async function submit() {
           </table>
         </div>
 
+      </section>
+
+    </div>
+
+    <!-- Departments -->
+    <div class="staff-layout dept-layout">
+
+      <section class="card create-card">
+        <div class="section-heading">
+          <div class="section-icon">+</div>
+          <div>
+            <h3>Create Department</h3>
+            <p>
+              Departments staff can be assigned to, and complaints route to.
+            </p>
+          </div>
+        </div>
+
+        <form @submit.prevent="submitDepartment">
+          <div class="field">
+            <label for="dept-name">Department Name</label>
+            <input
+              id="dept-name"
+              v-model="deptName"
+              type="text"
+              placeholder="e.g. Water Supply Department"
+              required
+            />
+          </div>
+
+          <div class="field">
+            <label for="dept-description">Description</label>
+            <input
+              id="dept-description"
+              v-model="deptDescription"
+              type="text"
+              placeholder="Optional"
+            />
+          </div>
+
+          <p v-if="deptFormError" class="form-message error">
+            {{ deptFormError }}
+          </p>
+
+          <button class="btn create-btn" type="submit" :disabled="deptSaving">
+            {{ deptSaving ? 'Creating...' : 'Create Department' }}
+          </button>
+        </form>
+      </section>
+
+      <section class="card staff-list-card">
+        <div class="section-heading staff-list-heading">
+          <div>
+            <p class="section-eyebrow">MUNICIPAL DEPARTMENTS</p>
+            <h3>Existing Departments</h3>
+            <p>Delete only works while nothing is assigned to a department.</p>
+          </div>
+
+          <span class="account-badge">{{ departments.length }}</span>
+        </div>
+
+        <div v-if="!loading && departments.length === 0" class="staff-empty">
+          <div class="empty-icon">+</div>
+          <strong>No departments yet</strong>
+          <p>Create the first department using the form.</p>
+        </div>
+
+        <div v-else class="staff-table-wrap">
+          <table class="staff-table">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Description</th>
+                <th></th>
+              </tr>
+            </thead>
+
+            <tbody>
+              <tr v-for="d in departments" :key="d.id">
+                <td><strong>{{ d.name }}</strong></td>
+                <td>
+                  <span class="phone-number">{{ d.description || 'No description' }}</span>
+                </td>
+                <td>
+                  <button
+                    class="btn-link-danger"
+                    type="button"
+                    :disabled="deptDeletingId === d.id"
+                    @click="removeDepartment(d)"
+                  >
+                    {{ deptDeletingId === d.id ? 'Deleting...' : 'Delete' }}
+                  </button>
+                  <p v-if="deptError[d.id]" class="dept-row-error">
+                    {{ deptError[d.id] }}
+                  </p>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </section>
 
     </div>
@@ -611,6 +823,47 @@ async function submit() {
     opacity: 1;
     transform: scale(1);
   }
+}
+
+/* Departments */
+
+.dept-layout {
+  margin-top: 20px;
+}
+
+.dept-select {
+  min-width: 160px;
+  padding: 7px 10px;
+  font-size: 12px;
+}
+
+.dept-select:disabled {
+  opacity: .6;
+}
+
+.dept-row-error {
+  margin: 6px 0 0;
+  color: var(--danger);
+  font-size: 11px;
+}
+
+.btn-link-danger {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--danger);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.btn-link-danger:disabled {
+  opacity: .6;
+  cursor: default;
+}
+
+.btn-link-danger:hover:not(:disabled) {
+  text-decoration: underline;
 }
 
 /* Responsive */

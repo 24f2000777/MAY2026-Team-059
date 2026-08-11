@@ -17,6 +17,10 @@ class CreateStaffRequest(BaseModel):
     phone: str = Field(..., min_length=10, max_length=15)
     email: EmailStr
     password: str = Field(..., min_length=8, max_length=128)
+    department_id: UUID | None = Field(
+        default=None,
+        description="Optional, assigns the new staff account to this department immediately.",
+    )
 
 
 class StaffAccountOut(BaseModel):
@@ -28,6 +32,7 @@ class StaffAccountOut(BaseModel):
     email: str
     role: str
     is_active: bool
+    department_id: UUID | None = None
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
@@ -91,6 +96,16 @@ class UpdateUserRoleRequest(BaseModel):
     """
 
     role: Literal["citizen", "staff"]
+
+
+class AssignStaffDepartmentRequest(BaseModel):
+    """
+    Request body for PATCH /admin/users/{id}/department. department_id
+    is nullable on purpose, sending null unassigns the staff member
+    from whatever department they're currently in.
+    """
+
+    department_id: UUID | None = None
 
 
 class DepartmentCreateRequest(BaseModel):

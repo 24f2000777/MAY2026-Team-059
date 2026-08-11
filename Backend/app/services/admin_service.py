@@ -21,6 +21,7 @@ from app.utils.exceptions import (
     EmailAlreadyExistsError,
     PhoneAlreadyExistsError,
     UserNotFoundError,
+    UserNotStaffError,
 )
 
 
@@ -36,15 +37,21 @@ async def list_officers(db) -> list[User]:
     return result.scalars().all()
 
 
-async def create_staff_account(name: str, phone: str, email: str, password: str, db) -> User:
+async def create_staff_account(
+    name: str, phone: str, email: str, password: str, db, department_id=None
+) -> User:
     """
     Creates a staff account, already active, no OTP/verification
     step, an admin creating an account for a real officer is already
-    a trusted action, unlike public self-registration.
+    a trusted action, unlike public self-registration. department_id
+    is optional, a staff account can also be assigned to a department
+    later through assign_staff_department.
 
     Raises:
         EmailAlreadyExistsError: 409, if the email is already registered.
         PhoneAlreadyExistsError: 409, if the phone is already registered.
+        DepartmentNotFoundError: 404, if department_id is given but
+            doesn't match a real department.
 
     Does not commit, same convention as every other service in this app.
     """
@@ -56,6 +63,9 @@ async def create_staff_account(name: str, phone: str, email: str, password: str,
     if existing_phone.first() is not None:
         raise PhoneAlreadyExistsError("Phone number is already registered.")
 
+    if department_id is not None and await db.get(Department, department_id) is None:
+        raise DepartmentNotFoundError("Department not found.")
+
     staff = User(
         name=name,
         phone=phone,
@@ -63,6 +73,7 @@ async def create_staff_account(name: str, phone: str, email: str, password: str,
         role=ROLE_STAFF,
         hashed_password=hash_password(password),
         is_active=True,
+        department_id=department_id,
     )
     db.add(staff)
     await db.flush()
@@ -275,5 +286,32 @@ async def update_user_role(user_id, role: str, current_user: User, db) -> User:
         )
 
     user.role = role
+    await db.flush()
+    return user
+
+
+async def assign_staff_department(user_id, department_id, db) -> User:
+    """
+    Assigns (or, with department_id=None, unassigns) a staff member's
+    department, backing PATCH /admin/users/{id}/department.
+
+    Raises:
+        UserNotFoundError: 404, if the user doesn't exist.
+        UserNotStaffError: 409, if the user isn't a staff account,
+            only officers belong to a department.
+        DepartmentNotFoundError: 404, if department_id is given but
+            doesn't match a real department.
+    """
+    user = await db.get(User, user_id)
+    if user is None:
+        raise UserNotFoundError("User not found.")
+
+    if user.role != ROLE_STAFF:
+        raise UserNotStaffError("Only staff accounts can be assigned to a department.")
+
+    if department_id is not None and await db.get(Department, department_id) is None:
+        raise DepartmentNotFoundError("Department not found.")
+
+    user.department_id = department_id
     await db.flush()
     return user

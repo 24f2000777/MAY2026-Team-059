@@ -94,6 +94,15 @@ class CannotChangeAdminRoleError(AuthenticationError):
     error_code = "AUTH_015"
 
 
+class UserNotStaffError(AuthenticationError):
+    """
+    Raised when trying to assign a department to a user who isn't a
+    staff account. Citizens and the admin don't belong to a
+    department, only officers do.
+    """
+    error_code = "AUTH_016"
+
+
 class InvalidCredentialsError(AuthenticationError):
     """Raised when email or password is incorrect."""
     error_code = "AUTH_001"

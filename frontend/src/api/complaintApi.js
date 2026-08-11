@@ -179,10 +179,39 @@ export function listOfficers({ accessToken }) {
   return request('/admin/officers', { token: accessToken })
 }
 
-export function createStaffAccount({ name, phone, email, password, accessToken }) {
+export function createStaffAccount({ name, phone, email, password, departmentId, accessToken }) {
   return request('/admin/users', {
     method: 'POST',
     token: accessToken,
-    body: { name, phone, email, password }
+    body: { name, phone, email, password, department_id: departmentId ?? null }
+  })
+}
+
+export function assignStaffDepartment({ userId, departmentId, accessToken }) {
+  return request(`/admin/users/${userId}/department`, {
+    method: 'PATCH',
+    token: accessToken,
+    body: { department_id: departmentId ?? null }
+  })
+}
+
+// --- Departments ---
+
+export function listDepartments({ accessToken }) {
+  return request('/admin/departments', { token: accessToken })
+}
+
+export function createDepartment({ name, description, accessToken }) {
+  return request('/admin/departments', {
+    method: 'POST',
+    token: accessToken,
+    body: { name, description: description || null }
+  })
+}
+
+export function deleteDepartment({ id, accessToken }) {
+  return request(`/admin/departments/${id}`, {
+    method: 'DELETE',
+    token: accessToken
   })
 }

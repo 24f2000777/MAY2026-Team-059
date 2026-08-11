@@ -5,6 +5,7 @@ import { useAuthStore } from '../stores/authStore'
 import { getComplaint, getComplaintHistory, listAttachments, resolveComplaint, startComplaint } from '../api/complaintApi'
 import { API_BASE_URL } from '../api/httpClient'
 import { categoryLabel } from '../constants/categories'
+import { complaintReference } from '../constants/complaintNumber'
 import StatusBadge from '../components/StatusBadge.vue'
 
 // image_url comes back as a path relative to the backend's own
@@ -122,7 +123,7 @@ onMounted(load)
         </div>
 
         <div class="hero-content">
-          <div class="eyebrow">COMPLAINT #{{ complaint.id }}</div>
+          <div class="eyebrow">COMPLAINT {{ complaintReference(complaint.complaint_number) }}</div>
 
           <h1>{{ categoryLabel(complaint.category) }}</h1>
 

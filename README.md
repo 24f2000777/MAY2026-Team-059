@@ -103,6 +103,8 @@ password: Nagrik@2026
 
 > [!WARNING]
 > This account can hard-delete complaints and manage every user. Keep it out of anywhere public, screenshots included. Use it to create staff accounts too, through `POST /admin/users`, there's no signup page for staff or admin.
+>
+> Any citizen account can now also hard-delete its own complaint while it's still "submitted" (`DELETE /complaints/{id}`, or the Delete button on the complaint detail page). Same shared database as everything else, it's gone for real, not just for that citizen.
 
 ---
 
@@ -125,7 +127,7 @@ password: Nagrik@2026
 
 A citizen reports a problem, a pothole, a water leak, a broken streetlight, either through a form or by just describing it to an AI assistant called **Nagrik Saathi**. The system reads it, scores how urgent it is, decides which BMC department should handle it, and checks for duplicates. Staff and admins review, assign, and resolve it, the citizen gets notified at every step, and once it's fixed they confirm it and leave a rating.
 
-Auth, the full complaint lifecycle, attachments, notifications, feedback, and staff/admin account creation are all real and tested against a live Postgres database, both on the backend and, for the core flow, on the frontend too. The three analytics pages, the profile page, and the general feedback form still run on sample data in the browser, see the status section in the full reference below for exactly where that line is.
+Auth, the full complaint lifecycle, attachments, notifications, feedback, analytics, and staff/admin account creation are all real and tested against a live Postgres database, both on the backend and, for the core flow, on the frontend too. The profile page and the general feedback form still run on sample data in the browser, see the status section in the full reference below for exactly where that line is.
 
 ---
 
@@ -145,6 +147,26 @@ cd Backend && pytest        # the real test suite, 30+ minutes, real DB + real A
 
 ---
 
+## 📝 Recent changes
+
+**Redesign + real submit form:** the whole app got a visual redesign (Leaflet map for picking a complaint's location, new layouts throughout). `SubmitComplaint.vue` used to be a disconnected prototype with a fake stub submit and a made-up category list, it's now wired to the real backend (`createComplaint`, `uploadAttachment`, `getWards`), with the map defaulting to Mumbai instead of New Delhi.
+
+**Attachments visible to staff/admin:** photos a citizen attaches to a complaint now show up on the staff and admin views too, not just the citizen's own.
+
+**Chatbot photo uploads fixed:** a photo attached through Nagrik Saathi could silently fail to upload with no error and no way to retry, which is why it sometimes never showed up on the staff/admin side. Now a failed upload surfaces an error and stays attached for retry instead of vanishing. You can also send a photo on its own now, without typing anything first.
+
+**Citizens can delete their own complaint:** while it's still "submitted" (before any officer has approved it), a citizen can now delete it outright, from the complaint detail page or `DELETE /complaints/{id}`. Once it's been approved, withdraw is the option instead.
+
+**Notification reminders:** a red badge on the navbar bell shows the live unread count, and a dismissible banner on every dashboard (citizen, staff, admin) reminds you when there's something unread. The backend for this already existed, it just had no UI surface before.
+
+**Admin dashboard loads faster:** it used to fetch every page of complaints one at a time in sequence. Now it fetches the first page, then every remaining page in parallel, no more 100-complaint cap either.
+
+**Admin can reject complaints:** the Reject action existed on the backend but nothing in the UI called it, only Approve did. There's now a Reject button next to Approve for any "submitted" complaint, prompting for a reason.
+
+**Short complaint reference numbers:** every complaint now has a sequential number (`NGK-000123`) shown everywhere instead of the raw UUID, backed by a real DB sequence so it's assigned atomically. The UUID is still the real id for URLs and API calls, this is purely for display.
+
+---
+
 <details>
 <summary><strong>📚 Full reference: frontend, backend, every endpoint, error codes, architecture, team</strong></summary>
 
@@ -160,29 +182,31 @@ A Vue 3 app for citizens, staff, and admins. Vue 3.5 with `<script setup>`, Vue 
 | `api/chatApi.js` | Real backend, Nagrik Saathi, real AI replies |
 | `api/complaintApi.js` | Real backend, submission, listing, detail, every lifecycle transition, attachments, feedback, officer list |
 | `api/notificationApi.js` | Real backend, listing, unread count, mark read, delete, preferences |
-| `api/client.js` | Sample data, only the 3 analytics pages, `Profile.vue`, and `FeedbackReport.vue` still use it |
+| `api/analyticsApi.js` | Real backend, `GET /analytics/summary`, scoped by role (citizen sees their own filings, staff their assignments, admin everything) |
+| `api/client.js` | Sample data, only `Profile.vue` and `FeedbackReport.vue` still use it |
 
-`FeedbackReport.vue` is a deliberate gap, not an oversight, the real feedback system is always a rating on one specific resolved complaint, there's no endpoint for untargeted app feedback yet. The admin dashboard's complaint list also caps at 100 with no pagination UI yet.
+`FeedbackReport.vue` is a deliberate gap, not an oversight, the real feedback system is always a rating on one specific resolved complaint, there's no endpoint for untargeted app feedback yet.
 
 ### What each role can do
 
-- **Citizens:** real dashboard (`GET /complaints/mine`), real complaint detail with status, history, attachments, and a real rating flow. The report form itself is still sample data, use the chatbot instead.
+- **Citizens:** real dashboard (`GET /complaints/mine`), a real submit form with map-based location picking, real complaint detail with status, history, attachments, and a real rating flow. Can also delete their own complaint while it's still "submitted", or withdraw it after approval.
 - **Staff:** real task list (`GET /complaints?assigned_to=`), contextual Start Work / Mark Resolved buttons that match the actual state machine, not a free-form dropdown.
-- **Admins:** real dashboard, real Approve and Assign/Reassign actions pulling a real staff list from `GET /admin/officers`. No Reject button in the UI yet, though the backend supports it.
-- **Everyone:** a real notifications feed with mark read / mark all read / delete.
+- **Admins:** real dashboard, real Approve/Reject and Assign/Reassign actions pulling a real staff list from `GET /admin/officers`. Fetches every page of complaints, not capped at 100.
+- **Everyone:** a real notifications feed with mark read / mark all read / delete, plus a live unread badge and dashboard reminder banner.
 
 ### Folder layout
 
 ```
 frontend/src/
-├── pages/          LandingPage, Login, Register, VerifyOtp, CitizenDashboard, SubmitComplaint (sample),
+├── pages/          LandingPage, Login, Register, VerifyOtp, CitizenDashboard, SubmitComplaint,
 │                   ComplaintDetail, RateReview, StaffDashboard, ComplaintUpdate, AdminDashboard,
 │                   AssignmentPage, NagrikSaathi, Notifications, Profile (sample), FeedbackReport (sample),
-│                   AnalyticsPage/CitizenAnalytics/StaffAnalytics (sample), Faqs, PrivacyPolicy, etc.
-├── components/     Navbar, DashboardHero, ActionTile, ComplaintCard, StatusBadge, StatCard, DonutChart, LineChart
-├── stores/         authStore.js (real), chatStore.js (real), complaintStore.js (sample, analytics pages only)
+│                   AnalyticsPage/CitizenAnalytics/StaffAnalytics, Faqs, PrivacyPolicy, etc.
+├── components/     Navbar, DashboardHero, ActionTile, ComplaintCard, StatusBadge, StatCard, DonutChart,
+│                   LineChart, NotificationBanner
+├── stores/         authStore.js, chatStore.js, notificationStore.js (all real)
 ├── api/            client.js (sample), httpClient.js (real fetch wrapper, handles multipart), authApi.js,
-│                   chatApi.js, complaintApi.js, notificationApi.js (all real)
+│                   chatApi.js, complaintApi.js, notificationApi.js, analyticsApi.js (all real)
 ├── router/index.js
 └── assets/style.css
 ```
@@ -207,13 +231,15 @@ Every protected endpoint expects `Authorization: Bearer <access_token>`. Access 
 
 **`/admin`:** `POST /users` (create staff, admin only), `GET /officers` (list staff, admin only). No endpoint creates the admin itself, see `scripts/create_admin.py`.
 
-**`/complaints`:** `POST` (create), `GET` (list, role filtered), `GET /mine`, `GET /wards`, `GET /ward/{id}`, `GET /category/{category}`, `GET /{id}`, `PATCH /{id}` (edit), `DELETE /{id}` (admin), `GET /{id}/history`, `GET`/`POST /{id}/updates` (internal notes), `PATCH /{id}/approve`, `/reject`, `/assign`, `/start`, `/resolve`, `/withdraw`, `/close`, `GET`/`POST /{id}/attachments`, `GET`/`POST /{id}/feedback`
+**`/complaints`:** `POST` (create), `GET` (list, role filtered), `GET /mine`, `GET /wards`, `GET /ward/{id}`, `GET /category/{category}`, `GET /{id}`, `PATCH /{id}` (edit), `DELETE /{id}` (admin, any complaint; or the owning citizen, only while still "submitted"), `GET /{id}/history`, `GET`/`POST /{id}/updates` (internal notes), `PATCH /{id}/approve`, `/reject`, `/assign`, `/start`, `/resolve`, `/withdraw`, `/close`, `GET`/`POST /{id}/attachments`, `GET`/`POST /{id}/feedback`
 
 **`/attachments`:** `GET`/`DELETE /{id}`
 
 **`/notifications`:** `GET`, `GET /unread-count`, `PATCH /read-all`, `PATCH /{id}/read`, `DELETE /{id}`, `POST /preferences`. Created synchronously, in the same request, no background job.
 
 **`/feedback`:** `GET /officer/{id}`, `GET /summary` (both admin only)
+
+**`/analytics`:** `GET /summary`, role-scoped complaint volume and status breakdown (citizen sees their own filings, staff their assignments, admin everything)
 
 **`/chat`:** `POST /message`, `GET /history/{session_id}`
 
@@ -305,7 +331,7 @@ These used to sit loose at the repo root, they've been moved into `Backend/` sin
 
 ### Database
 
-Eight tables: Users, Departments, Complaints, Complaint Updates, Complaint Images, Notifications, Ratings, Chat Sessions.
+Eight tables: Users, Departments, Complaints, Complaint Updates, Complaint Images, Notifications, Ratings, Chat Sessions. Complaints also carries a `complaint_number` (sequential, DB-sequence-backed) alongside its real UUID id, purely for the short `NGK-000123` reference shown in the UI.
 
 ```mermaid
 erDiagram
@@ -343,13 +369,11 @@ Celery sends verification/reset email asynchronously, and Beat runs a nightly 2 
 
 ### Where the project actually stands
 
-**Done and tested, backend and frontend:** the full auth flow, admin bootstrap, staff creation, RBAC, the complete complaint lifecycle, automatic notifications on every transition, feedback with auto-close, the chatbot filing real complaints. Covered by a real passing test suite and verified by hand end to end in the browser.
+**Done and tested, backend and frontend:** the full auth flow, admin bootstrap, staff creation, RBAC, the complete complaint lifecycle including citizen delete, attachment upload and viewing, complaint history, automatic notifications on every transition plus a live unread badge/reminder, role-scoped analytics, feedback with auto-close, the chatbot filing real complaints (with photos). Covered by a real passing test suite and verified by hand end to end in the browser.
 
-**Done and tested on the backend, no frontend page yet:** attachment upload/fetch/delete, the reject action, ward/category filtering, complaint history as its own endpoint, feedback summary and per-officer aggregation.
+**Done and tested on the backend, no frontend page yet:** deleting an individual attachment, ward/category filtering, feedback summary and per-officer aggregation.
 
-**Still sample data on the frontend:** the 3 analytics pages, profile editing and password reset, the general feedback form (no matching backend endpoint exists for it).
-
-**Known limitation:** the admin dashboard's complaint list has no pagination, caps at the first 100.
+**Still sample data on the frontend:** profile editing and password reset, the general feedback form (no matching backend endpoint exists for it).
 
 **Planned, not started:** scheduled auto-closing of stale resolved complaints, department management endpoints, a broader analytics dashboard, Docker/CI deployment setup, a dedicated security audit before any real launch.
 

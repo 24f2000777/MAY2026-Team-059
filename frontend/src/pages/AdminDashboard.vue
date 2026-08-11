@@ -2,7 +2,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/authStore'
-import { approveComplaint, exportComplaintsCsv, listComplaintsPage, listOfficers } from '../api/complaintApi'
+import { approveComplaint, exportComplaintsCsv, listComplaintsPage, listOfficers, rejectComplaint } from '../api/complaintApi'
 import { CATEGORIES, categoryLabel } from '../constants/categories'
 import StatusBadge from '../components/StatusBadge.vue'
 import NotificationBanner from '../components/NotificationBanner.vue'
@@ -177,6 +177,18 @@ async function doApprove(id) {
   }
 }
 
+async function doReject(id) {
+  const reason = prompt('Reason for rejecting this complaint:')
+  if (!reason || !reason.trim()) return
+  actionError.value = ''
+  try {
+    await rejectComplaint({ id, reason: reason.trim(), accessToken: auth.accessToken })
+    await load()
+  } catch (e) {
+    actionError.value = e.message
+  }
+}
+
 onMounted(load)
 </script>
 
@@ -280,6 +292,7 @@ onMounted(load)
                 <td>{{ new Date(c.createdAt).toLocaleDateString() }}</td>
                 <td class="row-actions">
                   <button v-if="c.status === 'submitted'" class="btn secondary" @click="doApprove(c.id)">Approve</button>
+                  <button v-if="c.status === 'submitted'" class="btn secondary danger-btn" @click="doReject(c.id)">Reject</button>
                   <button class="btn secondary" @click="router.push(`/admin/assign/${c.id}`)">{{ c.assignedTo ? 'Reassign' : 'Assign' }}</button>
                 </td>
               </tr>
@@ -298,6 +311,8 @@ onMounted(load)
 </template>
 <style scoped>
 .row-actions { display: flex; gap: 8px; }
+.danger-btn { border-color: rgba(192, 57, 43, .3); color: var(--danger); }
+.danger-btn:hover { background: rgba(192, 57, 43, .08); border-color: var(--danger); }
 .pagination { display: flex; align-items: center; justify-content: center; gap: 16px; margin-top: 16px; }
 .pagination-status { font-size: 13px; color: var(--text-dim); }
 </style>

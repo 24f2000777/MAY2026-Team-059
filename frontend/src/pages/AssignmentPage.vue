@@ -5,6 +5,7 @@ import { useAuthStore } from '../stores/authStore'
 import { assignComplaint, getComplaint, listAttachments, listOfficers } from '../api/complaintApi'
 import { API_BASE_URL } from '../api/httpClient'
 import { categoryLabel } from '../constants/categories'
+import { complaintReference } from '../constants/complaintNumber'
 import StatusBadge from '../components/StatusBadge.vue'
 
 // image_url comes back as a path relative to the backend's own
@@ -144,7 +145,7 @@ function goBack() {
       </button>
 
       <span class="complaint-reference">
-        Complaint #{{ complaint.id }}
+        Complaint {{ complaintReference(complaint.complaint_number) }}
       </span>
     </div>
 
@@ -417,7 +418,7 @@ function goBack() {
 
           <div class="side-stat">
             <span>Complaint ID</span>
-            <strong>#{{ complaint.id }}</strong>
+            <strong>{{ complaintReference(complaint.complaint_number) }}</strong>
           </div>
 
           <div class="side-stat">

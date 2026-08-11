@@ -272,6 +272,7 @@ async def get_complaint_route(
         message="Complaint retrieved.",
         data=ComplaintDetailResponse(
             id=complaint.id,
+            complaint_number=complaint.complaint_number,
             title=complaint.title,
             description=complaint.description,
             category=complaint.category,

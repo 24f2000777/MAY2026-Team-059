@@ -319,6 +319,7 @@ async def edit_complaint_route(
     """
     complaint = await edit_complaint(complaint_id, current_user, body.title, body.description, db)
     await db.commit()
+    await db.refresh(complaint)
 
     return SuccessResponse[ComplaintEditResponse](
         message="Complaint updated.",

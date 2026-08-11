@@ -259,6 +259,14 @@ def finalize_complaint(info, attempts=0, has_gps=False):
                 "pending_complaint": None,
                 "location_attempts": 0,
                 "awaiting_photo_confirmation": False,
+                # This GPS fix was just rejected as out of BMC's jurisdiction,
+                # clear it rather than let it linger in state to potentially
+                # get reused for whatever the citizen describes next - see
+                # the matching clear in handle_complaint's not-a-BMC-issue
+                # return and handle_photo_followup below.
+                "latitude": None,
+                "longitude": None,
+                "gps_address": None,
                 "messages": [AIMessage(content=reply)],
             }
         return ask_about_photo(info)
@@ -390,7 +398,21 @@ def handle_complaint(state):
 
     if not extracted_info.get("complaint_category"):
         reply = build_not_a_bmc_issue_reply()
-        return {"messages": [AIMessage(content=reply)]}
+        return {
+            "messages": [AIMessage(content=reply)],
+            # This message wasn't a real complaint, so any GPS fix that
+            # arrived with it isn't attached to anything - drop it here
+            # rather than let handle_complaint silently reuse it as the
+            # location for whatever the citizen actually describes next.
+            # The frontend independently resends chat.location on every
+            # turn until the citizen clears it themselves or a complaint
+            # files, so this is what keeps a stale coordinate from a
+            # rejected/abandoned attempt from leaking into an unrelated
+            # complaint several turns later.
+            "latitude": None,
+            "longitude": None,
+            "gps_address": None,
+        }
 
     # Carried forward through pending_complaint into finalize_complaint,
     # whichever turn actually finalizes it, this turn or a later

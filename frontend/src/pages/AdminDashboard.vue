@@ -2,9 +2,10 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/authStore'
-import { approveComplaint, exportComplaintsCsv, listComplaintsPage, listOfficers } from '../api/complaintApi'
+import { approveComplaint, exportComplaintsCsv, listComplaintsPage, listOfficers, rejectComplaint } from '../api/complaintApi'
 import { CATEGORIES, categoryLabel } from '../constants/categories'
 import StatusBadge from '../components/StatusBadge.vue'
+import NotificationBanner from '../components/NotificationBanner.vue'
 
 const auth = useAuthStore()
 const router = useRouter()
@@ -31,19 +32,24 @@ function localDate(iso) {
 
 // The backend caps a single page at 100 complaints. Fetching just
 // page 1 used to silently drop everything past that, with no
-// indication anything was missing. Loops through every page instead,
-// so search/filter still work across the whole dataset, the table
-// below paginates the (already filtered) results for display.
+// indication anything was missing. Fetches every page instead, so
+// search/filter still work across the whole dataset, the table below
+// paginates the (already filtered) results for display. Page 1 has to
+// go first to learn total_pages, but the rest don't depend on each
+// other, so they're fetched in parallel rather than one round trip at
+// a time - the main reason this page used to feel slow to load.
 async function loadAllComplaints() {
-  const all = []
-  let page = 1
-  let totalPages = 1
-  do {
-    const { data, meta } = await listComplaintsPage({ accessToken: auth.accessToken, page, perPage: 100 })
-    all.push(...data.complaints)
-    totalPages = meta?.total_pages || 1
-    page += 1
-  } while (page <= totalPages)
+  const first = await listComplaintsPage({ accessToken: auth.accessToken, page: 1, perPage: 100 })
+  const all = [...first.data.complaints]
+  const totalPages = first.meta?.total_pages || 1
+  if (totalPages > 1) {
+    const rest = await Promise.all(
+      Array.from({ length: totalPages - 1 }, (_, i) =>
+        listComplaintsPage({ accessToken: auth.accessToken, page: i + 2, perPage: 100 })
+      )
+    )
+    for (const { data } of rest) all.push(...data.complaints)
+  }
   return all
 }
 
@@ -171,11 +177,24 @@ async function doApprove(id) {
   }
 }
 
+async function doReject(id) {
+  const reason = prompt('Reason for rejecting this complaint:')
+  if (!reason || !reason.trim()) return
+  actionError.value = ''
+  try {
+    await rejectComplaint({ id, reason: reason.trim(), accessToken: auth.accessToken })
+    await load()
+  } catch (e) {
+    actionError.value = e.message
+  }
+}
+
 onMounted(load)
 </script>
 
 <template>
   <div class="app-content">
+    <NotificationBanner />
     <div class="ops-hero">
       <div class="ops-hero-intro">
         <p class="ops-hero-eyebrow">Operations Overview</p>
@@ -273,6 +292,7 @@ onMounted(load)
                 <td>{{ new Date(c.createdAt).toLocaleDateString() }}</td>
                 <td class="row-actions">
                   <button v-if="c.status === 'submitted'" class="btn secondary" @click="doApprove(c.id)">Approve</button>
+                  <button v-if="c.status === 'submitted'" class="btn secondary danger-btn" @click="doReject(c.id)">Reject</button>
                   <button class="btn secondary" @click="router.push(`/admin/assign/${c.id}`)">{{ c.assignedTo ? 'Reassign' : 'Assign' }}</button>
                 </td>
               </tr>
@@ -291,6 +311,8 @@ onMounted(load)
 </template>
 <style scoped>
 .row-actions { display: flex; gap: 8px; }
+.danger-btn { border-color: rgba(192, 57, 43, .3); color: var(--danger); }
+.danger-btn:hover { background: rgba(192, 57, 43, .08); border-color: var(--danger); }
 .pagination { display: flex; align-items: center; justify-content: center; gap: 16px; margin-top: 16px; }
 .pagination-status { font-size: 13px; color: var(--text-dim); }
 </style>

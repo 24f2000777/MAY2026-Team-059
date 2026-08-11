@@ -75,23 +75,32 @@ export const useChatStore = defineStore('chat', {
     // Uploads whatever's pending to a complaint that just got filed.
     // Best-effort: the complaint itself is already real at this point,
     // a failed photo upload shouldn't be reported as the whole message
-    // having failed, so failures are swallowed here and just leave the
-    // photos un-attached rather than throwing mid-conversation.
+    // having failed. Only the photos that actually made it to the
+    // server are cleared from pendingImages though - a silent failure
+    // here used to just drop the photo with no way to notice or retry,
+    // which is exactly why images could go missing from the staff/admin
+    // view despite looking "sent" in the chat. Failures are surfaced via
+    // chat.error and the image stays pending so it gets retried on the
+    // next turn (or the citizen can remove it manually).
     //
-    // Deliberately does NOT revoke the preview object URLs here: the
-    // message this image was attached to (pushed in sendMessage,
-    // before this runs) already embeds these exact URL strings to
-    // render its thumbnail, revoking now would blank out a photo the
-    // citizen can already see they sent. They're only cleaned up once
-    // nothing displays them anymore, on the next startNewConversation
-    // or explicit removePendingImage.
+    // Deliberately does NOT revoke the preview object URLs for images
+    // that succeeded here: the message this image was attached to
+    // (pushed in sendMessage, before this runs) already embeds these
+    // exact URL strings to render its thumbnail, revoking now would
+    // blank out a photo the citizen can already see they sent. They're
+    // only cleaned up once nothing displays them anymore, on the next
+    // startNewConversation or explicit removePendingImage.
     async _uploadPendingImages(complaintId, accessToken) {
       if (this.pendingImages.length === 0) return
       const images = this.pendingImages
-      this.pendingImages = []
-      await Promise.allSettled(
+      const results = await Promise.allSettled(
         images.map((img) => uploadAttachment({ id: complaintId, file: img.file, accessToken }))
       )
+      const failedCount = results.filter((r) => r.status === 'rejected').length
+      this.pendingImages = images.filter((_, i) => results[i].status === 'rejected')
+      if (failedCount > 0) {
+        this.error = `Your complaint was filed, but ${failedCount} photo${failedCount > 1 ? 's' : ''} couldn't be attached. Please try again.`
+      }
     },
 
     async sendMessage({ text, accessToken }) {

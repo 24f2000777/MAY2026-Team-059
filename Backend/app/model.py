@@ -1,6 +1,6 @@
 # All 8 database tables for NAGRIK AI
 from sqlalchemy.orm import relationship
-from sqlalchemy import Text, Integer, String, Column, Boolean, ForeignKey, DateTime, Float
+from sqlalchemy import Text, Integer, String, Column, Boolean, ForeignKey, DateTime, Float, text
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.sql import func
 from app.core.database import Base
@@ -61,6 +61,17 @@ class Complaint(Base):
     __tablename__ = "complaints"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    # Short human-facing reference (shown as e.g. "NGK-000123"), backed
+    # by a DB sequence (see the add_complaint_number migration) so it's
+    # assigned atomically and never collides even under concurrent
+    # inserts. The UUID id above stays the real primary key/URL param,
+    # this is purely for display.
+    complaint_number = Column(
+        Integer,
+        nullable=False,
+        unique=True,
+        server_default=text("nextval('complaint_number_seq')"),
+    )
     citizen_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     assigned_to = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     department_id = Column(UUID(as_uuid=True), ForeignKey("departments.id"), nullable=True)

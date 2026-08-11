@@ -8,6 +8,7 @@ from ..core.config import settings
 from ..core.database import get_db
 from ..dependencies.auth import get_current_user
 from ..dependencies.roles import require_roles
+from ..utils.exceptions import InsufficientPermissionsError
 from ..model import Department, User
 from ..schemas.common import SuccessResponse
 from ..schemas.complaint import (
@@ -46,6 +47,7 @@ from ..services.complaint_service import (
     assign_complaint,
     create_complaint,
     delete_complaint,
+    delete_own_complaint,
     edit_complaint,
     get_complaint_detail,
     get_complaint_history,
@@ -270,6 +272,7 @@ async def get_complaint_route(
         message="Complaint retrieved.",
         data=ComplaintDetailResponse(
             id=complaint.id,
+            complaint_number=complaint.complaint_number,
             title=complaint.title,
             description=complaint.description,
             category=complaint.category,
@@ -326,22 +329,37 @@ async def edit_complaint_route(
 @router.delete(
     "/{complaint_id}",
     response_model=SuccessResponse[None],
-    summary="Hard-delete a complaint (admin only)",
+    summary="Hard-delete a complaint (admin, or the owning citizen while it's still submitted)",
 )
 async def delete_complaint_route(
     complaint_id: UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(ROLE_ADMIN)),
+    current_user: User = Depends(get_current_user),
 ):
     """
     Permanently deletes a complaint and everything attached to it
-    (status history, attachments, rating). Admin only. This cannot be
-    undone.
+    (status history, attachments, rating). This cannot be undone.
+
+    An admin can delete any complaint in any status. A citizen can
+    only delete their own, and only while it's still "submitted" -
+    once an officer has acted on it, withdraw is the citizen's option
+    instead (PATCH /complaints/{id}/withdraw). Staff have no delete
+    access at all.
 
     Raises:
+        InsufficientPermissionsError: 403, if the caller is staff.
         ComplaintNotFoundError: 404, if the complaint doesn't exist.
+        ComplaintNotOwnerError: 403, if a citizen caller doesn't own
+            this complaint.
+        InvalidStatusTransitionError: 409, if a citizen caller's
+            complaint isn't currently "submitted".
     """
-    await delete_complaint(complaint_id, db)
+    if current_user.role == ROLE_ADMIN:
+        await delete_complaint(complaint_id, db)
+    elif current_user.role == ROLE_CITIZEN:
+        await delete_own_complaint(complaint_id, current_user, db)
+    else:
+        raise InsufficientPermissionsError("Staff cannot delete complaints.")
     await db.commit()
 
     return SuccessResponse[None](message="Complaint deleted.")

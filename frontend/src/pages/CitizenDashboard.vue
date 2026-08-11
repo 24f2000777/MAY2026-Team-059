@@ -7,6 +7,7 @@ import { categoryLabel } from '../constants/categories'
 import ComplaintCard from '../components/ComplaintCard.vue'
 import DashboardHero from '../components/DashboardHero.vue'
 import ActionTile from '../components/ActionTile.vue'
+import NotificationBanner from '../components/NotificationBanner.vue'
 
 const auth = useAuthStore()
 const router = useRouter()
@@ -72,6 +73,7 @@ onMounted(async () => {
 
 <template>
   <div class="app-content">
+    <NotificationBanner />
     <DashboardHero :name="auth.user?.name" subtitle="Here's where every civic report you've filed stands.">
       <template #actions>
         <ActionTile to="/citizen/new" label="Report Issue" sublabel="File a new complaint">

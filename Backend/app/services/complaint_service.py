@@ -407,11 +407,10 @@ async def edit_complaint(complaint_id, current_user, title, description, db) -> 
     return complaint
 
 
-async def delete_complaint(complaint_id, db) -> None:
+async def _hard_delete_complaint(complaint, db) -> None:
     """
-    Hard-deletes a complaint, backing DELETE /complaints/{id}.
-    Admin-only, enforced by require_roles(ROLE_ADMIN) at the route
-    level, no ownership concept applies here.
+    Shared by delete_complaint (admin) and delete_own_complaint
+    (citizen) below, once each has done its own lookup/authorization.
 
     ComplaintUpdate, ComplaintImage, and Rating rows all cascade-delete
     at the database level (ondelete="CASCADE" on their foreign keys),
@@ -427,6 +426,28 @@ async def delete_complaint(complaint_id, db) -> None:
     cascade regardless, but the files aren't tracked by any foreign
     key and would otherwise be orphaned.
 
+    Does not commit, same convention as create_complaint above.
+    """
+    await db.execute(
+        update(ChatSession)
+        .where(ChatSession.complaint_id == complaint.id)
+        .values(complaint_id=None)
+    )
+
+    attachment_dir = Path(settings.UPLOAD_DIR) / "complaints" / str(complaint.id)
+    shutil.rmtree(attachment_dir, ignore_errors=True)
+
+    await db.delete(complaint)
+    await db.flush()
+
+
+async def delete_complaint(complaint_id, db) -> None:
+    """
+    Hard-deletes a complaint, backing DELETE /complaints/{id} for an
+    admin caller. Admin-only, enforced by require_roles(ROLE_ADMIN) at
+    the route level, no ownership concept applies here - any complaint,
+    in any status, can be removed this way.
+
     Raises:
         ComplaintNotFoundError: 404, if the complaint doesn't exist.
 
@@ -436,17 +457,49 @@ async def delete_complaint(complaint_id, db) -> None:
     if complaint is None:
         raise ComplaintNotFoundError("Complaint not found.")
 
-    await db.execute(
-        update(ChatSession)
-        .where(ChatSession.complaint_id == complaint_id)
-        .values(complaint_id=None)
+    await _hard_delete_complaint(complaint, db)
+
+
+async def delete_own_complaint(complaint_id, current_user, db) -> None:
+    """
+    Hard-deletes a complaint, backing DELETE /complaints/{id} for a
+    citizen caller. Unlike the admin path above, this only works on
+    the caller's own complaint, and only while it's still "submitted",
+    same restriction as edit_complaint - once an officer has approved
+    it, there's a record other people are relying on, and withdrawing
+    (transition_complaint_status_as_owner) is the citizen's option
+    from that point on instead of removing it outright.
+
+    Locks the complaint row (SELECT ... FOR UPDATE) before checking
+    its status, same reasoning as edit_complaint.
+
+    Raises:
+        ComplaintNotFoundError: 404, if the complaint doesn't exist.
+        ComplaintNotOwnerError: 403, if the complaint isn't the
+            caller's own.
+        InvalidStatusTransitionError: 409, if the complaint isn't
+            currently "submitted".
+
+    Does not commit, same convention as create_complaint above.
+    """
+    result = await db.execute(
+        select(Complaint).where(Complaint.id == complaint_id).with_for_update()
     )
+    complaint = result.scalar_one_or_none()
+    if complaint is None:
+        raise ComplaintNotFoundError("Complaint not found.")
 
-    attachment_dir = Path(settings.UPLOAD_DIR) / "complaints" / str(complaint_id)
-    shutil.rmtree(attachment_dir, ignore_errors=True)
+    if complaint.citizen_id != current_user.id:
+        raise ComplaintNotOwnerError("You can only delete your own complaints.")
 
-    await db.delete(complaint)
-    await db.flush()
+    if complaint.status != ComplaintStatus.SUBMITTED.value:
+        raise InvalidStatusTransitionError(
+            f"Cannot delete a complaint that is currently '{complaint.status}', "
+            f"only complaints still awaiting approval can be deleted. "
+            f"Withdraw it instead if it's already been approved."
+        )
+
+    await _hard_delete_complaint(complaint, db)
 
 
 async def list_complaint_attachments(complaint_id, current_user, db) -> list[ComplaintImage]:

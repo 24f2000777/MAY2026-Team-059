@@ -1,10 +1,17 @@
 <script setup>
+import { onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/authStore'
+import { useNotificationStore } from '../stores/notificationStore'
 
 const auth = useAuthStore()
 const router = useRouter()
+const notification = useNotificationStore()
 function logout() { auth.logout(); router.push('/login') }
+
+onMounted(() => {
+  notification.refresh(auth.accessToken)
+})
 </script>
 
 <template>
@@ -39,6 +46,7 @@ function logout() { auth.logout(); router.push('/login') }
         <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"></path>
         <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
       </svg>
+      <span v-if="notification.unreadCount > 0" class="notif-badge">{{ notification.unreadCount > 9 ? '9+' : notification.unreadCount }}</span>
     </router-link>
     <router-link to="/feedback" class="icon-link" title="Feedback">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -63,6 +71,7 @@ function logout() { auth.logout(); router.push('/login') }
   text-decoration: none;
 }
 .icon-link {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -74,4 +83,19 @@ function logout() { auth.logout(); router.push('/login') }
   border: 1px solid var(--border);
 }
 .icon-link:hover { color: var(--accent); }
+.notif-badge {
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 3px;
+  border-radius: 999px;
+  background: var(--danger);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 16px;
+  text-align: center;
+}
 </style>

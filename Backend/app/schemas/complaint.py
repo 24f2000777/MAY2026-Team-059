@@ -233,6 +233,10 @@ class MyComplaintOut(BaseModel):
     """
 
     id: UUID
+    complaint_number: int = Field(
+        ...,
+        description="Short sequential reference number, displayed as e.g. NGK-000123",
+    )
     title: str
     description: str
     category: ComplaintCategory
@@ -428,6 +432,10 @@ class ComplaintListItem(BaseModel):
     """
 
     id: UUID
+    complaint_number: int = Field(
+        ...,
+        description="Short sequential reference number, displayed as e.g. NGK-000123",
+    )
     title: str
     description: str
     category: ComplaintCategory
@@ -458,6 +466,10 @@ class ComplaintDetailResponse(BaseModel):
     """
 
     id: UUID
+    complaint_number: int = Field(
+        ...,
+        description="Short sequential reference number, displayed as e.g. NGK-000123",
+    )
     title: str
     description: str
     category: ComplaintCategory
@@ -479,6 +491,7 @@ class ComplaintDetailResponse(BaseModel):
         json_schema_extra={
             "example": {
                 "id": "123e4567-e89b-12d3-a456-426614174000",
+                "complaint_number": 123,
                 "title": "Large pothole on main road",
                 "description": "There is a dangerous pothole near the school gate causing accidents.",
                 "category": "pothole",

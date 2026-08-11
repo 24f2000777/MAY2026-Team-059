@@ -2,7 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/authStore'
-import { getComplaint, getComplaintHistory, getFeedback, listAttachments } from '../api/complaintApi'
+import { deleteComplaint, getComplaint, getComplaintHistory, getFeedback, listAttachments } from '../api/complaintApi'
 import { API_BASE_URL } from '../api/httpClient'
 import { categoryLabel } from '../constants/categories'
 import StatusBadge from '../components/StatusBadge.vue'
@@ -25,8 +25,33 @@ const attachments = ref([])
 const feedback = ref(null)
 const loadError = ref('')
 const loading = ref(true)
+const deleteError = ref('')
+const deleting = ref(false)
 
 const isOwner = computed(() => complaint.value && complaint.value.citizen_id === auth.user?.id)
+// Deleting outright is only offered before anyone's acted on it, same
+// rule the backend enforces (delete_own_complaint) - once approved,
+// withdraw is the citizen's option instead.
+const canDelete = computed(() => isOwner.value && complaint.value?.status === 'submitted')
+
+async function removeComplaint() {
+  if (!confirm('Delete this complaint permanently? This cannot be undone.')) return
+  deleteError.value = ''
+  deleting.value = true
+  try {
+    await deleteComplaint({ id: complaint.value.id, accessToken: auth.accessToken })
+    router.push('/citizen')
+  } catch (e) {
+    if (e.status === 401) {
+      await auth.logout()
+      router.push('/login')
+      return
+    }
+    deleteError.value = e.message
+  } finally {
+    deleting.value = false
+  }
+}
 
 async function load() {
   loading.value = true
@@ -216,6 +241,18 @@ onMounted(load)
                 <StatusBadge :value="complaint.status" />
               </div>
 
+              <template v-if="canDelete">
+                <p v-if="deleteError" class="error-text" style="margin-top: 12px;">{{ deleteError }}</p>
+                <button
+                  class="btn secondary danger-btn"
+                  style="margin-top: 14px; width: 100%;"
+                  :disabled="deleting"
+                  @click="removeComplaint"
+                >
+                  {{ deleting ? 'Deleting...' : 'Delete Complaint' }}
+                </button>
+              </template>
+
             </section>
 
 
@@ -340,6 +377,16 @@ onMounted(load)
 <style scoped>
 .back-btn {
   margin-bottom: 24px;
+}
+
+.danger-btn {
+  border-color: rgba(192, 57, 43, .3);
+  color: var(--danger);
+}
+
+.danger-btn:hover:not(:disabled) {
+  background: rgba(192, 57, 43, .08);
+  border-color: var(--danger);
 }
 
 

@@ -162,7 +162,15 @@ function shareLocation() {
 }
 
 async function send() {
-  const text = draft.value.trim()
+  let text = draft.value.trim()
+
+  // A photo on its own is a valid message (the citizen may just want
+  // to show something), the backend still needs some non-empty text
+  // though, so fall back to a placeholder rather than blocking send
+  // entirely when there's nothing typed but a photo is attached.
+  if (!text && chat.pendingImages.length > 0) {
+    text = 'Sharing a photo.'
+  }
 
   if (!text) return
 

@@ -110,13 +110,33 @@ export const useChatStore = defineStore('chat', {
         text,
         images: this.pendingImages.map((img) => img.previewUrl)
       })
+
+      // A shared location is one-shot: once it's included in a request it's
+      // either consumed into that turn's pending_complaint (which carries
+      // its own copy of lat/long forward independently, see
+      // conversation_graph.py's handle_complaint/handle_location_followup)
+      // or the graph decides it doesn't apply and drops it. Either way,
+      // nothing later needs the raw coords resent again - handle_photo_followup
+      // (the actual filing step) reads pending_complaint, not these. Clearing
+      // it here rather than waiting for "did a complaint just file" is what
+      // stops a stale fix from an earlier, abandoned attempt at reporting
+      // something from silently getting attached to a totally different
+      // complaint several turns later - the resend-every-message design
+      // this used to rely on assumed every later turn was still working
+      // toward filing the same complaint, which doesn't hold once the
+      // conversation goes anywhere else in between (an unrelated reply,
+      // something the bot didn't recognize as a complaint at all, etc).
+      const location = this.location
+      this.clearLocation()
+
       this.isTyping = true
       try {
         const data = await sendChatMessage({
           sessionId: this.sessionId,
           message: text,
-          latitude: this.location?.latitude,
-          longitude: this.location?.longitude,
+          latitude: location?.latitude,
+          longitude: location?.longitude,
+          address: location?.address,
           accessToken
         })
         if (data.complaint) {

@@ -69,6 +69,16 @@ groq_llm = ChatGroq(
     rate_limiter=groq_rate_limiter,
     max_retries=1,
     request_timeout=LLM_REQUEST_TIMEOUT_SECONDS,
+    # Fact extraction, not conversation - the prompt already says "never
+    # invent a location", but at the default ~0.7 temperature the model
+    # still occasionally does anyway (confirmed: fabricated "near my
+    # apartment in Andheri" out of a message that named no location at
+    # all, which then also skipped the location follow-up question
+    # entirely since a location was already "found"). temperature=0
+    # makes the model consistently pick its single most likely output
+    # instead of sampling, which is what a should-be-deterministic
+    # extraction task like this needs.
+    temperature=0,
 ).with_structured_output(ComplaintInfo)
 
 groq_chat_llm = ChatGroq(
@@ -101,6 +111,9 @@ gemini_llm = ChatGoogleGenerativeAI(
     rate_limiter=gemini_rate_limiter,
     max_retries=1,  # fail fast instead of retrying for over a minute
     timeout=LLM_REQUEST_TIMEOUT_SECONDS,
+    # Same reasoning as groq_llm above - this is the extraction fallback,
+    # not a conversational reply, it should be deterministic.
+    temperature=0,
     # Root cause of the hang this whole fallback chain was built to avoid:
     # this client's default transport is gRPC, which silently does not
     # honor `timeout` — confirmed directly, a call sat for 45+s with

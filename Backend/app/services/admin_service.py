@@ -5,8 +5,13 @@ account is never created here, or through any API route, see
 scripts/create_admin.py for that.
 """
 
+import re
+import secrets
+import string
+
 from sqlalchemy import func as sa_func
 from sqlalchemy import or_, select
+from sqlalchemy.orm import selectinload
 
 from app.core.security import hash_password
 from app.model import Complaint, Department, User
@@ -18,53 +23,102 @@ from app.utils.exceptions import (
     DepartmentInUseError,
     DepartmentNameAlreadyExistsError,
     DepartmentNotFoundError,
-    EmailAlreadyExistsError,
     PhoneAlreadyExistsError,
     UserNotFoundError,
     UserNotStaffError,
 )
+
+_STAFF_EMAIL_DOMAIN = "nagrikai.team"
+
+
+def _slugify_first_name(name: str) -> str:
+    first_word = name.strip().split()[0] if name.strip() else ""
+    slug = re.sub(r"[^a-z0-9]", "", first_word.lower())
+    return slug or "staff"
+
+
+async def _generate_staff_email(name: str, db) -> str:
+    """
+    firstname.staff@nagrikai.team, the shared login-email convention
+    for every staff account, an admin never picks this. Appends a
+    number on collision (two officers can easily share a first name),
+    starting at 2 so the first officer with that name keeps the plain
+    firstname.staff@ address.
+    """
+    base = _slugify_first_name(name)
+    candidate = f"{base}.staff@{_STAFF_EMAIL_DOMAIN}"
+    suffix = 2
+    while (await db.execute(select(User.id).where(User.email == candidate))).first() is not None:
+        candidate = f"{base}{suffix}.staff@{_STAFF_EMAIL_DOMAIN}"
+        suffix += 1
+    return candidate
+
+
+def _generate_staff_password(length: int = 12) -> str:
+    """
+    A one-time random password for a newly created staff account.
+    Only its hash is ever stored, the plaintext is returned to the
+    caller exactly once so the admin can hand it to the new officer;
+    see StaffAccountCreatedOut. The officer can change it afterwards
+    through the existing POST /auth/change-password.
+    """
+    alphabet = string.ascii_letters + string.digits
+    return "".join(secrets.choice(alphabet) for _ in range(length))
 
 
 async def list_officers(db) -> list[User]:
     """
     Every staff account, newest first, backing GET /admin/officers.
     Used to populate an assignment dropdown, so name is what matters
-    most here, not any particular ordering by workload.
+    most here, not any particular ordering by workload. department is
+    eager-loaded so the route can read .department.name without a
+    lazy-load (not safe under an async session outside this call).
     """
     result = await db.execute(
-        select(User).where(User.role == ROLE_STAFF).order_by(User.created_at.desc())
+        select(User)
+        .where(User.role == ROLE_STAFF)
+        .options(selectinload(User.department))
+        .order_by(User.created_at.desc())
     )
     return result.scalars().all()
 
 
-async def create_staff_account(
-    name: str, phone: str, email: str, password: str, db, department_id=None
-) -> User:
+async def create_staff_account(name: str, phone: str, department: str, db) -> tuple[User, str]:
     """
     Creates a staff account, already active, no OTP/verification
     step, an admin creating an account for a real officer is already
-    a trusted action, unlike public self-registration. department_id
-    is optional, a staff account can also be assigned to a department
-    later through assign_staff_department.
+    a trusted action, unlike public self-registration.
+
+    Unlike a citizen's own registration, the admin doesn't choose an
+    email or password here, both are generated: email follows
+    firstname.staff@nagrikai.team (_generate_staff_email), password is
+    a random one-time secret (_generate_staff_password) returned
+    alongside the account so the admin can hand it to the new officer,
+    who can change it later via POST /auth/change-password.
+
+    department must be one of the fixed categories (enforced already
+    at the schema layer by CreateStaffRequest's DepartmentCategory),
+    resolved here to the matching seeded Department row.
 
     Raises:
-        EmailAlreadyExistsError: 409, if the email is already registered.
         PhoneAlreadyExistsError: 409, if the phone is already registered.
-        DepartmentNotFoundError: 404, if department_id is given but
-            doesn't match a real department.
+        DepartmentNotFoundError: 404, if department somehow doesn't
+            match a real department, shouldn't happen in practice
+            since these are seeded at startup (seed_departments).
 
-    Does not commit, same convention as every other service in this app.
+    Returns (staff, plaintext_password). Does not commit.
     """
-    existing_email = await db.execute(select(User.id).where(User.email == email))
-    if existing_email.first() is not None:
-        raise EmailAlreadyExistsError("Email is already registered.")
-
     existing_phone = await db.execute(select(User.id).where(User.phone == phone))
     if existing_phone.first() is not None:
         raise PhoneAlreadyExistsError("Phone number is already registered.")
 
-    if department_id is not None and await db.get(Department, department_id) is None:
+    department_result = await db.execute(select(Department).where(Department.name == department))
+    department_row = department_result.scalar_one_or_none()
+    if department_row is None:
         raise DepartmentNotFoundError("Department not found.")
+
+    email = await _generate_staff_email(name, db)
+    password = _generate_staff_password()
 
     staff = User(
         name=name,
@@ -73,11 +127,11 @@ async def create_staff_account(
         role=ROLE_STAFF,
         hashed_password=hash_password(password),
         is_active=True,
-        department_id=department_id,
     )
+    staff.department = department_row
     db.add(staff)
     await db.flush()
-    return staff
+    return staff, password
 
 
 async def list_departments(db) -> list[Department]:
@@ -172,8 +226,9 @@ async def list_users(
     """
     Every user (any role), newest first, backing GET /admin/users.
     search matches name/email/phone by substring, case-insensitive.
+    department is eager-loaded, same reasoning as list_officers.
     """
-    query = select(User)
+    query = select(User).options(selectinload(User.department))
     if role is not None:
         query = query.where(User.role == role)
     if is_active is not None:
@@ -206,7 +261,7 @@ async def get_user_detail(user_id, db) -> tuple[User, list[Complaint]]:
     Raises:
         UserNotFoundError: 404, if the user doesn't exist.
     """
-    user = await db.get(User, user_id)
+    user = await db.get(User, user_id, options=[selectinload(User.department)])
     if user is None:
         raise UserNotFoundError("User not found.")
 
@@ -229,7 +284,7 @@ async def update_user_status(user_id, is_active: bool, current_user: User, db) -
         CannotDeactivateLastAdminError: 409, if this would leave the
             platform with zero active admins.
     """
-    user = await db.get(User, user_id)
+    user = await db.get(User, user_id, options=[selectinload(User.department)])
     if user is None:
         raise UserNotFoundError("User not found.")
 
@@ -273,7 +328,7 @@ async def update_user_role(user_id, role: str, current_user: User, db) -> User:
         CannotChangeAdminRoleError: 409, the platform has exactly one
             admin by design, this endpoint can't touch that account's role.
     """
-    user = await db.get(User, user_id)
+    user = await db.get(User, user_id, options=[selectinload(User.department)])
     if user is None:
         raise UserNotFoundError("User not found.")
 
@@ -290,28 +345,36 @@ async def update_user_role(user_id, role: str, current_user: User, db) -> User:
     return user
 
 
-async def assign_staff_department(user_id, department_id, db) -> User:
+async def assign_staff_department(user_id, department: str | None, db) -> User:
     """
-    Assigns (or, with department_id=None, unassigns) a staff member's
-    department, backing PATCH /admin/users/{id}/department.
+    Assigns (or, with department=None, unassigns) a staff member's
+    department, backing PATCH /admin/users/{id}/department. department
+    must be one of the fixed categories (enforced at the schema layer
+    by AssignStaffDepartmentRequest's DepartmentCategory).
 
     Raises:
         UserNotFoundError: 404, if the user doesn't exist.
         UserNotStaffError: 409, if the user isn't a staff account,
             only officers belong to a department.
-        DepartmentNotFoundError: 404, if department_id is given but
-            doesn't match a real department.
+        DepartmentNotFoundError: 404, if department somehow doesn't
+            match a real department, shouldn't happen in practice
+            since these are seeded at startup (seed_departments).
     """
-    user = await db.get(User, user_id)
+    user = await db.get(User, user_id, options=[selectinload(User.department)])
     if user is None:
         raise UserNotFoundError("User not found.")
 
     if user.role != ROLE_STAFF:
         raise UserNotStaffError("Only staff accounts can be assigned to a department.")
 
-    if department_id is not None and await db.get(Department, department_id) is None:
-        raise DepartmentNotFoundError("Department not found.")
+    if department is None:
+        user.department = None
+    else:
+        department_result = await db.execute(select(Department).where(Department.name == department))
+        department_row = department_result.scalar_one_or_none()
+        if department_row is None:
+            raise DepartmentNotFoundError("Department not found.")
+        user.department = department_row
 
-    user.department_id = department_id
     await db.flush()
     return user

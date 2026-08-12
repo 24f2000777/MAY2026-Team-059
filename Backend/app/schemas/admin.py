@@ -2,7 +2,14 @@ from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, Field
+
+from app.utils.constants import DEPARTMENT_NAMES
+
+# The exact same fixed set app/utils/constants.py uses for AI routing,
+# reused here so a staff account can only ever be filed under one of
+# these categories, not some arbitrary string an admin typed in.
+DepartmentCategory = Literal[*DEPARTMENT_NAMES]
 
 
 class CreateStaffRequest(BaseModel):
@@ -11,20 +18,18 @@ class CreateStaffRequest(BaseModel):
     has no role field, this always creates a staff account, never
     another admin, the platform has exactly one admin and it's never
     created through this endpoint (see scripts/create_admin.py).
+
+    No email or password here on purpose, see
+    admin_service.create_staff_account for how both get generated.
     """
 
     name: str = Field(..., min_length=2, max_length=100)
     phone: str = Field(..., min_length=10, max_length=15)
-    email: EmailStr
-    password: str = Field(..., min_length=8, max_length=128)
-    department_id: UUID | None = Field(
-        default=None,
-        description="Optional, assigns the new staff account to this department immediately.",
-    )
+    department: DepartmentCategory
 
 
 class StaffAccountOut(BaseModel):
-    """Response schema for POST /admin/users."""
+    """Response schema shared by every admin user-management endpoint."""
 
     id: UUID
     name: str
@@ -32,10 +37,21 @@ class StaffAccountOut(BaseModel):
     email: str
     role: str
     is_active: bool
-    department_id: UUID | None = None
+    department: str | None = None
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class StaffAccountCreatedOut(StaffAccountOut):
+    """
+    Response schema for POST /admin/users only. generated_password is
+    the only place this ever appears in plaintext, only its hash is
+    stored, so this is the admin's one chance to see and hand it to
+    the new officer.
+    """
+
+    generated_password: str
 
 
 class OfficerListResponse(BaseModel):
@@ -100,12 +116,12 @@ class UpdateUserRoleRequest(BaseModel):
 
 class AssignStaffDepartmentRequest(BaseModel):
     """
-    Request body for PATCH /admin/users/{id}/department. department_id
-    is nullable on purpose, sending null unassigns the staff member
-    from whatever department they're currently in.
+    Request body for PATCH /admin/users/{id}/department. department is
+    nullable on purpose, sending null unassigns the staff member from
+    whatever department they're currently in.
     """
 
-    department_id: UUID | None = None
+    department: DepartmentCategory | None = None
 
 
 class DepartmentCreateRequest(BaseModel):

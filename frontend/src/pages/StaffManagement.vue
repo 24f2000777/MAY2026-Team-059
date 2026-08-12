@@ -1,11 +1,12 @@
 <script setup>
 import { onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/authStore'
 import { assignStaffDepartment, createStaffAccount, listOfficers } from '../api/complaintApi'
 
 const auth = useAuthStore()
 const router = useRouter()
+const route = useRoute()
 
 // Fixed set, must match Backend/app/utils/constants.py's DEPARTMENT_NAMES
 // exactly, the backend rejects anything outside this list.
@@ -24,7 +25,10 @@ const loadError = ref('')
 
 const name = ref('')
 const phone = ref('')
-const department = ref('')
+// Pre-filled when arriving from the assignment page's "no staff in
+// this department yet" prompt (?department=...), so the admin lands
+// here with the right category already picked instead of guessing.
+const department = ref(DEPARTMENTS.includes(route.query.department) ? route.query.department : '')
 const formError = ref('')
 const saving = ref(false)
 

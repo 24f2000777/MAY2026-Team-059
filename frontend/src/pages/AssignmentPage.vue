@@ -39,6 +39,17 @@ const hasAssignment = computed(() => {
   return Boolean(complaint.value?.assigned_to)
 })
 
+// Only offer staff from the department this complaint was routed to,
+// so an admin assigning a drainage complaint doesn't have to pick the
+// right person out of every department's officers. Falls back to
+// showing everyone if the complaint somehow has no department (should
+// be rare, routing always falls back to General Administration on
+// its own failures, see routing_service.route_complaint).
+const eligibleOfficers = computed(() => {
+  if (!complaint.value?.department) return officers.value
+  return officers.value.filter(o => o.department === complaint.value.department)
+})
+
 onMounted(async () => {
   try {
     const [detail, officersData, attachmentsData] = await Promise.all([
@@ -314,7 +325,7 @@ function goBack() {
             {{ assignError }}
           </p>
 
-          <!-- No staff -->
+          <!-- No staff at all -->
           <div
             v-if="officers.length === 0"
             class="no-staff"
@@ -332,6 +343,24 @@ function goBack() {
             </div>
           </div>
 
+          <!-- Staff exist, but none in this complaint's department -->
+          <div
+            v-else-if="eligibleOfficers.length === 0"
+            class="no-staff"
+          >
+            <div class="no-staff-icon">!</div>
+
+            <div>
+              <strong>No staff in {{ complaint.department }} yet</strong>
+              <p>
+                Add an officer to this department before assigning it.
+              </p>
+              <router-link :to="`/admin/staff?department=${encodeURIComponent(complaint.department)}`">
+                Add staff to {{ complaint.department }} →
+              </router-link>
+            </div>
+          </div>
+
           <!-- Staff selector -->
           <template v-else>
 
@@ -340,6 +369,9 @@ function goBack() {
               <div class="field">
                 <label for="staff-select">
                   Assign to staff member
+                  <span v-if="complaint.department" class="field-hint">
+                    ({{ complaint.department }})
+                  </span>
                 </label>
 
                 <select
@@ -351,7 +383,7 @@ function goBack() {
                   </option>
 
                   <option
-                    v-for="o in officers"
+                    v-for="o in eligibleOfficers"
                     :key="o.id"
                     :value="o.id"
                   >
@@ -846,6 +878,13 @@ function goBack() {
   text-transform: uppercase;
   letter-spacing: .06em;
   color: var(--text-dim);
+}
+
+.field-hint {
+  text-transform: none;
+  letter-spacing: normal;
+  font-weight: 600;
+  color: var(--accent);
 }
 
 .field select {

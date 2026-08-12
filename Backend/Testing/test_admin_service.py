@@ -28,6 +28,7 @@ from app.services.admin_service import (
     update_user_status,
 )
 from app.services.complaint_service import create_complaint
+from app.utils.constants import DEPARTMENT_NAMES
 from app.utils.exceptions import (
     CannotChangeAdminRoleError,
     CannotDeactivateLastAdminError,
@@ -35,10 +36,11 @@ from app.utils.exceptions import (
     DepartmentInUseError,
     DepartmentNameAlreadyExistsError,
     DepartmentNotFoundError,
-    EmailAlreadyExistsError,
     PhoneAlreadyExistsError,
     UserNotFoundError,
 )
+
+_A_DEPARTMENT = DEPARTMENT_NAMES[0]
 
 
 @pytest.fixture
@@ -77,49 +79,59 @@ def _unique_department_name() -> str:
 
 
 class TestCreateStaffAccount:
-    async def test_creates_an_active_staff_account(self, db):
-        email = _unique_email()
+    async def test_creates_an_active_staff_account_with_a_generated_email_and_password(self, db):
         phone = _unique_phone()
 
-        staff = await create_staff_account("Officer One", phone, email, "TestPass@123", db)
+        staff, password = await create_staff_account("Zzyzx One", phone, _A_DEPARTMENT, db)
         await db.commit()
 
         assert staff.id is not None
         assert staff.role == "staff"
         assert staff.is_active is True
-        assert staff.email == email
         assert staff.phone == phone
-        assert staff.hashed_password != "TestPass@123"
+        assert staff.email.startswith("zzyzx.staff@")
+        assert staff.department_id is not None
+        # password is a real, usable one-time secret, not empty or the hash
+        assert len(password) >= 8
+        assert staff.hashed_password != password
 
         await db.delete(staff)
         await db.commit()
 
-    async def test_rejects_a_duplicate_email(self, db):
-        email = _unique_email()
-        first = await create_staff_account("Officer One", _unique_phone(), email, "TestPass@123", db)
+    async def test_generates_a_unique_email_when_the_first_name_collides(self, db):
+        first = await create_staff_account("Zzyzx Two", _unique_phone(), _A_DEPARTMENT, db)
+        await db.commit()
+        first_staff, _ = first
+
+        second_staff, _ = await create_staff_account("Zzyzx Two", _unique_phone(), _A_DEPARTMENT, db)
         await db.commit()
 
-        with pytest.raises(EmailAlreadyExistsError):
-            await create_staff_account("Officer Two", _unique_phone(), email, "TestPass@456", db)
+        assert first_staff.email != second_staff.email
+        assert second_staff.email.startswith("zzyzx2.staff@")
 
-        await db.delete(first)
+        await db.delete(first_staff)
+        await db.delete(second_staff)
         await db.commit()
 
     async def test_rejects_a_duplicate_phone(self, db):
         phone = _unique_phone()
-        first = await create_staff_account("Officer One", phone, _unique_email(), "TestPass@123", db)
+        first, _ = await create_staff_account("Officer One", phone, _A_DEPARTMENT, db)
         await db.commit()
 
         with pytest.raises(PhoneAlreadyExistsError):
-            await create_staff_account("Officer Two", phone, _unique_email(), "TestPass@456", db)
+            await create_staff_account("Officer Two", phone, _A_DEPARTMENT, db)
 
         await db.delete(first)
         await db.commit()
 
+    async def test_rejects_a_department_outside_the_fixed_list(self, db):
+        with pytest.raises(DepartmentNotFoundError):
+            await create_staff_account("Officer Three", _unique_phone(), "Not A Real Department", db)
+
 
 class TestListOfficers:
     async def test_includes_a_newly_created_officer(self, db):
-        staff = await create_staff_account("Officer Findable", _unique_phone(), _unique_email(), "TestPass@123", db)
+        staff, _ = await create_staff_account("Officer Findable", _unique_phone(), _A_DEPARTMENT, db)
         await db.commit()
 
         officers = await list_officers(db)
@@ -206,7 +218,7 @@ class TestDeleteDepartment:
 
     async def test_rejects_deleting_a_department_with_assigned_staff(self, db):
         department = await create_department(_unique_department_name(), None, db)
-        staff = await create_staff_account("Officer With Dept", _unique_phone(), _unique_email(), "TestPass@123", db)
+        staff, _ = await create_staff_account("Officer With Dept", _unique_phone(), _A_DEPARTMENT, db)
         staff.department_id = department.id
         await db.commit()
 
@@ -241,7 +253,7 @@ class TestDeleteDepartment:
 
 class TestListUsers:
     async def test_filters_by_role(self, db, citizen):
-        staff = await create_staff_account("Officer Filter", _unique_phone(), _unique_email(), "TestPass@123", db)
+        staff, _ = await create_staff_account("Officer Filter", _unique_phone(), _A_DEPARTMENT, db)
         await db.commit()
 
         users, total = await list_users(role="staff", is_active=None, search=None, page=1, per_page=100, db=db)
@@ -254,8 +266,8 @@ class TestListUsers:
         await db.commit()
 
     async def test_search_matches_name(self, db):
-        staff = await create_staff_account(
-            "Zzyzx Unique Searchable Name", _unique_phone(), _unique_email(), "TestPass@123", db
+        staff, _ = await create_staff_account(
+            "Zzyzx Unique Searchable Name", _unique_phone(), _A_DEPARTMENT, db
         )
         await db.commit()
 
@@ -270,7 +282,7 @@ class TestListUsers:
         await db.commit()
 
     async def test_filters_by_is_active(self, db):
-        staff = await create_staff_account("Officer Active", _unique_phone(), _unique_email(), "TestPass@123", db)
+        staff, _ = await create_staff_account("Officer Active", _unique_phone(), _A_DEPARTMENT, db)
         await db.commit()
 
         active_users, _ = await list_users(role=None, is_active=True, search=None, page=1, per_page=100, db=db)

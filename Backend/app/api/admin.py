@@ -17,6 +17,7 @@ from ..schemas.admin import (
     DepartmentOut,
     DepartmentUpdateRequest,
     OfficerListResponse,
+    StaffAccountCreatedOut,
     StaffAccountOut,
     UpdateUserRoleRequest,
     UpdateUserStatusRequest,
@@ -49,6 +50,24 @@ router = APIRouter(
 )
 
 
+def _staff_fields(user: User) -> dict:
+    """
+    Common fields for every admin user-management response. user.department
+    must already be eager-loaded (selectinload, see admin_service) — reading
+    it here is a plain attribute access, not a lazy DB call.
+    """
+    return dict(
+        id=user.id,
+        name=user.name,
+        phone=user.phone,
+        email=user.email,
+        role=user.role,
+        is_active=user.is_active,
+        department=user.department.name if user.department else None,
+        created_at=user.created_at,
+    )
+
+
 @router.get(
     "/officers",
     response_model=SuccessResponse[OfficerListResponse],
@@ -61,14 +80,14 @@ async def list_officers_route(
     officers = await list_officers(db)
     return SuccessResponse[OfficerListResponse](
         message="Officers retrieved.",
-        data=OfficerListResponse(officers=[StaffAccountOut.model_validate(o) for o in officers]),
+        data=OfficerListResponse(officers=[StaffAccountOut(**_staff_fields(o)) for o in officers]),
     )
 
 
 @router.post(
     "/users",
     status_code=status.HTTP_201_CREATED,
-    response_model=SuccessResponse[StaffAccountOut],
+    response_model=SuccessResponse[StaffAccountCreatedOut],
     summary="Create a staff account (admin only)",
 )
 async def create_staff_account_route(
@@ -77,25 +96,23 @@ async def create_staff_account_route(
     current_user: User = Depends(require_roles(ROLE_ADMIN)),
 ):
     """
-    Creates a new staff (officer) account, already active. Only the
-    admin can call this, and it can only ever create staff accounts,
-    never another admin, see scripts/create_admin.py for how the
-    platform's one admin account is created.
+    Creates a new staff (officer) account, already active, with a
+    generated email and password (see admin_service.create_staff_account).
+    Only the admin can call this, and it can only ever create staff
+    accounts, never another admin, see scripts/create_admin.py for how
+    the platform's one admin account is created.
 
     Raises:
-        EmailAlreadyExistsError: 409, if the email is already registered.
         PhoneAlreadyExistsError: 409, if the phone is already registered.
-        DepartmentNotFoundError: 404, if department_id is given but
-            doesn't match a real department.
+        DepartmentNotFoundError: 404, if department somehow doesn't
+            match a real department.
     """
-    staff = await create_staff_account(
-        body.name, body.phone, body.email, body.password, db, department_id=body.department_id
-    )
+    staff, generated_password = await create_staff_account(body.name, body.phone, body.department, db)
     await db.commit()
 
-    return SuccessResponse[StaffAccountOut](
+    return SuccessResponse[StaffAccountCreatedOut](
         message="Staff account created.",
-        data=StaffAccountOut.model_validate(staff),
+        data=StaffAccountCreatedOut(**_staff_fields(staff), generated_password=generated_password),
     )
 
 
@@ -252,7 +269,7 @@ async def list_users_route(
     users, total = await list_users(role, is_active, search, page, per_page, db)
     return SuccessResponse[UserListResponse](
         message="Users retrieved.",
-        data=UserListResponse(users=[UserOut.model_validate(u) for u in users]),
+        data=UserListResponse(users=[UserOut(**_staff_fields(u)) for u in users]),
         meta={
             "page": page,
             "per_page": per_page,
@@ -284,7 +301,7 @@ async def get_user_detail_route(
     return SuccessResponse[UserDetailResponse](
         message="User retrieved.",
         data=UserDetailResponse(
-            user=UserOut.model_validate(user),
+            user=UserOut(**_staff_fields(user)),
             complaints=[UserComplaintSummary.model_validate(c) for c in complaints],
         ),
     )
@@ -314,7 +331,7 @@ async def update_user_status_route(
 
     return SuccessResponse[UserOut](
         message="User status updated.",
-        data=UserOut.model_validate(user),
+        data=UserOut(**_staff_fields(user)),
     )
 
 
@@ -345,7 +362,7 @@ async def update_user_role_route(
 
     return SuccessResponse[UserOut](
         message="User role updated.",
-        data=UserOut.model_validate(user),
+        data=UserOut(**_staff_fields(user)),
     )
 
 
@@ -361,19 +378,19 @@ async def assign_staff_department_route(
     current_user: User = Depends(require_roles(ROLE_ADMIN)),
 ):
     """
-    department_id: null unassigns the staff member from whatever
+    department: null unassigns the staff member from whatever
     department they're currently in.
 
     Raises:
         UserNotFoundError: 404, if the user doesn't exist.
         UserNotStaffError: 409, if the user isn't a staff account.
-        DepartmentNotFoundError: 404, if department_id is given but
-            doesn't match a real department.
+        DepartmentNotFoundError: 404, if department somehow doesn't
+            match a real department.
     """
-    user = await assign_staff_department(user_id, body.department_id, db)
+    user = await assign_staff_department(user_id, body.department, db)
     await db.commit()
 
     return SuccessResponse[UserOut](
         message="Staff department updated.",
-        data=UserOut.model_validate(user),
+        data=UserOut(**_staff_fields(user)),
     )

@@ -2,55 +2,49 @@
 import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/authStore'
-import {
-  assignStaffDepartment,
-  createDepartment,
-  createStaffAccount,
-  deleteDepartment,
-  listDepartments,
-  listOfficers
-} from '../api/complaintApi'
+import { assignStaffDepartment, createStaffAccount, listOfficers } from '../api/complaintApi'
 
 const auth = useAuthStore()
 const router = useRouter()
 
+// Fixed set, must match Backend/app/utils/constants.py's DEPARTMENT_NAMES
+// exactly, the backend rejects anything outside this list.
+const DEPARTMENTS = [
+  'Roads Department',
+  'Water Supply Department',
+  'Drainage & Sewerage Department',
+  'Solid Waste Management Department',
+  'Street Lighting & Electrical Department',
+  'General Administration Department'
+]
+
 const officers = ref([])
-const departments = ref([])
 const loading = ref(true)
 const loadError = ref('')
 
 const name = ref('')
 const phone = ref('')
-const email = ref('')
-const password = ref('')
-const departmentId = ref('')
+const department = ref('')
 const formError = ref('')
-const successMessage = ref('')
 const saving = ref(false)
+
+// Set once after a successful create, shown until the next submit,
+// this is the admin's only chance to see and hand off the generated
+// login credentials, they're never shown again after this.
+const createdCredentials = ref(null)
 
 // Per-officer "reassign department" dropdown state, keyed by officer id,
 // so changing one row's select doesn't touch any other row's in-flight state.
 const reassigning = ref({})
 const reassignError = ref({})
 
-const deptName = ref('')
-const deptDescription = ref('')
-const deptFormError = ref('')
-const deptSaving = ref(false)
-const deptDeletingId = ref(null)
-const deptError = ref({})
-
 const phonePattern = /^[0-9]{10}$/
 
 async function load() {
   loadError.value = ''
   try {
-    const [officersData, departmentsData] = await Promise.all([
-      listOfficers({ accessToken: auth.accessToken }),
-      listDepartments({ accessToken: auth.accessToken })
-    ])
-    officers.value = officersData.officers
-    departments.value = departmentsData.departments
+    const data = await listOfficers({ accessToken: auth.accessToken })
+    officers.value = data.officers
   } catch (e) {
     if (e.status === 401) {
       await auth.logout()
@@ -67,33 +61,33 @@ onMounted(load)
 
 async function submit() {
   formError.value = ''
-  successMessage.value = ''
+  createdCredentials.value = null
 
   if (!phonePattern.test(phone.value)) {
     formError.value = 'Enter a valid 10-digit phone number.'
     return
   }
-  if (password.value.length < 8) {
-    formError.value = 'Password must be at least 8 characters.'
+  if (!department.value) {
+    formError.value = 'Choose a department.'
     return
   }
 
   saving.value = true
   try {
-    await createStaffAccount({
+    const data = await createStaffAccount({
       name: name.value,
       phone: phone.value,
-      email: email.value,
-      password: password.value,
-      departmentId: departmentId.value || null,
+      department: department.value,
       accessToken: auth.accessToken
     })
-    successMessage.value = `${name.value} can now log in as staff.`
+    createdCredentials.value = {
+      name: data.name,
+      email: data.email,
+      password: data.generated_password
+    }
     name.value = ''
     phone.value = ''
-    email.value = ''
-    password.value = ''
-    departmentId.value = ''
+    department.value = ''
     await load()
   } catch (e) {
     formError.value = e.message
@@ -102,57 +96,20 @@ async function submit() {
   }
 }
 
-async function reassign(officer, newDepartmentId) {
+async function reassign(officer, newDepartment) {
   reassignError.value = { ...reassignError.value, [officer.id]: '' }
   reassigning.value = { ...reassigning.value, [officer.id]: true }
   try {
     await assignStaffDepartment({
       userId: officer.id,
-      departmentId: newDepartmentId || null,
+      department: newDepartment || null,
       accessToken: auth.accessToken
     })
-    officer.department_id = newDepartmentId || null
+    officer.department = newDepartment || null
   } catch (e) {
     reassignError.value = { ...reassignError.value, [officer.id]: e.message }
   } finally {
     reassigning.value = { ...reassigning.value, [officer.id]: false }
-  }
-}
-
-async function submitDepartment() {
-  deptFormError.value = ''
-  if (deptName.value.trim().length < 2) {
-    deptFormError.value = 'Enter a department name (at least 2 characters).'
-    return
-  }
-
-  deptSaving.value = true
-  try {
-    await createDepartment({
-      name: deptName.value.trim(),
-      description: deptDescription.value.trim(),
-      accessToken: auth.accessToken
-    })
-    deptName.value = ''
-    deptDescription.value = ''
-    await load()
-  } catch (e) {
-    deptFormError.value = e.message
-  } finally {
-    deptSaving.value = false
-  }
-}
-
-async function removeDepartment(dept) {
-  deptError.value = { ...deptError.value, [dept.id]: '' }
-  deptDeletingId.value = dept.id
-  try {
-    await deleteDepartment({ id: dept.id, accessToken: auth.accessToken })
-    await load()
-  } catch (e) {
-    deptError.value = { ...deptError.value, [dept.id]: e.message }
-  } finally {
-    deptDeletingId.value = null
   }
 }
 </script>
@@ -216,43 +173,15 @@ async function removeDepartment(dept) {
           </div>
 
           <div class="field">
-            <label for="staff-email">Email Address</label>
-            <input
-              id="staff-email"
-              v-model="email"
-              type="email"
-              placeholder="staff@example.com"
-              required
-              autocomplete="email"
-            />
-          </div>
-
-          <div class="field">
-            <label for="staff-password">Temporary Password</label>
-            <input
-              id="staff-password"
-              v-model="password"
-              type="password"
-              placeholder="At least 8 characters"
-              required
-              minlength="8"
-              autocomplete="new-password"
-            />
-            <p class="field-help">
-              The staff member can use this password to log in immediately.
-            </p>
-          </div>
-
-          <div class="field">
             <label for="staff-department">Department</label>
-            <select id="staff-department" v-model="departmentId">
-              <option value="">Unassigned</option>
-              <option v-for="d in departments" :key="d.id" :value="d.id">
-                {{ d.name }}
+            <select id="staff-department" v-model="department" required>
+              <option value="" disabled>Choose a department</option>
+              <option v-for="d in DEPARTMENTS" :key="d" :value="d">
+                {{ d }}
               </option>
             </select>
             <p class="field-help">
-              Optional, can also be set or changed later from the staff list.
+              A login email and temporary password are generated automatically.
             </p>
           </div>
 
@@ -260,9 +189,18 @@ async function removeDepartment(dept) {
             {{ formError }}
           </p>
 
-          <p v-if="successMessage" class="form-message success">
-            {{ successMessage }}
-          </p>
+          <div v-if="createdCredentials" class="credentials-box">
+            <p class="credentials-title">{{ createdCredentials.name }} can now log in as staff.</p>
+            <dl>
+              <dt>Email</dt>
+              <dd>{{ createdCredentials.email }}</dd>
+              <dt>Temporary password</dt>
+              <dd>{{ createdCredentials.password }}</dd>
+            </dl>
+            <p class="credentials-warning">
+              Save this now and share it with them, it won't be shown again.
+            </p>
+          </div>
 
           <button
             class="btn create-btn"
@@ -345,13 +283,13 @@ async function removeDepartment(dept) {
                 <td>
                   <select
                     class="dept-select"
-                    :value="o.department_id || ''"
+                    :value="o.department || ''"
                     :disabled="reassigning[o.id]"
                     @change="reassign(o, $event.target.value)"
                   >
                     <option value="">Unassigned</option>
-                    <option v-for="d in departments" :key="d.id" :value="d.id">
-                      {{ d.name }}
+                    <option v-for="d in DEPARTMENTS" :key="d" :value="d">
+                      {{ d }}
                     </option>
                   </select>
                   <p v-if="reassignError[o.id]" class="dept-row-error">
@@ -373,106 +311,6 @@ async function removeDepartment(dept) {
           </table>
         </div>
 
-      </section>
-
-    </div>
-
-    <!-- Departments -->
-    <div class="staff-layout dept-layout">
-
-      <section class="card create-card">
-        <div class="section-heading">
-          <div class="section-icon">+</div>
-          <div>
-            <h3>Create Department</h3>
-            <p>
-              Departments staff can be assigned to, and complaints route to.
-            </p>
-          </div>
-        </div>
-
-        <form @submit.prevent="submitDepartment">
-          <div class="field">
-            <label for="dept-name">Department Name</label>
-            <input
-              id="dept-name"
-              v-model="deptName"
-              type="text"
-              placeholder="e.g. Water Supply Department"
-              required
-            />
-          </div>
-
-          <div class="field">
-            <label for="dept-description">Description</label>
-            <input
-              id="dept-description"
-              v-model="deptDescription"
-              type="text"
-              placeholder="Optional"
-            />
-          </div>
-
-          <p v-if="deptFormError" class="form-message error">
-            {{ deptFormError }}
-          </p>
-
-          <button class="btn create-btn" type="submit" :disabled="deptSaving">
-            {{ deptSaving ? 'Creating...' : 'Create Department' }}
-          </button>
-        </form>
-      </section>
-
-      <section class="card staff-list-card">
-        <div class="section-heading staff-list-heading">
-          <div>
-            <p class="section-eyebrow">MUNICIPAL DEPARTMENTS</p>
-            <h3>Existing Departments</h3>
-            <p>Delete only works while nothing is assigned to a department.</p>
-          </div>
-
-          <span class="account-badge">{{ departments.length }}</span>
-        </div>
-
-        <div v-if="!loading && departments.length === 0" class="staff-empty">
-          <div class="empty-icon">+</div>
-          <strong>No departments yet</strong>
-          <p>Create the first department using the form.</p>
-        </div>
-
-        <div v-else class="staff-table-wrap">
-          <table class="staff-table">
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Description</th>
-                <th></th>
-              </tr>
-            </thead>
-
-            <tbody>
-              <tr v-for="d in departments" :key="d.id">
-                <td><strong>{{ d.name }}</strong></td>
-                <td>
-                  <span class="phone-number">{{ d.description || 'No description' }}</span>
-                </td>
-                <td>
-                  <button
-                    class="btn-link-danger"
-                    type="button"
-                    :disabled="deptDeletingId === d.id"
-                    @click="removeDepartment(d)"
-                  >
-                    {{ deptDeletingId === d.id ? 'Deleting...' : 'Delete' }}
-                  </button>
-                  <p v-if="deptError[d.id]" class="dept-row-error">
-                    {{ deptError[d.id] }}
-                  </p>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
       </section>
 
     </div>
@@ -825,11 +663,7 @@ async function removeDepartment(dept) {
   }
 }
 
-/* Departments */
-
-.dept-layout {
-  margin-top: 20px;
-}
+/* Department reassignment (staff table) */
 
 .dept-select {
   min-width: 160px;
@@ -847,23 +681,52 @@ async function removeDepartment(dept) {
   font-size: 11px;
 }
 
-.btn-link-danger {
-  padding: 0;
-  border: none;
-  background: none;
-  color: var(--danger);
+/* Generated credentials callout */
+
+.credentials-box {
+  margin: 0 0 14px;
+  padding: 14px;
+  border-radius: var(--radius);
+  background: var(--accent-glow);
+  border: 1px solid rgba(47, 143, 91, .25);
+}
+
+.credentials-title {
+  margin: 0 0 10px;
+  color: var(--text);
   font-size: 12px;
   font-weight: 700;
-  cursor: pointer;
 }
 
-.btn-link-danger:disabled {
-  opacity: .6;
-  cursor: default;
+.credentials-box dl {
+  margin: 0;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 10px;
 }
 
-.btn-link-danger:hover:not(:disabled) {
-  text-decoration: underline;
+.credentials-box dt {
+  color: var(--text-dim);
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  align-self: center;
+}
+
+.credentials-box dd {
+  margin: 0;
+  color: var(--text);
+  font-size: 13px;
+  font-family: ui-monospace, monospace;
+  word-break: break-all;
+}
+
+.credentials-warning {
+  margin: 10px 0 0;
+  color: var(--accent-dark);
+  font-size: 11px;
+  font-weight: 700;
 }
 
 /* Responsive */

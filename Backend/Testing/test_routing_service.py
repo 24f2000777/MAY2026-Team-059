@@ -1,9 +1,14 @@
 """
-Pytest suite for category prediction and department routing (#70).
+Pytest suite for category prediction (#70) and department routing (#69).
 
-Same approach as test_priority_service.py: mock the LLM calls for fast,
-deterministic wiring tests, plus one unmocked test at the bottom that
-hits the real Groq API to prove the whole pipeline genuinely works.
+Category prediction is still LLM-based (category_service), same approach
+as test_priority_service.py: mock the LLM calls for fast, deterministic
+wiring tests, plus one unmocked test at the bottom that hits the real
+Groq API to prove the whole pipeline genuinely works.
+
+Department routing (routing_service.route_complaint) is a plain
+CATEGORY_TO_DEPARTMENT lookup now, not an LLM call, so its tests need no
+mocking at all, they're exercising the real thing directly.
 
 Requirements
 ------------
@@ -18,14 +23,15 @@ from sqlalchemy import select
 
 from app.core.database import AsyncSessionLocal
 from app.model import Complaint, Department, User
-from app.services import category_service, routing_service
+from app.schemas.complaint import ComplaintCategory
+from app.services import category_service
 from app.services.category_service import predict_category
 from app.services.routing_service import (
     DEPARTMENT_SEEDS,
     route_complaint,
     seed_departments,
 )
-from app.utils.constants import DEPARTMENT_NAMES
+from app.utils.constants import CATEGORY_TO_DEPARTMENT, DEPARTMENT_NAMES
 
 
 @pytest.fixture
@@ -101,18 +107,45 @@ class TestPredictCategory:
         assert category == "other"
 
 
-class TestRouteComplaint:
-    async def test_falls_back_to_general_administration_when_llm_fails(
-        self, monkeypatch, db, citizen
-    ):
-        monkeypatch.setattr(
-            routing_service, "predict_department",
-            lambda category, description: (_ for _ in ()).throw(RuntimeError("down")),
-        )
+class TestCategoryToDepartmentMapping:
+    def test_every_category_has_a_department_mapping(self):
+        # Every real ComplaintCategory value must route somewhere, this
+        # would have caught the real bug that motivated the deterministic
+        # rewrite: a genuine drainage complaint got LLM-routed to General
+        # Administration instead of Drainage & Sewerage.
+        assert set(CATEGORY_TO_DEPARTMENT.keys()) == {c.value for c in ComplaintCategory}
 
+    def test_every_mapped_department_is_in_the_fixed_list(self):
+        assert set(CATEGORY_TO_DEPARTMENT.values()) <= set(DEPARTMENT_NAMES)
+
+
+class TestRouteComplaint:
+    async def test_routes_every_category_to_its_mapped_department(self, db, citizen):
+        for category, expected_department in CATEGORY_TO_DEPARTMENT.items():
+            complaint = Complaint(
+                citizen_id=citizen.id, title="Test", description="Test description.",
+                category=category, location_text="Test Location",
+            )
+            db.add(complaint)
+            await db.flush()
+
+            department = await route_complaint(complaint, db)
+
+            assert department is not None
+            assert department.name == expected_department
+
+            await db.delete(complaint)
+            await db.commit()
+
+    async def test_falls_back_to_general_administration_for_an_unmapped_category(
+        self, db, citizen
+    ):
+        # Can't happen through the real API (category is schema-validated
+        # against ComplaintCategory), constructed directly here to prove
+        # the defensive fallback itself works.
         complaint = Complaint(
             citizen_id=citizen.id, title="Test", description="Test description.",
-            category="other", location_text="Test Location",
+            category="not_a_real_category", location_text="Test Location",
         )
         db.add(complaint)
         await db.flush()
@@ -124,30 +157,12 @@ class TestRouteComplaint:
         await db.delete(complaint)
         await db.commit()
 
-    async def test_routes_to_the_department_the_llm_picks(self, monkeypatch, db, citizen):
-        monkeypatch.setattr(
-            routing_service, "predict_department",
-            lambda category, description: "Water Supply Department",
-        )
-
-        complaint = Complaint(
-            citizen_id=citizen.id, title="Test", description="Test description.",
-            category="water_supply", location_text="Test Location",
-        )
-        db.add(complaint)
-        await db.flush()
-
-        department = await route_complaint(complaint, db)
-        assert department is not None
-        assert department.name == "Water Supply Department"
-
-        await db.delete(complaint)
-        await db.commit()
-
 
 class TestRealPipeline:
-    """No mocking, exercises the real Groq call for both category prediction
-    and department routing. Needs a working GROQ_API_KEY and network access.
+    """No mocking, exercises the real Groq call for category prediction
+    (department routing itself is a plain deterministic lookup now, no LLM
+    involved, see TestRouteComplaint above). Needs a working GROQ_API_KEY
+    and network access.
     """
 
     async def test_streetlight_complaint_routes_correctly(self, db, citizen):

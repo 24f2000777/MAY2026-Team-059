@@ -325,8 +325,9 @@ class TestChatCreatesRealComplaints:
         self, db, citizen, monkeypatch
     ):
         # Regression test: create_complaint() does db.add() + an initial
-        # flush() (assigning a real id) *before* score_complaint/
-        # route_complaint run, each a real network call that can fail.
+        # flush() (assigning a real id) *before* score_complaint runs, a
+        # real network call that can fail (route_complaint itself is a
+        # plain deterministic lookup now, it can't fail this way).
         # _file_complaint_from_chat swallows any exception from that call
         # so a hiccup there doesn't surface as a chat error — but without
         # a savepoint, the already-flushed, half-initialized Complaint

@@ -1,11 +1,8 @@
-from app.utils.constants import DEPARTMENT_NAMES
-
 from .prompts import CATEGORIES, SEVERITY_LEVELS
 from .providers import (
     CHAIN_WITH_FALLBACKS_TIMEOUT_SECONDS,
     _invoke_with_timeout,
     extraction_chain,
-    routing_chain,
 )
 
 
@@ -53,26 +50,6 @@ def extract_complaint_info(user_query):
         "complaint_category": category,
         "severity": severity,
     }
-
-
-def predict_department(category, description):
-    """
-    Asks the LLM to pick exactly one department (app/utils/constants.
-    DEPARTMENT_NAMES) for a complaint's category and description. The
-    Literal-typed DepartmentRouting schema means Groq/Gemini can only
-    ever return one of those exact names, never something invented.
-    """
-    result = _invoke_with_timeout(
-        routing_chain,
-        {"category": category, "description": description},
-        timeout=CHAIN_WITH_FALLBACKS_TIMEOUT_SECONDS,
-    )
-    department = result.department.strip()
-
-    if department not in DEPARTMENT_NAMES:
-        raise ValueError(f"llm returned an unknown department: {department}")
-
-    return department
 
 
 # every field predict_priority needs, besides complaint_category and severity which

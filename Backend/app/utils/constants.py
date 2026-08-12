@@ -30,10 +30,8 @@ REFRESH_TOKEN = "refresh"
 # Departments
 # =====================================================
 
-# Fixed set, one per ComplaintCategory grouping (see
-# app/services/routing_service.py). The department-routing LLM prompt
-# (app/chatbot/prompts.py) is constrained to only ever return one of
-# these exact names.
+# Fixed set, one per ComplaintCategory grouping (see CATEGORY_TO_DEPARTMENT
+# below).
 DEPARTMENT_NAMES = [
     "Roads Department",
     "Water Supply Department",
@@ -42,3 +40,25 @@ DEPARTMENT_NAMES = [
     "Street Lighting & Electrical Department",
     "General Administration Department",
 ]
+
+# Deterministic category -> department routing (app/services/routing_service.py's
+# route_complaint), a straight lookup rather than an LLM call: both sides
+# are already fixed, controlled sets, category is never free text by the
+# time a complaint reaches routing, so there's no actual ambiguity for a
+# model to resolve, and asking one anyway is just an unnecessary source of
+# misrouting (confirmed in practice: a real drainage complaint got routed
+# to General Administration). Every app.schemas.complaint.ComplaintCategory
+# value must have an entry here, enforced by
+# Testing/test_routing_service.py's test_every_category_has_a_department_mapping.
+CATEGORY_TO_DEPARTMENT = {
+    "road": "Roads Department",
+    "pothole": "Roads Department",
+    "traffic": "Roads Department",
+    "water_supply": "Water Supply Department",
+    "drainage": "Drainage & Sewerage Department",
+    "sewage": "Drainage & Sewerage Department",
+    "garbage": "Solid Waste Management Department",
+    "streetlight": "Street Lighting & Electrical Department",
+    "electricity": "Street Lighting & Electrical Department",
+    "other": "General Administration Department",
+}

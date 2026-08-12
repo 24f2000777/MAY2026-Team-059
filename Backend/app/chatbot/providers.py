@@ -9,8 +9,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_huggingface import ChatHuggingFace, HuggingFaceEndpoint
 
 from app.core.config import settings
-from app.utils.constants import DEPARTMENT_NAMES
-from .prompts import DepartmentRouting, extraction_prompt, routing_prompt, ComplaintInfo
+from .prompts import extraction_prompt, ComplaintInfo
 
 GROQ_API_KEY = settings.GROQ_API_KEY
 GEMINI_API_KEY = settings.GEMINI_API_KEY
@@ -31,10 +30,10 @@ SAFE_FALLBACK_REPLY = "Sorry, I'm having trouble with that right now. Please try
 # just hang forever and never hand control back.
 LLM_REQUEST_TIMEOUT_SECONDS = 15
 
-# extraction_chain and routing_chain (built below with .with_fallbacks())
-# each try up to 3 providers *inside a single .invoke() call* — groq, then
-# huggingface, then gemini, sequentially, only moving to the next on an
-# exception. Wrapping that whole call in the same 15s budget meant for one
+# extraction_chain (built below with .with_fallbacks()) tries up to 3
+# providers *inside a single .invoke() call* — groq, then huggingface,
+# then gemini, sequentially, only moving to the next on an exception.
+# Wrapping that whole call in the same 15s budget meant for one
 # provider was its own bug: a legitimate case where groq is a bit slow, the
 # broken huggingface config fails fast (see hf_endpoint below), and gemini
 # then succeeds could easily take longer than 15s total and get cut off
@@ -225,33 +224,5 @@ extraction_chain = (extraction_prompt | groq_llm).with_fallbacks(
     [
         extraction_prompt | huggingface_llm | RunnableLambda(parse_huggingface_output),
         extraction_prompt | gemini_llm,
-    ]
-)
-
-# reuses the already-configured groq_chat_llm/gemini_chat_llm/huggingface_llm
-# clients above (same rate limiters, same models), just bound to the
-# DepartmentRouting schema instead of ComplaintInfo, same groq-then-hf-then-gemini
-# fallback order as extraction_chain
-groq_routing_llm = groq_chat_llm.with_structured_output(DepartmentRouting)
-gemini_routing_llm = gemini_chat_llm.with_structured_output(DepartmentRouting)
-
-
-def parse_huggingface_department_output(ai_message):
-    # ChatHuggingFace doesn't support with_structured_output (see
-    # parse_huggingface_output above for why), so fall back to finding
-    # whichever department name from the fixed list appears in the raw text
-    text = ai_message.content
-    for name in DEPARTMENT_NAMES:
-        if name in text:
-            return DepartmentRouting(department=name)
-    # model ignored the instructions entirely, same safe default the prompt
-    # itself tells it to use when nothing else fits
-    return DepartmentRouting(department="General Administration Department")
-
-
-routing_chain = (routing_prompt | groq_routing_llm).with_fallbacks(
-    [
-        routing_prompt | huggingface_llm | RunnableLambda(parse_huggingface_department_output),
-        routing_prompt | gemini_routing_llm,
     ]
 )

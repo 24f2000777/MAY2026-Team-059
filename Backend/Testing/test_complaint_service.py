@@ -1,12 +1,12 @@
 """
 Pytest suite for complaint submission (#41).
 
-Hits real Groq/LLM calls (via score_complaint's severity extraction and
-route_complaint's department prediction) and real Supabase, same
-reasoning as the other unmocked service suites in this project: this is
-genuinely what needs proving, a mocked LLM response wouldn't catch a
-real integration break between create_complaint and the ML services it
-calls.
+Hits real Groq/LLM calls (via score_complaint's severity extraction) and
+real Supabase, same reasoning as the other unmocked service suites in
+this project: this is genuinely what needs proving, a mocked LLM
+response wouldn't catch a real integration break between create_complaint
+and the ML services it calls. route_complaint's department routing is a
+plain deterministic lookup, not an LLM call (see routing_service.py).
 """
 
 import csv

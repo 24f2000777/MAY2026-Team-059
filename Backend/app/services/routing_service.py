@@ -1,9 +1,15 @@
 """
-Routes a complaint to a department based on its category and description
-(#69), by asking the LLM to pick one from the fixed department list
-(app/chatbot/extractor.predict_department), same LLM-extraction approach
-already used for severity in priority_service.py, rather than a trained
-classifier.
+Routes a complaint to a department based on its category (#69), via the
+fixed, deterministic CATEGORY_TO_DEPARTMENT lookup in app/utils/constants.py.
+
+This used to ask an LLM to pick a department per-complaint (same
+LLM-extraction approach still used for severity in priority_service.py).
+Dropped in favor of a plain lookup: category is already one of a fixed,
+controlled set by the time a complaint reaches this function, so there's
+no genuine ambiguity to resolve, and the LLM call was a real source of
+misrouting in practice (a real drainage complaint landed in General
+Administration) for a decision that has exactly one correct answer per
+category.
 
 Departments are looked up by their existing `name` column, no schema
 change needed, department rows are seeded once (seed_departments, called
@@ -13,12 +19,10 @@ table.
 
 import logging
 
-from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import select
 
-from app.chatbot.extractor import predict_department
 from app.model import Department
-from app.utils.constants import DEPARTMENT_NAMES
+from app.utils.constants import CATEGORY_TO_DEPARTMENT, DEPARTMENT_NAMES
 
 logger = logging.getLogger(__name__)
 
@@ -57,23 +61,21 @@ async def seed_departments(db) -> int:
 
 async def route_complaint(complaint, db) -> Department | None:
     """
-    Asks the LLM which department the complaint belongs in, then looks up
-    and returns that Department row. Does not persist department_id,
-    callers decide that. Falls back to General Administration Department
-    if the LLM call fails entirely, the same safe-default the routing
-    prompt itself is told to use.
+    Looks up complaint.category in CATEGORY_TO_DEPARTMENT and returns the
+    matching Department row. Does not persist department_id, callers
+    decide that. Falls back to General Administration Department if the
+    category somehow isn't in the mapping (shouldn't happen, every
+    ComplaintCategory value has an entry, see the mapping's own comment)
+    or the departments table hasn't been seeded yet.
     """
-    try:
-        # predict_department is a blocking network call (LLM API), run it
-        # in a thread so it doesn't stall the event loop for other requests
-        department_name = await run_in_threadpool(
-            predict_department, complaint.category, complaint.description
-        )
-    except Exception:
+    category = complaint.category.value if hasattr(complaint.category, "value") else complaint.category
+    department_name = CATEGORY_TO_DEPARTMENT.get(category)
+
+    if department_name is None:
         logger.warning(
-            "department routing failed for complaint %s, defaulting to General Administration",
+            "no department mapping for category '%s' on complaint %s, defaulting to General Administration",
+            category,
             complaint.id,
-            exc_info=True,
         )
         department_name = "General Administration Department"
 
@@ -81,11 +83,9 @@ async def route_complaint(complaint, db) -> Department | None:
     department = result.scalar_one_or_none()
 
     if department is None:
-        # predict_department already validates its own output against
-        # DEPARTMENT_NAMES (Literal-typed schema plus its own check), so it
-        # can't return a name outside that list, this branch means the
-        # departments table hasn't been seeded yet, not a bad LLM response.
-        # Same safe default either way.
+        # department_name came from our own fixed CATEGORY_TO_DEPARTMENT
+        # mapping, so this branch means the departments table hasn't
+        # been seeded yet (see seed_departments), not a bad mapping.
         logger.warning(
             "department '%s' not found in table (not seeded yet?), falling back to General Administration",
             department_name,

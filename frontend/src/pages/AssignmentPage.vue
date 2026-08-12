@@ -45,9 +45,19 @@ const hasAssignment = computed(() => {
 // showing everyone if the complaint somehow has no department (should
 // be rare, routing always falls back to General Administration on
 // its own failures, see routing_service.route_complaint).
+//
+// Always keeps the currently-assigned officer in the list even if
+// their department no longer matches (they could have been moved to
+// a different department after this complaint was assigned) -
+// otherwise the dropdown would silently show no selection for them
+// while selectedStaff still held their id underneath, so "Confirm
+// Assignment" would resubmit an assignment the admin can't actually
+// see selected.
 const eligibleOfficers = computed(() => {
   if (!complaint.value?.department) return officers.value
-  return officers.value.filter(o => o.department === complaint.value.department)
+  return officers.value.filter(
+    o => o.department === complaint.value.department || o.id === complaint.value.assigned_to
+  )
 })
 
 onMounted(async () => {

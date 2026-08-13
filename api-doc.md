@@ -689,14 +689,3 @@ accuracy" was explicitly part of the issue.
    `GET /health/ml`, all Attachment/Notification/Reminder/Feedback/Department/Admin
    analytics groups, and 7 of the 9 designed chatbot endpoints (KB management,
    `/chat/status/{id}`, `/chat/feedback`, `DELETE /chat/history/{id}`).
-
-## Format note
-
-The issue title asks for `api-doc.yaml` (Swagger-compatible). This document is Markdown
-because it's meant to be read and reviewed by the team (worked examples, story mapping,
-cross-check notes) rather than machine-parsed — `Backend/openapi.yaml` already covers the
-machine-readable Swagger/OpenAPI need directly from the FastAPI app, and duplicating that
-as a second hand-maintained YAML file risks the two drifting apart again. If the team
-still wants a literal `api-doc.yaml`, say so and I'll generate one — it'd essentially
-re-serialize the tables above into OpenAPI syntax with `x-user-story` extensions per
-path, matching the format already used in `Backend/openapi.yaml`.

@@ -3,12 +3,12 @@
 ## Contents
 
 1. [Conventions](#conventions)
-2. [Authentication](#1-authentication) — 11 endpoints
-3. [Complaints](#2-complaints) — 9 endpoints
-4. [Chat (Nagrik Saathi)](#3-chat-nagrik-saathi) — 2 endpoints
-5. [ML Engine](#4-ml-engine) — 10 endpoints
-6. [Dashboard](#5-dashboard) — 5 endpoints
-7. [System](#6-system) — 2 endpoints
+2. [Authentication](#1-authentication) - 11 endpoints
+3. [Complaints](#2-complaints) - 9 endpoints
+4. [Chat (Nagrik Saathi)](#3-chat-nagrik-saathi) - 2 endpoints
+5. [ML Engine](#4-ml-engine) - 10 endpoints
+6. [Dashboard](#5-dashboard) - 5 endpoints
+7. [System](#6-system) - 2 endpoints
 8. [Appendix A — Complaint status state machine](#appendix-a--complaint-status-state-machine)
 9. [Appendix B — Error code reference](#appendix-b--error-code-reference)
 10. [Appendix C — User story mapping](#appendix-c--user-story-mapping)

@@ -63,7 +63,14 @@ groq_rate_limiter = InMemoryRateLimiter(
 )
 
 groq_llm = ChatGroq(
-    model="llama-3.3-70b-versatile",
+    # llama-3.3-70b-versatile is decommissioned by Groq on 2026-08-16.
+    # openai/gpt-oss-120b is the production-tier (not preview) replacement:
+    # bigger than the old 70B, similar speed and rate limits. Groq's own
+    # decommission notice also suggested qwen/qwen3.6-27b, but that model
+    # is listed as Preview on Groq's model page, "should not be used in
+    # production... may be discontinued at short notice" per Groq's own
+    # docs, exactly the problem this swap is meant to avoid.
+    model="openai/gpt-oss-120b",
     groq_api_key=GROQ_API_KEY,
     rate_limiter=groq_rate_limiter,
     max_retries=1,
@@ -81,7 +88,8 @@ groq_llm = ChatGroq(
 ).with_structured_output(ComplaintInfo)
 
 groq_chat_llm = ChatGroq(
-    model="llama-3.3-70b-versatile",
+    # See groq_llm above for why this is gpt-oss-120b, not llama-3.3-70b-versatile.
+    model="openai/gpt-oss-120b",
     groq_api_key=GROQ_API_KEY,
     rate_limiter=groq_rate_limiter,
     max_retries=1,

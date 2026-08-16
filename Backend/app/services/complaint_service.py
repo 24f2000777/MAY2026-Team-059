@@ -34,6 +34,8 @@ from app.utils.exceptions import (
     ComplaintNotAssignedToUserError,
     ComplaintNotFoundError,
     ComplaintNotOwnerError,
+    ComplaintNotResolvedError,
+    InsufficientPermissionsError,
     InvalidStaffAssignmentError,
     InvalidStatusTransitionError,
     TooManyAttachmentsError,
@@ -530,6 +532,7 @@ async def upload_complaint_attachment(
     content_type: str,
     file_bytes: bytes,
     db,
+    purpose: str = "citizen_evidence",
 ) -> ComplaintImage:
     """
     Validates and stores a new attachment on a complaint, backing
@@ -540,10 +543,24 @@ async def upload_complaint_attachment(
     here to include admin too, matching every other route in this
     module where admin has a superset of staff's access.
 
+    purpose="resolution_proof" is a staff/admin-only variant (a
+    citizen can never mark their own upload as proof of resolution),
+    only allowed once the complaint is actually RESOLVED, and, for a
+    staff actor specifically, only on a complaint assigned to them,
+    the same actor-must-be-assignee rule /resolve itself enforces.
+    Admin bypasses that assignment check, same as everywhere else.
+
     Raises:
         ComplaintNotFoundError: 404, if the complaint doesn't exist.
         ComplaintNotOwnerError: 403, if a citizen requests a complaint
             that isn't theirs.
+        InsufficientPermissionsError: 403 (AUTH_004), if a citizen
+            attempts a resolution_proof upload.
+        ComplaintNotResolvedError: 409 (COMP_008), if a resolution_proof
+            upload is attempted before the complaint is resolved.
+        ComplaintNotAssignedToUserError: 403 (COMP_005), if staff
+            attempt a resolution_proof upload on a complaint that
+            isn't assigned to them.
         UnsupportedFileTypeError: 415 (FILE_002), if content_type
             isn't JPG/PNG/PDF/DOC/DOCX, or file_bytes' actual leading
             bytes don't match what real files of that type start with.
@@ -555,7 +572,19 @@ async def upload_complaint_attachment(
 
     Does not commit, same convention as create_complaint above.
     """
-    await _get_visible_complaint(complaint_id, current_user, db)
+    complaint = await _get_visible_complaint(complaint_id, current_user, db)
+
+    if purpose == "resolution_proof":
+        if current_user.role == ROLE_CITIZEN:
+            raise InsufficientPermissionsError("Citizens cannot upload resolution photos.")
+        if complaint.status != ComplaintStatus.RESOLVED.value:
+            raise ComplaintNotResolvedError(
+                "Resolution photos can only be uploaded once the complaint is resolved."
+            )
+        if current_user.role == ROLE_STAFF and complaint.assigned_to != current_user.id:
+            raise ComplaintNotAssignedToUserError(
+                "You can only upload resolution photos for complaints assigned to you."
+            )
 
     validate_upload(content_type, file_bytes)
 
@@ -572,7 +601,7 @@ async def upload_complaint_attachment(
 
     image_url = save_attachment_file(complaint_id, content_type, file_bytes)
 
-    attachment = ComplaintImage(complaint_id=complaint_id, image_url=image_url)
+    attachment = ComplaintImage(complaint_id=complaint_id, image_url=image_url, purpose=purpose)
     db.add(attachment)
     await db.flush()
 

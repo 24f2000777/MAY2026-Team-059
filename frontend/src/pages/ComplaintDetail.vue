@@ -34,6 +34,12 @@ const isOwner = computed(() => complaint.value && complaint.value.citizen_id ===
 // withdraw is the citizen's option instead.
 const canDelete = computed(() => isOwner.value && complaint.value?.status === 'submitted')
 
+// The photos filed with the complaint vs the proof-of-fix photo staff
+// uploads once it's resolved, kept visually separate so it's obvious
+// which is which.
+const citizenPhotos = computed(() => attachments.value.filter(a => a.purpose !== 'resolution_proof'))
+const resolutionPhotos = computed(() => attachments.value.filter(a => a.purpose === 'resolution_proof'))
+
 async function removeComplaint() {
   if (!confirm('Delete this complaint permanently? This cannot be undone.')) return
   deleteError.value = ''
@@ -184,7 +190,7 @@ onMounted(load)
 
             <!-- Attachments -->
             <section
-              v-if="attachments.length > 0"
+              v-if="citizenPhotos.length > 0"
               class="detail-card"
             >
 
@@ -200,7 +206,7 @@ onMounted(load)
               <div class="attachment-grid">
 
                 <a
-                  v-for="a in attachments"
+                  v-for="a in citizenPhotos"
                   :key="a.id"
                   :href="attachmentUrl(a.image_url)"
                   target="_blank"
@@ -210,6 +216,44 @@ onMounted(load)
                   <img
                     :src="attachmentUrl(a.image_url)"
                     alt="Complaint attachment"
+                  />
+
+                  <span>View</span>
+                </a>
+
+              </div>
+
+            </section>
+
+
+            <!-- Resolution photos -->
+            <section
+              v-if="resolutionPhotos.length > 0"
+              class="detail-card resolution-card"
+            >
+
+              <div class="detail-card-header">
+                <div class="detail-icon">✓</div>
+
+                <div>
+                  <h3>Proof of Resolution</h3>
+                  <p>Photos the staff member uploaded showing the fix</p>
+                </div>
+              </div>
+
+              <div class="attachment-grid">
+
+                <a
+                  v-for="a in resolutionPhotos"
+                  :key="a.id"
+                  :href="attachmentUrl(a.image_url)"
+                  target="_blank"
+                  rel="noopener"
+                  class="attachment-thumb"
+                >
+                  <img
+                    :src="attachmentUrl(a.image_url)"
+                    alt="Resolution photo"
                   />
 
                   <span>View</span>
@@ -582,6 +626,12 @@ onMounted(load)
   padding: 8px 0 2px;
 }
 
+
+/* Resolution photos */
+
+.resolution-card {
+  border-top: 3px solid var(--ok);
+}
 
 /* Attachments */
 

@@ -120,7 +120,9 @@ class ComplaintUpdate(Base):
 
 
 # ─── TABLE 5: COMPLAINT_IMAGES ──────────────────────────
-# photos a citizen attaches to a complaint at submission time
+# photos attached to a complaint, either citizen evidence at
+# submission time or a staff-uploaded resolution photo afterwards,
+# see purpose below
 class ComplaintImage(Base):
     __tablename__ = "complaint_images"
 
@@ -129,6 +131,10 @@ class ComplaintImage(Base):
         UUID(as_uuid=True), ForeignKey("complaints.id", ondelete="CASCADE"), nullable=False
     )
     image_url = Column(String(500), nullable=False)
+    # "citizen_evidence" (default, the original photo(s) filed with
+    # the complaint) or "resolution_proof" (staff-uploaded, only once
+    # the complaint is resolved, see complaint_service.upload_complaint_attachment)
+    purpose = Column(String(20), nullable=False, server_default="citizen_evidence")
     created_at = Column(DateTime, server_default=func.now())
 
 

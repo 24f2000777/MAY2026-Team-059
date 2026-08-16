@@ -285,6 +285,7 @@ function goBack() {
               class="attachment-thumb"
             >
               <img :src="attachmentUrl(a.image_url)" alt="Attachment" />
+              <span v-if="a.purpose === 'resolution_proof'" class="attachment-badge">Resolution</span>
             </a>
           </div>
 
@@ -670,6 +671,7 @@ function goBack() {
 }
 
 .attachment-thumb {
+  position: relative;
   display: block;
   width: 96px;
   height: 96px;
@@ -682,6 +684,18 @@ function goBack() {
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+
+.attachment-badge {
+  position: absolute;
+  left: 4px;
+  bottom: 4px;
+  padding: 2px 6px;
+  border-radius: 5px;
+  background: rgba(22, 48, 31, .78);
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
 }
 
 .section-heading {

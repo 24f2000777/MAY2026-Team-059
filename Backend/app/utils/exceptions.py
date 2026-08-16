@@ -264,10 +264,12 @@ class RatingAlreadyExistsError(ComplaintError):
 
 class ComplaintNotResolvedError(ComplaintError):
     """
-    Raised when feedback is submitted for a complaint that isn't
-    currently RESOLVED, the only status the design doc allows
-    feedback from (submitting feedback then auto-transitions it to
-    CLOSED, see feedback_service.py).
+    Raised when an action that only makes sense on a RESOLVED
+    complaint is attempted outside that status: feedback submission
+    (the only status the design doc allows feedback from, submitting
+    it then auto-transitions to CLOSED, see feedback_service.py), and
+    staff uploading a resolution-proof attachment (there's nothing to
+    show proof of yet if the complaint isn't resolved).
     """
     error_code = "COMP_008"
 

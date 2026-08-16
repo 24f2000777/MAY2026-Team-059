@@ -1,8 +1,8 @@
 <script setup>
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/authStore'
-import { getComplaint, getComplaintHistory, listAttachments, resolveComplaint, startComplaint } from '../api/complaintApi'
+import { getComplaint, getComplaintHistory, listAttachments, resolveComplaint, startComplaint, uploadAttachment } from '../api/complaintApi'
 import { API_BASE_URL } from '../api/httpClient'
 import { categoryLabel } from '../constants/categories'
 import { complaintReference } from '../constants/complaintNumber'
@@ -29,6 +29,16 @@ const loadError = ref('')
 const actionError = ref('')
 const saving = ref(false)
 
+const resolutionUpload = ref(null)
+const uploadingResolution = ref(false)
+const uploadError = ref('')
+
+// The citizen's own evidence photos vs a resolution photo staff
+// uploads afterwards, kept visually separate so it's obvious which is
+// which rather than one flat, ambiguous grid.
+const citizenPhotos = computed(() => attachments.value.filter(a => a.purpose !== 'resolution_proof'))
+const resolutionPhotos = computed(() => attachments.value.filter(a => a.purpose === 'resolution_proof'))
+
 async function load() {
   loading.value = true
   loadError.value = ''
@@ -50,6 +60,31 @@ async function load() {
     loadError.value = e.message
   } finally {
     loading.value = false
+  }
+}
+
+function onResolutionFileChosen(event) {
+  resolutionUpload.value = event.target.files[0] || null
+}
+
+async function uploadResolutionPhoto() {
+  if (!resolutionUpload.value) return
+
+  uploadingResolution.value = true
+  uploadError.value = ''
+  try {
+    await uploadAttachment({
+      id: route.params.id,
+      file: resolutionUpload.value,
+      purpose: 'resolution_proof',
+      accessToken: auth.accessToken
+    })
+    resolutionUpload.value = null
+    await load()
+  } catch (e) {
+    uploadError.value = e.message
+  } finally {
+    uploadingResolution.value = false
   }
 }
 
@@ -178,17 +213,17 @@ onMounted(load)
 
 
         <!-- Attachments -->
-        <section v-if="attachments.length > 0" class="section-card">
+        <section v-if="citizenPhotos.length > 0" class="section-card">
           <div class="section-header">
             <div>
               <span class="section-kicker">EVIDENCE</span>
-              <h2>Attachments</h2>
+              <h2>Photos From Citizen</h2>
             </div>
           </div>
 
           <div class="attachment-grid">
             <a
-              v-for="a in attachments"
+              v-for="a in citizenPhotos"
               :key="a.id"
               :href="attachmentUrl(a.image_url)"
               target="_blank"
@@ -197,6 +232,54 @@ onMounted(load)
             >
               <img :src="attachmentUrl(a.image_url)" alt="Attachment" />
             </a>
+          </div>
+        </section>
+
+
+        <!-- Resolution photos -->
+        <section v-if="resolutionPhotos.length > 0 || complaint.status === 'resolved'" class="section-card">
+          <div class="section-header">
+            <div>
+              <span class="section-kicker">PROOF OF FIX</span>
+              <h2>Resolution Photos</h2>
+            </div>
+          </div>
+
+          <div v-if="resolutionPhotos.length > 0" class="attachment-grid">
+            <a
+              v-for="a in resolutionPhotos"
+              :key="a.id"
+              :href="attachmentUrl(a.image_url)"
+              target="_blank"
+              rel="noopener"
+              class="attachment-thumb"
+            >
+              <img :src="attachmentUrl(a.image_url)" alt="Resolution photo" />
+            </a>
+          </div>
+
+          <div v-if="complaint.status === 'resolved'" class="resolution-upload">
+            <p class="resolution-upload-hint">
+              Add a photo showing the issue has been fixed, the citizen will see it.
+            </p>
+
+            <input
+              type="file"
+              accept="image/jpeg,image/png"
+              @change="onResolutionFileChosen"
+            />
+
+            <p v-if="uploadError" class="action-error">
+              {{ uploadError }}
+            </p>
+
+            <button
+              class="primary-action resolve-btn"
+              :disabled="!resolutionUpload || uploadingResolution"
+              @click="uploadResolutionPhoto"
+            >
+              {{ uploadingResolution ? 'Uploading...' : 'Upload Resolution Photo' }}
+            </button>
           </div>
         </section>
 
@@ -776,6 +859,34 @@ onMounted(load)
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+
+.resolution-upload {
+  margin-top: 14px;
+  padding: 15px;
+
+  background: var(--panel-alt);
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+}
+
+.resolution-upload-hint {
+  margin: 0 0 10px;
+  color: var(--text-dim);
+  font-size: 12px;
+}
+
+.resolution-upload input[type="file"] {
+  display: block;
+  width: 100%;
+  margin-bottom: 12px;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.resolution-upload .primary-action {
+  width: auto;
+  padding: 0 18px;
 }
 
 

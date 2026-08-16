@@ -1,7 +1,7 @@
 from typing import Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, Query, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.config import settings
@@ -14,6 +14,7 @@ from ..schemas.common import SuccessResponse
 from ..schemas.complaint import (
     AttachmentListResponse,
     AttachmentOut,
+    AttachmentPurpose,
     ComplaintAssignRequest,
     ComplaintAssignResponse,
     ComplaintCategory,
@@ -473,6 +474,7 @@ async def list_complaint_attachments_route(
 async def upload_complaint_attachment_route(
     complaint_id: UUID,
     file: UploadFile = File(...),
+    purpose: AttachmentPurpose = Form("citizen_evidence"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -482,10 +484,21 @@ async def upload_complaint_attachment_route(
     any. JPG, PNG, PDF, DOC, and DOCX only, up to 5 MB, up to 5
     attachments per complaint.
 
+    purpose defaults to citizen_evidence. "resolution_proof" is for
+    staff/admin only, once the complaint is resolved, see
+    complaint_service.upload_complaint_attachment.
+
     Raises:
         ComplaintNotFoundError: 404, if the complaint doesn't exist.
         ComplaintNotOwnerError: 403, if a citizen requests a complaint
             that isn't theirs.
+        InsufficientPermissionsError: 403 (AUTH_004), if a citizen
+            attempts a resolution_proof upload.
+        ComplaintNotResolvedError: 409 (COMP_008), if a resolution_proof
+            upload is attempted before the complaint is resolved.
+        ComplaintNotAssignedToUserError: 403 (COMP_005), if staff
+            attempt a resolution_proof upload on a complaint that
+            isn't assigned to them.
         UnsupportedFileTypeError: 415 (FILE_002), if the file isn't
             JPG/PNG/PDF/DOC/DOCX, or its actual content doesn't match
             the claimed type.
@@ -495,7 +508,7 @@ async def upload_complaint_attachment_route(
     """
     file_bytes = await read_upload_bounded(file, settings.MAX_UPLOAD_SIZE_BYTES)
     attachment = await upload_complaint_attachment(
-        complaint_id, current_user, file.content_type, file_bytes, db
+        complaint_id, current_user, file.content_type, file_bytes, db, purpose=purpose
     )
     await db.commit()
 

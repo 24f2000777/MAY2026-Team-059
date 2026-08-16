@@ -149,9 +149,10 @@ export function listAttachments({ id, accessToken }) {
   return request(`/complaints/${id}/attachments`, { token: accessToken })
 }
 
-export function uploadAttachment({ id, file, accessToken }) {
+export function uploadAttachment({ id, file, purpose, accessToken }) {
   const formData = new FormData()
   formData.append('file', file)
+  if (purpose) formData.append('purpose', purpose)
   return request(`/complaints/${id}/attachments`, { method: 'POST', token: accessToken, formData })
 }
 

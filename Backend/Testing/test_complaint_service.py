@@ -65,7 +65,9 @@ from app.utils.exceptions import (
     ComplaintNotAssignedToUserError,
     ComplaintNotFoundError,
     ComplaintNotOwnerError,
+    ComplaintNotResolvedError,
     FileTooLargeError,
+    InsufficientPermissionsError,
     InvalidStaffAssignmentError,
     InvalidStatusTransitionError,
     TooManyAttachmentsError,
@@ -157,6 +159,16 @@ async def _cleanup(db, complaint):
         await db.delete(n)
     await db.delete(complaint)
     await db.commit()
+
+
+async def _make_resolved_complaint(db, citizen, admin, staff):
+    """submitted -> approved -> assigned to staff -> in_progress -> resolved."""
+    complaint = await _make_complaint(db, citizen)
+    await transition_complaint_status(complaint.id, "approve", admin, None, db)
+    complaint.assigned_to = staff.id
+    await db.flush()
+    await transition_complaint_status(complaint.id, "start", staff, None, db)
+    return await transition_complaint_status(complaint.id, "resolve", staff, "Fixed.", db)
 
 
 async def _make_complaint(db, citizen):
@@ -1231,6 +1243,93 @@ class TestUploadComplaintAttachment:
     async def test_rejects_a_nonexistent_complaint(self, db, admin):
         with pytest.raises(ComplaintNotFoundError):
             await upload_complaint_attachment(uuid.uuid4(), admin, "image/jpeg", b"data", db)
+
+    async def test_defaults_to_citizen_evidence_purpose(self, db, citizen):
+        complaint = await _make_complaint(db, citizen)
+
+        attachment = await upload_complaint_attachment(
+            complaint.id, citizen, "image/jpeg", JPEG_MAGIC_BYTES, db
+        )
+        await db.commit()
+
+        assert attachment.purpose == "citizen_evidence"
+
+        await db.delete(attachment)
+        await _cleanup(db, complaint)
+
+
+class TestUploadResolutionProofAttachment:
+    async def test_assigned_staff_can_upload_once_resolved(self, db, citizen, admin, staff):
+        complaint = await _make_resolved_complaint(db, citizen, admin, staff)
+
+        attachment = await upload_complaint_attachment(
+            complaint.id, staff, "image/jpeg", JPEG_MAGIC_BYTES, db, purpose="resolution_proof"
+        )
+        await db.commit()
+
+        assert attachment.purpose == "resolution_proof"
+
+        await db.delete(attachment)
+        await _cleanup(db, complaint)
+
+    async def test_admin_can_upload_regardless_of_assignment(self, db, citizen, admin, staff):
+        complaint = await _make_resolved_complaint(db, citizen, admin, staff)
+
+        attachment = await upload_complaint_attachment(
+            complaint.id, admin, "image/jpeg", JPEG_MAGIC_BYTES, db, purpose="resolution_proof"
+        )
+        await db.commit()
+
+        assert attachment.purpose == "resolution_proof"
+
+        await db.delete(attachment)
+        await _cleanup(db, complaint)
+
+    async def test_rejects_a_citizen_uploading_resolution_proof(self, db, citizen, admin, staff):
+        complaint = await _make_resolved_complaint(db, citizen, admin, staff)
+
+        with pytest.raises(InsufficientPermissionsError):
+            await upload_complaint_attachment(
+                complaint.id, citizen, "image/jpeg", JPEG_MAGIC_BYTES, db, purpose="resolution_proof"
+            )
+
+        await _cleanup(db, complaint)
+
+    async def test_rejects_before_the_complaint_is_resolved(self, db, citizen, admin, staff):
+        complaint = await _make_complaint(db, citizen)
+        await transition_complaint_status(complaint.id, "approve", admin, None, db)
+        complaint.assigned_to = staff.id
+        await db.flush()
+        await transition_complaint_status(complaint.id, "start", staff, None, db)
+
+        with pytest.raises(ComplaintNotResolvedError):
+            await upload_complaint_attachment(
+                complaint.id, staff, "image/jpeg", JPEG_MAGIC_BYTES, db, purpose="resolution_proof"
+            )
+
+        await _cleanup(db, complaint)
+
+    async def test_rejects_staff_not_assigned_to_the_complaint(self, db, citizen, admin, staff):
+        complaint = await _make_resolved_complaint(db, citizen, admin, staff)
+
+        other_staff = User(
+            phone=f"9{uuid.uuid4().int % 10**9:09d}",
+            name="Pytest Other Staff",
+            email=f"pytest-{uuid.uuid4()}@example.com",
+            role="staff",
+            hashed_password="x",
+            is_active=True,
+        )
+        db.add(other_staff)
+        await db.flush()
+
+        with pytest.raises(ComplaintNotAssignedToUserError):
+            await upload_complaint_attachment(
+                complaint.id, other_staff, "image/jpeg", JPEG_MAGIC_BYTES, db, purpose="resolution_proof"
+            )
+
+        await db.delete(other_staff)
+        await _cleanup(db, complaint)
 
 
 class TestEditComplaint:

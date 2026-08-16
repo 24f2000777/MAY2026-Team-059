@@ -1,6 +1,6 @@
 from datetime import datetime
 from enum import Enum
-from typing import Optional
+from typing import Literal, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -601,12 +601,19 @@ class ComplaintEditResponse(BaseModel):
 # DELETE aren't built yet.
 # =====================================================
 
+AttachmentPurpose = Literal["citizen_evidence", "resolution_proof"]
+
+
 class AttachmentOut(BaseModel):
     """One entry in GET /complaints/{id}/attachments, and the response of a successful upload."""
 
     id: UUID
     complaint_id: UUID
     image_url: str
+    purpose: AttachmentPurpose = Field(
+        description="citizen_evidence (filed with the complaint) or "
+        "resolution_proof (staff-uploaded, once the complaint is resolved)"
+    )
     created_at: datetime
 
     model_config = ConfigDict(
@@ -616,6 +623,7 @@ class AttachmentOut(BaseModel):
                 "id": "7c1e2f3a-9b4d-4e5f-8a6b-1c2d3e4f5a6b",
                 "complaint_id": "123e4567-e89b-12d3-a456-426614174000",
                 "image_url": "https://storage.example.com/complaints/123e4567/photo1.jpg",
+                "purpose": "citizen_evidence",
                 "created_at": "2026-07-24T10:15:00Z",
             }
         },

@@ -30,7 +30,7 @@ body {
 .app-shell { min-height: 100vh; }
 
 .app-content {
-  max-width: 1400px;
+  max-width: 1500px;
   margin: 0 auto;
   padding: 28px 20px;
 }

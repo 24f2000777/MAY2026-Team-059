@@ -61,6 +61,7 @@ from app.core.security import (
 from app.model import User
 
 from app.services.token_blacklist_service import is_token_blacklisted
+from app.services.user_cache_service import cache_user, get_cached_user
 
 from app.utils.constants import ACCESS_TOKEN
 
@@ -142,10 +143,17 @@ async def get_current_user(
     Resolve the currently authenticated user from a validated
     bearer access token.
 
-    The user is re-fetched from the database on every call
-    (rather than trusting the JWT payload alone) so that a
-    deactivated or deleted account immediately loses API
-    access, without waiting for its token to expire.
+    The user's row (not just the JWT payload) is what actually
+    decides whether this request goes through, so that a
+    deactivated or deleted account immediately loses API access,
+    without waiting for its token to expire. It's read from a
+    short-lived Redis cache when available rather than the
+    database on every single call — every place that actually
+    changes is_active/role/hashed_password invalidates that cache
+    immediately, so this doesn't weaken the "takes effect right
+    away" guarantee, it just skips redundant database round trips
+    for the (overwhelmingly common) case where nothing changed
+    since the last request. See app/services/user_cache_service.py.
 
     Raises:
         InvalidTokenError: 401, if the token's user id claim
@@ -157,7 +165,9 @@ async def get_current_user(
         EmailNotVerifiedError: 403, if the account is inactive.
 
     Returns:
-        The authenticated User ORM instance.
+        The authenticated User ORM instance (or, on a cache hit,
+        an equivalent detached instance built from cached fields,
+        see get_cached_user).
     """
 
     user_id = payload.get(JWT_SUB)
@@ -176,19 +186,24 @@ async def get_current_user(
         ) from exc
 
     # -------------------------------------------------
-    # Load user
+    # Load user (cache first, database on a miss)
     # -------------------------------------------------
 
-    result = await db.execute(
-        select(User).where(User.id == user_uuid)
-    )
-
-    user = result.scalar_one_or_none()
+    user = await get_cached_user(user_uuid)
 
     if user is None:
-        raise UserNotFoundError(
-            "User not found."
+        result = await db.execute(
+            select(User).where(User.id == user_uuid)
         )
+
+        user = result.scalar_one_or_none()
+
+        if user is None:
+            raise UserNotFoundError(
+                "User not found."
+            )
+
+        await cache_user(user)
 
     # -------------------------------------------------
     # Account still active?

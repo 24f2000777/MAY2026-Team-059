@@ -15,6 +15,7 @@ from sqlalchemy.orm import selectinload
 
 from app.core.security import hash_password
 from app.model import Complaint, Department, User
+from app.services.user_cache_service import invalidate_user_cache
 from app.utils.constants import ROLE_ADMIN, ROLE_STAFF
 from app.utils.exceptions import (
     CannotChangeAdminRoleError,
@@ -312,6 +313,7 @@ async def update_user_status(user_id, is_active: bool, current_user: User, db) -
 
     user.is_active = is_active
     await db.flush()
+    await invalidate_user_cache(user.id)
     return user
 
 
@@ -342,6 +344,7 @@ async def update_user_role(user_id, role: str, current_user: User, db) -> User:
 
     user.role = role
     await db.flush()
+    await invalidate_user_cache(user.id)
     return user
 
 

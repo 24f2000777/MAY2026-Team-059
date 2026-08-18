@@ -74,6 +74,7 @@ from app.services.token_blacklist_service import (
 )
 
 from app.services.rate_limit_service import enforce_rate_limit
+from app.services.user_cache_service import invalidate_user_cache
 
 
 from app.utils.constants import (
@@ -406,6 +407,7 @@ async def verify_email(
     user.is_active = True
 
     await db.flush()
+    await invalidate_user_cache(user.id)
 
     # -------------------------------------------------
     # Issue tokens, same as a fresh login
@@ -914,6 +916,7 @@ async def reset_password(
     )
 
     await db.flush()
+    await invalidate_user_cache(user.id)
 
     return MessageResponse(
         message="Password reset successfully."
@@ -1021,6 +1024,7 @@ async def change_password(
     )
 
     await db.flush()
+    await invalidate_user_cache(user.id)
 
     return MessageResponse(
         message="Password changed successfully."

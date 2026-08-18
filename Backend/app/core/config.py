@@ -156,7 +156,15 @@ class Settings(BaseSettings):
     ENVIRONMENT: str = "development"
 
     DEBUG: bool = False
-    
+
+    # Logs every SQL statement and its bound parameters to stdout.
+    # Deliberately its own flag rather than tied to DEBUG: printing full
+    # SQL on every query is a real, measurable per-request cost (and a
+    # lot of noise), so it should be something a developer opts into for
+    # a specific debugging session, not something that's silently on
+    # just because DEBUG is on.
+    SQL_ECHO: bool = False
+
     FRONTEND_ORIGINS: list[str] = ["http://localhost:3000", "http://localhost:5173"]
 
     # =====================================================

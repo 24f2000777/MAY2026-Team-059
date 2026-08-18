@@ -74,6 +74,7 @@ from app.services.token_blacklist_service import (
 )
 
 from app.services.rate_limit_service import enforce_rate_limit
+from app.services.user_cache_service import invalidate_user_cache
 
 
 from app.utils.constants import (
@@ -406,6 +407,7 @@ async def verify_email(
     user.is_active = True
 
     await db.flush()
+    await invalidate_user_cache(user.id)
 
     # -------------------------------------------------
     # Issue tokens, same as a fresh login
@@ -914,6 +916,7 @@ async def reset_password(
     )
 
     await db.flush()
+    await invalidate_user_cache(user.id)
 
     return MessageResponse(
         message="Password reset successfully."
@@ -940,11 +943,17 @@ async def update_profile(
 
     Flow
     ----
-    1. If phone is being changed, check it isn't already
+    1. Re-fetch a session-attached copy of the user, current_user
+       (from get_current_user) is sometimes a detached, cache-built
+       instance on purpose (see its own docstring) — mutating that
+       one directly wouldn't actually persist.
+    2. If phone is being changed, check it isn't already
        registered to a different account.
-    2. Apply any provided field changes.
-    3. Return the updated profile.
+    3. Apply any provided field changes.
+    4. Return the updated profile.
     """
+
+    user = await db.get(User, user.id)
 
     # -------------------------------------------------
     # Phone uniqueness (only if actually changing it)
@@ -972,6 +981,7 @@ async def update_profile(
         user.name = request.name
 
     await db.flush()
+    await invalidate_user_cache(user.id)
 
     return UserResponse.model_validate(user)
 
@@ -995,10 +1005,16 @@ async def change_password(
 
     Flow
     ----
-    1. Verify the supplied current password matches.
-    2. Reject if the new password is identical to the old one.
-    3. Hash and store the new password.
+    1. Re-fetch a session-attached copy of the user, current_user
+       (from get_current_user) is sometimes a detached, cache-built
+       instance on purpose (see its own docstring) — mutating that
+       one directly wouldn't actually persist.
+    2. Verify the supplied current password matches.
+    3. Reject if the new password is identical to the old one.
+    4. Hash and store the new password.
     """
+
+    user = await db.get(User, user.id)
 
     if not verify_password(
         request.current_password,
@@ -1021,6 +1037,7 @@ async def change_password(
     )
 
     await db.flush()
+    await invalidate_user_cache(user.id)
 
     return MessageResponse(
         message="Password changed successfully."

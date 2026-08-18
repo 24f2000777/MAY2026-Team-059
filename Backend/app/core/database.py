@@ -1,7 +1,9 @@
 # Database engine and session setup
+import asyncio
 import uuid
 from collections.abc import AsyncGenerator
 
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     async_sessionmaker,
@@ -13,9 +15,14 @@ from app.core.config import settings
 
 engine = create_async_engine(
     settings.DATABASE_URL,
-    echo=settings.DEBUG,
+    echo=settings.SQL_ECHO,
     pool_size=5,
     max_overflow=10,
+    # Recycle a pooled connection after 30 minutes rather than reusing
+    # it indefinitely, so a connection Supabase's own pooler has quietly
+    # dropped gets replaced proactively instead of failing (and forcing
+    # a retry, or a confusing hang) the next time something tries to use it.
+    pool_recycle=1800,
     # Supabase's transaction pooler (PgBouncer) hands out the same backend
     # connection to different client sessions without resetting it, so
     # asyncpg's default auto-incrementing statement names (__asyncpg_stmt_1__,
@@ -53,3 +60,21 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
         except Exception:
             await session.rollback()
             raise
+
+
+async def warm_pool() -> None:
+    """
+    Opens pool_size connections concurrently at startup instead of
+    leaving them to be established lazily by the first real requests.
+    Each fresh connection to a remote Postgres host pays a real network
+    handshake cost (TCP + TLS + Postgres auth, several round trips), so
+    without this the first few users to hit the API right after a
+    deploy/restart are the ones who pay it, one at a time, as their
+    request happens to be the one that grows the pool. Called once from
+    the app's lifespan startup, see app/main.py.
+    """
+    async def _open_one():
+        async with AsyncSessionLocal() as session:
+            await session.execute(text("SELECT 1"))
+
+    await asyncio.gather(*(_open_one() for _ in range(engine.pool.size())))

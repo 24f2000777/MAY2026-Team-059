@@ -943,11 +943,17 @@ async def update_profile(
 
     Flow
     ----
-    1. If phone is being changed, check it isn't already
+    1. Re-fetch a session-attached copy of the user, current_user
+       (from get_current_user) is sometimes a detached, cache-built
+       instance on purpose (see its own docstring) — mutating that
+       one directly wouldn't actually persist.
+    2. If phone is being changed, check it isn't already
        registered to a different account.
-    2. Apply any provided field changes.
-    3. Return the updated profile.
+    3. Apply any provided field changes.
+    4. Return the updated profile.
     """
+
+    user = await db.get(User, user.id)
 
     # -------------------------------------------------
     # Phone uniqueness (only if actually changing it)
@@ -975,6 +981,7 @@ async def update_profile(
         user.name = request.name
 
     await db.flush()
+    await invalidate_user_cache(user.id)
 
     return UserResponse.model_validate(user)
 
@@ -998,10 +1005,16 @@ async def change_password(
 
     Flow
     ----
-    1. Verify the supplied current password matches.
-    2. Reject if the new password is identical to the old one.
-    3. Hash and store the new password.
+    1. Re-fetch a session-attached copy of the user, current_user
+       (from get_current_user) is sometimes a detached, cache-built
+       instance on purpose (see its own docstring) — mutating that
+       one directly wouldn't actually persist.
+    2. Verify the supplied current password matches.
+    3. Reject if the new password is identical to the old one.
+    4. Hash and store the new password.
     """
+
+    user = await db.get(User, user.id)
 
     if not verify_password(
         request.current_password,

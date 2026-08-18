@@ -923,6 +923,44 @@ async def test_update_me_name_and_phone(client):
         await cleanup([email])
 
 
+async def test_update_me_persists_when_served_from_the_auth_cache(client):
+    # Regression test: get_current_user serves a short-lived cached copy
+    # of the user on the second+ request rather than re-fetching from
+    # the database every time (see app/services/user_cache_service.py).
+    # update_profile used to mutate that object directly and rely on
+    # db.flush() to persist it - which silently no-ops on a cache-hit,
+    # since that object was never attached to the request's db session.
+    # The GET below deliberately populates the cache first, so the PUT
+    # right after it is the one exercising the cache-hit path, not a
+    # fresh database fetch.
+    title("PUT /auth/me — update actually persists when the user came from the auth cache")
+    email = unique_email()
+    try:
+        await create_verified_user(client, email=email)
+        access_token, _ = await login_get_tokens(client, email)
+
+        await api_get_me(client, access_token)  # populates the cache
+
+        new_phone = unique_phone()
+        response = await api_update_me(
+            client, access_token, name="Cache Hit Name", phone=new_phone
+        )
+        expect_status(response, 200, "Update own name and phone on a cache hit")
+
+        # Read back through a brand new request, not the same response
+        # object, this would pass even with the bug if it just echoed
+        # back the in-memory (never-persisted) mutation.
+        confirm = await api_get_me(client, access_token)
+        data = confirm.json()["data"]
+        expect(
+            data["name"] == "Cache Hit Name" and data["phone"] == new_phone,
+            "Update actually persisted to the database",
+            f"Update did not persist, still reads: {data}",
+        )
+    finally:
+        await cleanup([email])
+
+
 async def test_update_me_noop(client):
     title("PUT /auth/me — empty body is a harmless no-op")
     email = unique_email()
@@ -991,6 +1029,40 @@ async def test_change_password_success(client):
             expect(
                 new_login.status_code == 200,
                 "New password works",
+                f"New password rejected: {new_login.text}",
+            )
+    finally:
+        await cleanup([email])
+
+
+async def test_change_password_persists_when_served_from_the_auth_cache(client):
+    # Same regression as test_update_me_persists_when_served_from_the_auth_cache,
+    # for change_password's user.hashed_password = ... mutation.
+    title("CHANGE PASSWORD — change actually persists when the user came from the auth cache")
+    email = unique_email()
+    try:
+        await create_verified_user(client, email=email)
+        access_token, _ = await login_get_tokens(client, email)
+
+        await api_get_me(client, access_token)  # populates the cache
+
+        response = await api_change_password(
+            client, access_token, DEFAULT_PASSWORD, NEW_PASSWORD
+        )
+        ok = expect_status(response, 200, "Change password on a cache hit")
+
+        if ok:
+            old_login = await api_login(client, email, DEFAULT_PASSWORD)
+            expect(
+                old_login.status_code == 401,
+                "Old password no longer works after a cache-hit change",
+                f"Old password still works! status={old_login.status_code}",
+            )
+
+            new_login = await api_login(client, email, NEW_PASSWORD)
+            expect(
+                new_login.status_code == 200,
+                "New password actually persisted and works",
                 f"New password rejected: {new_login.text}",
             )
     finally:

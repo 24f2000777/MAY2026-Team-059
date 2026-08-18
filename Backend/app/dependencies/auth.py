@@ -165,9 +165,15 @@ async def get_current_user(
         EmailNotVerifiedError: 403, if the account is inactive.
 
     Returns:
-        The authenticated User ORM instance (or, on a cache hit,
-        an equivalent detached instance built from cached fields,
-        see get_cached_user).
+        The authenticated User ORM instance on a cache miss, or (on
+        a cache hit, the common case) an equivalent but DETACHED
+        instance built from cached fields, not attached to this
+        request's db session — safe to read (current_user.role,
+        current_user.is_active, etc.), but any route that needs to
+        mutate the current user (update_profile, change_password)
+        must re-fetch its own session-attached copy by id first,
+        mutating current_user directly and flushing would silently
+        no-op on a cache hit rather than persisting.
     """
 
     user_id = payload.get(JWT_SUB)

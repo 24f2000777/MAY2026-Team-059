@@ -313,6 +313,10 @@ async function send() {
                   <div class="filed-complaint-row">
                     <span class="priority">Priority score: {{ m.complaint.priority_score }}</span>
                   </div>
+                  <router-link :to="`/citizen/${m.complaint.id}`" class="filed-complaint-view">
+                    View Complaint
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg>
+                  </router-link>
                 </div>
               </div>
 
@@ -838,6 +842,25 @@ async function send() {
 .filed-complaint .priority {
   color: var(--accent-dark);
   font-weight: 700;
+}
+
+.filed-complaint-view {
+  margin-top: 9px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--accent-dark);
+  text-decoration: none;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.filed-complaint-view:hover {
+  text-decoration: underline;
+}
+
+.chat-bubble.bot .filed-complaint-view {
+  color: var(--accent-dark);
 }
 
 /* Typing indicator */

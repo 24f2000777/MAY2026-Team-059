@@ -130,7 +130,7 @@ password: TestPass123!
 
 A citizen reports a problem, a pothole, a water leak, a broken streetlight, either through a form or by just describing it to an AI assistant called **Nagrik Saathi**. The system reads it, scores how urgent it is, decides which BMC department should handle it, and checks for duplicates. Staff and admins review, assign, and resolve it, the citizen gets notified at every step, and once it's fixed they confirm it and leave a rating.
 
-Auth, the full complaint lifecycle, attachments, notifications, feedback, analytics, and staff/admin account creation are all real and tested against a live Postgres database, both on the backend and, for the core flow, on the frontend too. The profile page and the general feedback form still run on sample data in the browser, see the status section in the full reference below for exactly where that line is.
+Auth, the full complaint lifecycle, attachments, notifications, feedback, analytics, department management, and staff/admin account creation are all real and tested against a live Postgres database, both on the backend and, for the core flow, on the frontend too. The general feedback form is the one page still running on sample data in the browser, see the status section in the full reference below for exactly where that line is.
 
 ---
 
@@ -151,6 +151,20 @@ cd Backend && pytest        # the real test suite, 30+ minutes, real DB + real A
 ---
 
 ## 📝 Recent changes
+
+**Staff analytics redesigned:** the "My Performance" page's old category-breakdown bar chart was replaced with a workload overview, a resolution-rate ring, and a work-status breakdown.
+
+**Chatbot links straight to the filed complaint:** filing a complaint through Nagrik Saathi now shows a "View Complaint" link right on the confirmation card, instead of leaving you to go find it yourself.
+
+**Admin dashboard redesigned, with pagination:** a visual overhaul of the admin complaint-management screen (new hero/live-snapshot layout, filter toolbar, per-row priority/officer detail), plus proper pagination instead of dumping every complaint into one long table.
+
+**Resolution-rating page redesigned:** `RateReview.vue` now matches the rest of the app's visual language instead of looking like a leftover prototype.
+
+**Staff can attach a resolution photo:** once a complaint is resolved, staff can upload a photo as proof, visible to the citizen on the complaint detail page. Reuses the existing attachment upload endpoint with `purpose: resolution_proof` rather than a new endpoint.
+
+**Department management is real, not planned:** admins can create/list/update/delete departments (`POST`/`GET /admin/departments`, `PATCH`/`DELETE /admin/departments/{id}`) and reassign a staff member's department (`PATCH /admin/users/{id}/department`), from fixed set of BMC departments. Complaint routing to a department is now deterministic (category → department lookup) instead of going through an LLM call, and staff assignment is filtered to officers in the complaint's own department.
+
+**Groq model swap:** `llama-3.3-70b-versatile` was decommissioned upstream, the chatbot and priority scoring now use the current Groq model instead.
 
 **Redesign + real submit form:** the whole app got a visual redesign (Leaflet map for picking a complaint's location, new layouts throughout). `SubmitComplaint.vue` used to be a disconnected prototype with a fake stub submit and a made-up category list, it's now wired to the real backend (`createComplaint`, `uploadAttachment`, `getWards`), with the map defaulting to Mumbai instead of New Delhi.
 
@@ -186,9 +200,9 @@ A Vue 3 app for citizens, staff, and admins. Vue 3.5 with `<script setup>`, Vue 
 | `api/complaintApi.js` | Real backend, submission, listing, detail, every lifecycle transition, attachments, feedback, officer list |
 | `api/notificationApi.js` | Real backend, listing, unread count, mark read, delete, preferences |
 | `api/analyticsApi.js` | Real backend, `GET /analytics/summary`, scoped by role (citizen sees their own filings, staff their assignments, admin everything) |
-| `api/client.js` | Sample data, only `Profile.vue` and `FeedbackReport.vue` still use it |
+| `api/client.js` | Sample data, only `FeedbackReport.vue` still uses it |
 
-`FeedbackReport.vue` is a deliberate gap, not an oversight, the real feedback system is always a rating on one specific resolved complaint, there's no endpoint for untargeted app feedback yet.
+`FeedbackReport.vue` is a deliberate gap, not an oversight, the real feedback system is always a rating on one specific resolved complaint, there's no endpoint for untargeted app feedback yet. `Profile.vue` used to be on this list too, it's fully wired to the real backend now (`authStore.updateProfile`/`changePassword` → real `PUT /auth/me` / `POST /auth/change-password`).
 
 ### What each role can do
 
@@ -203,7 +217,7 @@ A Vue 3 app for citizens, staff, and admins. Vue 3.5 with `<script setup>`, Vue 
 frontend/src/
 ├── pages/          LandingPage, Login, Register, VerifyOtp, CitizenDashboard, SubmitComplaint,
 │                   ComplaintDetail, RateReview, StaffDashboard, ComplaintUpdate, AdminDashboard,
-│                   AssignmentPage, NagrikSaathi, Notifications, Profile (sample), FeedbackReport (sample),
+│                   AssignmentPage, NagrikSaathi, Notifications, Profile, FeedbackReport (sample),
 │                   AnalyticsPage/CitizenAnalytics/StaffAnalytics, Faqs, PrivacyPolicy, etc.
 ├── components/     Navbar, DashboardHero, ActionTile, ComplaintCard, StatusBadge, StatCard, DonutChart,
 │                   LineChart, NotificationBanner
@@ -232,9 +246,9 @@ Every protected endpoint expects `Authorization: Bearer <access_token>`. Access 
 
 **`/auth`:** `POST /register`, `/verify-otp`, `/resend-otp`, `/login`, `/refresh`, `/logout`, `GET /me`, `PUT /me`, `POST /change-password`, `/forgot-password`, `/reset-password`
 
-**`/admin`:** `POST /users` (create staff, admin only), `GET /officers` (list staff, admin only). No endpoint creates the admin itself, see `scripts/create_admin.py`.
+**`/admin`:** `POST /users` (create staff), `GET /officers` (list staff, for an assignment dropdown), `GET`/`POST /departments`, `PATCH`/`DELETE /departments/{id}`, `GET /users` (list, any role, filterable/paginated), `GET /users/{id}` (detail, includes their complaints), `PATCH /users/{id}/status` (activate/deactivate), `PATCH /users/{id}/role`, `PATCH /users/{id}/department` (reassign staff), `GET /export` (CSV, same filters as `GET /complaints`). All admin only. No endpoint creates the admin itself, see `scripts/create_admin.py`.
 
-**`/complaints`:** `POST` (create), `GET` (list, role filtered), `GET /mine`, `GET /wards`, `GET /ward/{id}`, `GET /category/{category}`, `GET /{id}`, `PATCH /{id}` (edit), `DELETE /{id}` (admin, any complaint; or the owning citizen, only while still "submitted"), `GET /{id}/history`, `GET`/`POST /{id}/updates` (internal notes), `PATCH /{id}/approve`, `/reject`, `/assign`, `/start`, `/resolve`, `/withdraw`, `/close`, `GET`/`POST /{id}/attachments`, `GET`/`POST /{id}/feedback`
+**`/complaints`:** `POST` (create), `GET` (list, role filtered), `GET /mine`, `GET /wards`, `GET /ward/{id}`, `GET /category/{category}`, `GET /{id}`, `PATCH /{id}` (edit), `DELETE /{id}` (admin, any complaint; or the owning citizen, only while still "submitted"), `GET /{id}/history`, `GET`/`POST /{id}/updates` (internal notes), `PATCH /{id}/approve`, `/reject`, `/assign`, `/start`, `/resolve`, `/withdraw`, `/close`, `GET`/`POST /{id}/attachments` (`purpose: citizen_evidence` by default, or `resolution_proof` for a staff-uploaded proof-of-fix photo once resolved), `GET`/`POST /{id}/feedback`
 
 **`/attachments`:** `GET`/`DELETE /{id}`
 
@@ -372,13 +386,13 @@ Celery sends verification/reset email asynchronously, and Beat runs a nightly 2 
 
 ### Where the project actually stands
 
-**Done and tested, backend and frontend:** the full auth flow, admin bootstrap, staff creation, RBAC, the complete complaint lifecycle including citizen delete, attachment upload and viewing, complaint history, automatic notifications on every transition plus a live unread badge/reminder, role-scoped analytics, feedback with auto-close, the chatbot filing real complaints (with photos). Covered by a real passing test suite and verified by hand end to end in the browser.
+**Done and tested, backend and frontend:** the full auth flow, admin bootstrap, staff creation, RBAC, the complete complaint lifecycle including citizen delete and a staff-uploaded resolution photo, attachment upload and viewing, complaint history, automatic notifications on every transition plus a live unread badge/reminder, role-scoped analytics (including the redesigned staff performance page), profile editing and password reset, feedback with auto-close, department management and department-filtered staff assignment, deterministic category-to-department routing, the chatbot filing real complaints (with photos, and now linking straight to the filed complaint) and answering questions. Covered by a real passing test suite and verified by hand end to end in the browser.
 
-**Done and tested on the backend, no frontend page yet:** deleting an individual attachment, ward/category filtering, feedback summary and per-officer aggregation.
+**Done and tested on the backend, no frontend page yet:** deleting an individual attachment, ward/category filtering (`GET /complaints/ward/{id}`, `GET /complaints/category/{category}`, the admin dashboard's own category filter is a client-side filter over the generic list, not these), feedback summary and per-officer aggregation.
 
-**Still sample data on the frontend:** profile editing and password reset, the general feedback form (no matching backend endpoint exists for it).
+**Still sample data on the frontend:** the general feedback form (no matching backend endpoint exists for it, see above).
 
-**Planned, not started:** scheduled auto-closing of stale resolved complaints, department management endpoints, a broader analytics dashboard, Docker/CI deployment setup, a dedicated security audit before any real launch.
+**Planned, not started:** scheduled auto-closing of stale resolved complaints, a broader analytics dashboard, Docker/CI deployment setup, a dedicated security audit before any real launch.
 
 ## How we work as a team
 

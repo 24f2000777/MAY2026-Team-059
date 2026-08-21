@@ -17,57 +17,34 @@
 
 ---
 
-## 🕳️ The problem this solves
+## 🕳️ The problem
 
-Say a streetlight near your home has been broken for weeks. You call the municipal office, wait on hold, explain the issue, and get told you called the wrong department. You call again. You get a complaint number. Then nothing. No update, no call back, nobody to ask. A week later you're calling again, repeating the same story to someone new.
+Most municipal complaint systems are a phone line, a WhatsApp number, and a form nobody checks. Nothing is connected. Complaints get lost, duplicated, or sent to the wrong desk, and citizens are left guessing whether anyone is even looking.
 
-This happens because most municipal complaint systems today are really just a phone line, a WhatsApp number, and a form nobody checks. Nothing is connected. Nobody can see the full picture. Complaints get lost, duplicated, or sent to the wrong desk, and citizens are left guessing whether anyone is even looking at their problem.
-
-**NAGRIK AI replaces all of that with one connected system.** You report an issue once, in your own words if you want. An AI reads it, figures out how urgent it is, and sends it straight to the right department, no guessing, no wrong desks. From that point on, you can watch it move through every stage, and you'll be notified the moment anything changes.
+**NAGRIK AI replaces that with one connected system.** Report an issue once, in your own words if you want. An AI reads it, scores how urgent it is, and routes it to the right department automatically. From there you can watch it move through every stage and get notified the moment anything changes.
 
 ---
 
-## 🙋 Who this is built for
+## 🙋 Who this is for
 
-### 👤 If you're a citizen
+**👤 Citizens** report a problem in seconds, by form or by chatting with **Nagrik Saathi**, an AI assistant that files the complaint for you. Attach a photo and your location, track it live, get notified at every step, and confirm the fix yourself before it's closed.
 
-You have a civic problem, a pothole, a garbage pile, a leaking pipe, a broken streetlight, and you just want it fixed without becoming a full-time complaint follow-up manager. With NAGRIK AI you can:
+**👷 Municipal staff** get one task list instead of a phone call, with a real address, photo, and priority score for every assignment. Start work, mark it resolved, attach proof once it's fixed.
 
-- **Report it in seconds**, either by filling a simple form or by just chatting with **Nagrik Saathi**, an AI assistant that asks you a couple of quick questions and files the complaint for you.
-- **Attach a photo and your location**, so nobody has to guess where the problem actually is or whether it's real.
-- **Watch your complaint move**, from submitted, to approved, to in progress, to resolved, all visible on your own dashboard, no phone calls needed.
-- **Get notified automatically** every single time something changes. You never have to ask "any update?" again.
-- **Have the final say.** Once someone marks your complaint resolved, you confirm it yourself and leave a rating. If it's genuinely not fixed, it doesn't just get closed on you.
-
-### 👷 If you're municipal staff
-
-You're the person who actually gets sent out to fix things, and right now you're probably getting your assignments by phone call or a message with barely any details. NAGRIK AI gives you:
-
-- **One task list**, showing every complaint assigned to you, with a real address, a photo, and a priority score, not a half-remembered phone call.
-- **A clear next action.** Start work, mark it resolved, nothing ambiguous.
-- **A way to prove the job is done.** Attach a photo once you've fixed it, so there's a record and the citizen can see it too.
-
-### 🧑‍💼 If you're an administrator
-
-You're responsible for the whole system running smoothly, and spreadsheets don't scale. You get:
-
-- **A live dashboard** of every complaint in the system, filterable by status, category, or area, no more piecing together numbers by hand.
-- **One-click approve, reject, or assign**, pulling from a real list of your staff, filtered to the right department automatically.
-- **Priority intelligence.** Complaints that look genuinely urgent, a safety risk, a health hazard, are automatically flagged so they don't sit in a queue behind something trivial.
-- **Full oversight of accounts and departments**, and an export button when you actually do need a spreadsheet.
+**🧑‍💼 Administrators** get a live dashboard of every complaint, one-click approve/reject/assign pulling from a real staff list, automatic high-risk flagging, and full account and department control.
 
 ---
 
-## 🧭 How it works, start to finish
+## 🧭 How it works
 
-1. **You describe the problem.** Type it into a form, or just tell Nagrik Saathi what's wrong the way you'd tell a friend.
-2. **The AI understands it.** It figures out the category (pothole, garbage, water, streetlight, and more), estimates how urgent it is, and checks it isn't a duplicate of something already reported nearby.
-3. **It's routed automatically** to the correct department. You never have to know which office handles what.
-4. **A staff member is assigned**, and they see your evidence, your exact location, and the urgency score before they even head out.
-5. **You're notified at every step.** Approved, assigned, started, resolved, each one lands as a notification the moment it happens.
-6. **You confirm the fix.** Once it's marked resolved, you get the final word, confirm it and rate it, or flag that it isn't actually fixed.
+1. You describe the problem, by form or by talking to Nagrik Saathi.
+2. The AI classifies it, scores its urgency, and checks it isn't a duplicate.
+3. It's routed automatically to the correct department.
+4. Staff get assigned and see your evidence and location before heading out.
+5. You're notified at every status change: approved, assigned, started, resolved.
+6. You confirm the fix yourself and leave a rating.
 
-No step in that journey is faked or simulated. Every action in NAGRIK AI hits a real database and produces a real, visible result.
+Every step is real. Nothing here is simulated for a demo.
 
 ---
 
@@ -75,12 +52,12 @@ No step in that journey is faked or simulated. Every action in NAGRIK AI hits a 
 
 | | |
 |---|---|
-| 🤖 **Talk to it, don't fill forms** | Nagrik Saathi understands plain language. "There's a huge pothole outside my building" is enough to start a complaint. |
-| 📍 **Evidence that actually helps** | Photos and GPS location travel with the complaint, so field staff go to the right place the first time. |
-| ⚡ **Urgency that isn't guesswork** | An AI priority engine scores every complaint and automatically flags the genuinely dangerous ones for immediate attention. |
-| 🔔 **You're never left wondering** | Automatic notifications on every status change, plus a live unread badge so nothing gets missed. |
-| 🗺️ **One shared source of truth** | Citizens, staff, and administrators all look at the same real data, not three disconnected systems. |
-| ✅ **Citizens get the final word** | A complaint can't be quietly closed without the citizen confirming it's actually fixed. |
+| 🤖 **Talk to it, don't fill forms** | Nagrik Saathi understands plain language complaints. |
+| 📍 **Evidence that helps** | Photos and GPS travel with the complaint, so staff go to the right place. |
+| ⚡ **Real urgency scoring** | An AI engine flags genuinely dangerous complaints automatically. |
+| 🔔 **You're never left wondering** | Automatic notifications on every status change. |
+| 🗺️ **One shared source of truth** | Citizens, staff, and admins see the same real data. |
+| ✅ **Citizens get the final word** | A complaint can't be closed without your confirmation. |
 
 ---
 
@@ -94,75 +71,179 @@ password: TestPass123!
 ```
 
 > [!WARNING]
-> This account can manage every user and permanently delete complaints. Please don't share it anywhere public. You can also register your own free citizen account any time and file a real complaint to see the whole journey for yourself.
+> This account can manage every user and permanently delete complaints. Please don't share it anywhere public. You can also register your own free citizen account any time.
 
 ---
 
-## 🛠️ Running it on your own machine
+## 🛠️ Setup instructions
 
-This is the short version, meant for anyone who just wants it running. If you're setting up a fresh development environment or contributing code, the full technical reference below has every detail, including troubleshooting, the complete API surface, and the database schema.
+Everything below is written so it works whether this is the first backend project you've ever set up or your fiftieth. Follow it top to bottom, in order.
 
-**You'll need:** Python 3.12+, Node.js 18+, PostgreSQL, Redis, and Git.
+### Step 0: Install the prerequisites
+
+You need five things installed: **Python 3.12+**, **Node.js 18+**, **PostgreSQL** (or a free Supabase account, see below), **Redis**, and **Git**.
+
+<details>
+<summary><strong>macOS</strong></summary>
+
+Install [Homebrew](https://brew.sh) first if you don't have it, then:
+
+```bash
+brew install python@3.12 node git redis
+brew services start redis
+```
+
+You don't need a local PostgreSQL install if you're using Supabase (recommended, see Step 2). If you want Postgres running locally instead: `brew install postgresql@16 && brew services start postgresql@16`.
+
+</details>
+
+<details>
+<summary><strong>Windows</strong></summary>
+
+Install [Python 3.12+](https://www.python.org/downloads/) (tick "Add Python to PATH" during install), [Node.js LTS](https://nodejs.org), and [Git](https://git-scm.com/download/win) from their official installers.
+
+For Redis, the simplest route on Windows is [Memurai](https://www.memurai.com/) (a native Redis-compatible server) or running Redis inside [WSL2](https://learn.microsoft.com/en-us/windows/wsl/install):
+
+```powershell
+wsl --install
+# inside the WSL terminal:
+sudo apt update && sudo apt install redis-server -y
+sudo service redis-server start
+```
+
+Run every command in this guide from either PowerShell (backend and frontend commands work the same) or inside WSL.
+
+</details>
+
+<details>
+<summary><strong>Linux (Debian/Ubuntu)</strong></summary>
+
+```bash
+sudo apt update
+sudo apt install python3.12 python3.12-venv nodejs npm git redis-server -y
+sudo systemctl enable redis-server --now
+```
+
+If your distro's default Node.js is older than 18, install it via [nvm](https://github.com/nvm-sh/nvm) instead: `nvm install 18 && nvm use 18`.
+
+</details>
+
+Confirm everything installed correctly:
+
+```bash
+python3 --version    # 3.12 or higher
+node --version        # v18 or higher
+git --version
+redis-cli ping        # must print PONG once Redis is running
+```
+
+### Step 1: Clone the repository
 
 ```bash
 git clone https://github.com/24f2000777/MAY2026-Team-059.git
-cd MAY2026-Team-059/Backend
-python3 -m venv venv && source venv/bin/activate
-pip install --upgrade pip && pip install -r requirements.txt
-cp .env.example .env        # fill in the database, secret keys, and Groq API key
+cd MAY2026-Team-059
+```
+
+### Step 2: Set up the database
+
+You have two options. **Supabase is recommended**, it's free, requires no local Postgres install, and is what the whole team uses.
+
+**Option A: Supabase (recommended)**
+1. Create a free account at [supabase.com](https://supabase.com) and create a new project.
+2. In your project, go to **Connect** (top of the dashboard).
+3. Copy the **Transaction pooler** connection string, this becomes your `DATABASE_URL`.
+4. Copy the **Session pooler** connection string, this becomes your `SYNC_DATABASE_URL`.
+5. Do **not** use the "Direct connection" string, it only resolves over IPv6 and fails with `could not translate host name` on many networks and ISPs.
+
+**Option B: Local PostgreSQL**
+1. Create a database: `createdb nagrikai`
+2. Your connection strings both point at it, just with different drivers: `postgresql+asyncpg://user:pass@localhost/nagrikai` for `DATABASE_URL`, `postgresql://user:pass@localhost/nagrikai` for `SYNC_DATABASE_URL`.
+
+### Step 3: Configure the backend
+
+```bash
+cd Backend
+python3 -m venv venv
+source venv/bin/activate          # Windows (PowerShell): venv\Scripts\Activate.ps1
+pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+> [!NOTE]
+> This install step downloads a lot, the AI and ML libraries are large. A few minutes on a normal connection is expected, it isn't stuck.
+
+Copy the example environment file and fill it in:
+
+```bash
+cp .env.example .env
+```
+
+| Variable | What to put | Required? |
+|---|---|---|
+| `DATABASE_URL` | The **Transaction pooler** string from Step 2 | Yes |
+| `SYNC_DATABASE_URL` | The **Session pooler** string from Step 2 | Yes |
+| `SECRET_KEY` | A random 32+ character string. Generate one with `python3 -c "import secrets; print(secrets.token_hex(32))"` | Yes |
+| `OTP_SECRET_KEY` | A second, different random string, same command as above | Yes |
+| `GROQ_API_KEY` | Free key from [console.groq.com](https://console.groq.com/keys). Powers the chatbot and priority scoring | Yes |
+| `GEMINI_API_KEY` / `HUGGINGFACE_API_KEY` | Optional automatic fallbacks if Groq is rate-limited | No |
+| SMTP settings | Leave exactly as shipped. `.env.example` already has real, working Ethereal test-inbox credentials, real email is never sent | No changes needed |
+| `REDIS_URL` | `redis://localhost:6379/0` if Redis is running locally, no setup needed | Yes |
+
+Run the database migrations, this creates every table:
+
+```bash
 alembic upgrade head
 ```
 
-Then, in three separate terminals (each with the virtual environment activated):
+### Step 4: Start the backend
+
+The backend needs **three terminals running at once**, each with the virtual environment activated (`source venv/bin/activate`, or on Windows `venv\Scripts\Activate.ps1`).
+
+| Terminal | Command | What it does |
+|---|---|---|
+| 1 | `celery -A app.core.celery_app worker --loglevel=info` | Sends OTP verification and password reset emails |
+| 2 | `celery -A app.core.celery_app beat --loglevel=info` | Runs the nightly priority rescore. Optional if you're just testing locally |
+| 3 | `uvicorn app.main:app --reload` | The actual API server, at `http://127.0.0.1:8000` |
+
+Once terminal 3 shows "Application startup complete", open **`http://127.0.0.1:8000/docs`** in a browser. If you see the Swagger UI, the backend is alive.
+
+### Step 5: Start the frontend
+
+In a fourth terminal:
 
 ```bash
-celery -A app.core.celery_app worker --loglevel=info
-celery -A app.core.celery_app beat --loglevel=info
-uvicorn app.main:app --reload
+cd frontend
+npm install
+npm run dev
 ```
 
-And finally, the frontend:
+Open the URL it prints, almost always **`http://localhost:5173`**. Log in with the shared demo admin above, or register your own citizen account.
 
-```bash
-cd ../frontend
-npm install && npm run dev
-```
+### If something goes wrong
 
-Open the address it prints, usually `http://localhost:5173`, and you're in.
+| You see this | It means this | Fix |
+|---|---|---|
+| `Address already in use` | An old server is still running on that port | `lsof -nP -iTCP:8000 -sTCP:LISTEN` then `kill <pid>` (swap `8000` for `5173` for the frontend). On Windows: `netstat -ano \| findstr :8000` then `taskkill /PID <pid> /F` |
+| Login says it can't reach the server | Frontend and backend are on mismatched ports | The backend only accepts requests from `5173` or `3000`. If Vite printed `5174` instead because `5173` was busy, free `5173` and restart it |
+| OTP email never arrives | The Celery worker (Terminal 1) isn't running, or SMTP is misconfigured | Start Terminal 1, or confirm `.env` still has the real Ethereal values from `.env.example`, don't replace them with a real email provider unless you mean to |
+| `column does not exist` or a missing table | Your database schema is behind | `cd Backend && alembic upgrade head` |
+| `could not translate host name "db.....supabase.co"` | `SYNC_DATABASE_URL` is set to Supabase's "Direct connection" string | Swap it for the **Session pooler** string instead, see Step 2 |
+| `redis-cli ping` doesn't print `PONG` | Redis isn't running | macOS: `brew services start redis`. Linux: `sudo systemctl start redis-server`. Windows: start Memurai or your WSL Redis service |
+| `pip install -r requirements.txt` fails on an ML library | Usually a missing system compiler or an outdated `pip` | Run `pip install --upgrade pip setuptools wheel` first, then retry |
+| `create_admin` script refuses to run | Working as intended, only one admin account is allowed at a time | Use the shared demo login above instead |
+| Chatbot hangs or never replies | The AI provider hit a rate limit | Wait a minute and retry, or add `GEMINI_API_KEY`/`HUGGINGFACE_API_KEY` to `.env` as fallbacks |
+| You see complaints or accounts you didn't create | Expected, this is a shared team database | Don't delete anything that isn't clearly yours without asking first |
 
 ---
 
 ## 💡 What's new lately
 
-The app recently got a full visual redesign across every dashboard, a faster admin experience that no longer freezes while loading complaints, staff can now attach a photo as proof once a job is resolved, and the chatbot now takes you straight to a complaint you just filed instead of leaving you to go find it. See the full, detailed changelog below.
+A full visual redesign across every dashboard, a faster admin experience, staff photo proof-of-resolution, and the chatbot now links straight to the complaint you just filed. Full changelog below.
 
 ---
 
 <details>
-<summary><strong>📚 Full technical reference: setup troubleshooting, every API endpoint, error codes, database schema, and how the team works</strong></summary>
-
-## 🩹 Hit an error? Check here first
-
-| You see this | It means this | Fix |
-|---|---|---|
-| `Address already in use` | An old server is still running on that port | `lsof -nP -iTCP:8000 -sTCP:LISTEN` then `kill <pid>` (swap `8000` for `5173` for the frontend) |
-| Login says it can't reach the server | Frontend and backend are on mismatched ports | Backend only accepts `5173`/`3000`. If Vite printed `5174` instead, free `5173` and restart it |
-| OTP email never arrives | The Celery worker isn't running, or SMTP is still a placeholder | Start the Celery worker, or check `.env` still has the real Ethereal values from `.env.example` |
-| `column does not exist` / missing table | Database schema is behind | `cd Backend && alembic upgrade head` |
-| `could not translate host name "db.....supabase.co"` | `SYNC_DATABASE_URL` is set to the "Direct connection" host, which only resolves over IPv6 | Swap it for the **Session pooler** connection string from Supabase dashboard, under Connect |
-| `create_admin` refuses to run | Working as intended, only one admin allowed | Use the shared login above instead |
-| Chatbot hangs or never replies | The AI provider hit a rate limit | Wait a minute and retry, or add `GEMINI_API_KEY`/`HUGGINGFACE_API_KEY` as fallbacks |
-| Complaints or accounts you didn't create | Shared database, a teammate's test data | Expected. Don't delete anything that isn't clearly yours without asking first |
-
-### Environment variables, in detail
-
-| Variable | What to put |
-|---|---|
-| `DATABASE_URL` / `SYNC_DATABASE_URL` | Same shared Supabase database, two different drivers. Get both from Supabase dashboard, under Connect. `DATABASE_URL` from the **Transaction pooler**, `SYNC_DATABASE_URL` from the **Session pooler**. Don't use "Direct connection", it only resolves over IPv6 and fails on plenty of networks |
-| `SECRET_KEY` / `OTP_SECRET_KEY` | Two different 32+ character random strings, generate with `python3 -c "import secrets; print(secrets.token_hex(32))"` |
-| `GROQ_API_KEY` | Powers the chatbot and priority scoring. `GEMINI_API_KEY`/`HUGGINGFACE_API_KEY` are optional automatic fallbacks |
-| SMTP settings | Leave exactly as they are. `.env.example` already ships real, working Ethereal test-inbox credentials |
-| `REDIS_URL` | `redis://localhost:6379/0` for a local install, no setup needed |
+<summary><strong>📚 Full technical reference: every API endpoint, error codes, database schema, and how the team works</strong></summary>
 
 ## Frontend reference
 

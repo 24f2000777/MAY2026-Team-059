@@ -103,11 +103,17 @@ class TestFlagIfHighRisk:
             )
         )
         notifications = result.scalars().all()
-        assert len(notifications) == 1
-        assert notifications[0].user_id == admin.id
-        assert str(complaint.priority_score) in notifications[0].message
+        # flag_if_high_risk notifies every admin, and this is a shared dev
+        # database, not an isolated one, so other admins beyond this
+        # fixture's may exist and get notified too. Only assert on what
+        # this test actually controls: that its own admin fixture was
+        # among those notified.
+        own_notification = next((n for n in notifications if n.user_id == admin.id), None)
+        assert own_notification is not None
+        assert str(complaint.priority_score) in own_notification.message
 
-        await db.delete(notifications[0])
+        for n in notifications:
+            await db.delete(n)
         await db.delete(complaint)
         await db.commit()
 
@@ -123,9 +129,14 @@ class TestFlagIfHighRisk:
         result = await db.execute(
             select(Notification).where(Notification.complaint_id == complaint.id)
         )
-        assert len(result.scalars().all()) == 1
+        notifications = result.scalars().all()
+        # Same reasoning as above: don't assume this fixture's admin is the
+        # only admin in the (shared) database, just that it was notified
+        # exactly once, not twice, across the two flag_if_high_risk calls.
+        own_notifications = [n for n in notifications if n.user_id == admin.id]
+        assert len(own_notifications) == 1
 
-        for n in result.scalars().all():
+        for n in notifications:
             await db.delete(n)
         await db.delete(complaint)
         await db.commit()

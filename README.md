@@ -2,7 +2,7 @@
 
 # 🏛️ NAGRIK AI
 
-### AI-Powered Civic Complaint Management Platform
+### Report a civic problem. Know it's being fixed. Stop chasing anyone for updates.
 
 [![Python](https://img.shields.io/badge/Python-3.12+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-009688?style=for-the-badge&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
@@ -11,105 +11,135 @@
 [![Redis](https://img.shields.io/badge/Redis-DC382D?style=for-the-badge&logo=redis&logoColor=white)](https://redis.io)
 [![Celery](https://img.shields.io/badge/Celery-37814A?style=for-the-badge&logo=celery&logoColor=white)](https://docs.celeryq.dev)
 
-**Team 059** • IIT Madras • Software Engineering • 2026
-
-Report a civic issue by chatting with an AI. It scores urgency, routes it to the right department, and tracks it to resolution.
+**Team 059** · IIT Madras · Software Engineering · 2026
 
 </div>
 
 ---
 
-## 🚀 Quick start
+## 🕳️ The problem this solves
 
-Six steps, in order. Nothing else to read first, just follow this straight through.
+Say a streetlight near your home has been broken for weeks. You call the municipal office, wait on hold, explain the issue, and get told you called the wrong department. You call again. You get a complaint number. Then nothing. No update, no call back, nobody to ask. A week later you're calling again, repeating the same story to someone new.
 
-### 0️⃣ You need these installed
+This happens because most municipal complaint systems today are really just a phone line, a WhatsApp number, and a form nobody checks. Nothing is connected. Nobody can see the full picture. Complaints get lost, duplicated, or sent to the wrong desk, and citizens are left guessing whether anyone is even looking at their problem.
 
-`Python 3.12+` · `Node.js 18+` · `PostgreSQL` · `Redis` · `Git`
-
-```bash
-python3 --version && node --version && psql --version && redis-cli --version
-```
-
-### 1️⃣ Clone and enter the backend
-
-```bash
-git clone https://github.com/24f2000777/MAY2026-Team-059.git
-cd MAY2026-Team-059/Backend
-python3 -m venv venv
-source venv/bin/activate        # Windows: venv\Scripts\activate
-pip install --upgrade pip
-pip install -r requirements.txt
-```
-
-> [!NOTE]
-> The install step downloads a lot, the AI and ML libraries are large. A few minutes on a normal connection is normal, not stuck.
-
-### 2️⃣ Set up `.env`
-
-```bash
-cp .env.example .env
-```
-
-Open it and fill in **only these five things**:
-
-| Variable | What to put |
-|---|---|
-| `DATABASE_URL` / `SYNC_DATABASE_URL` | Same shared Supabase database, two different drivers. Get both from Supabase dashboard → Connect, `DATABASE_URL` from the **Transaction pooler**, `SYNC_DATABASE_URL` from the **Session pooler**. Don't use "Direct connection", it only resolves over IPv6 and fails with `could not translate host name` on plenty of networks |
-| `SECRET_KEY` / `OTP_SECRET_KEY` | Two different 32+ char random strings, generate with `python3 -c "import secrets; print(secrets.token_hex(32))"` |
-| `GROQ_API_KEY` | Powers the chatbot and priority scoring. `GEMINI_API_KEY`/`HUGGINGFACE_API_KEY` are optional automatic fallbacks |
-| SMTP settings | **Leave exactly as they are.** `.env.example` already ships real, working Ethereal test-inbox credentials |
-| `REDIS_URL` | `redis://localhost:6379/0` for a local install, no setup needed |
-
-### 3️⃣ Start Postgres and Redis, then migrate
-
-```bash
-redis-cli ping              # must print PONG
-alembic upgrade head        # creates every table, rerun after pulling new migrations
-```
-
-### 4️⃣ Start the backend, in 3 terminals
-
-| Terminal | Command | What it's for |
-|---|---|---|
-| 1 | `celery -A app.core.celery_app worker --loglevel=info` | Sends verification emails |
-| 2 | `celery -A app.core.celery_app beat --loglevel=info` | Nightly priority rescore, optional for local testing |
-| 3 | `uvicorn app.main:app --reload` | The actual API, at `http://127.0.0.1:8000` |
-
-(`source venv/bin/activate` first, in each one.) Once terminal 3 says startup complete, open **`http://127.0.0.1:8000/docs`** to confirm it's alive.
-
-### 5️⃣ Start the frontend
-
-```bash
-cd ../frontend
-npm install
-npm run dev
-```
-
-Open the URL it prints, almost always **`http://localhost:5173`**.
-
-✅ **That's it, you're running.** Log in with the shared team admin below, or register your own citizen account.
+**NAGRIK AI replaces all of that with one connected system.** You report an issue once, in your own words if you want. An AI reads it, figures out how urgent it is, and sends it straight to the right department, no guessing, no wrong desks. From that point on, you can watch it move through every stage, and you'll be notified the moment anything changes.
 
 ---
 
-## 🔑 Shared team login
+## 🙋 Who this is built for
 
-Everyone points at the same Supabase database, so there's exactly one admin account, shared by the whole team, not per-person.
+### 👤 If you're a citizen
+
+You have a civic problem, a pothole, a garbage pile, a leaking pipe, a broken streetlight, and you just want it fixed without becoming a full-time complaint follow-up manager. With NAGRIK AI you can:
+
+- **Report it in seconds**, either by filling a simple form or by just chatting with **Nagrik Saathi**, an AI assistant that asks you a couple of quick questions and files the complaint for you.
+- **Attach a photo and your location**, so nobody has to guess where the problem actually is or whether it's real.
+- **Watch your complaint move**, from submitted, to approved, to in progress, to resolved, all visible on your own dashboard, no phone calls needed.
+- **Get notified automatically** every single time something changes. You never have to ask "any update?" again.
+- **Have the final say.** Once someone marks your complaint resolved, you confirm it yourself and leave a rating. If it's genuinely not fixed, it doesn't just get closed on you.
+
+### 👷 If you're municipal staff
+
+You're the person who actually gets sent out to fix things, and right now you're probably getting your assignments by phone call or a message with barely any details. NAGRIK AI gives you:
+
+- **One task list**, showing every complaint assigned to you, with a real address, a photo, and a priority score, not a half-remembered phone call.
+- **A clear next action.** Start work, mark it resolved, nothing ambiguous.
+- **A way to prove the job is done.** Attach a photo once you've fixed it, so there's a record and the citizen can see it too.
+
+### 🧑‍💼 If you're an administrator
+
+You're responsible for the whole system running smoothly, and spreadsheets don't scale. You get:
+
+- **A live dashboard** of every complaint in the system, filterable by status, category, or area, no more piecing together numbers by hand.
+- **One-click approve, reject, or assign**, pulling from a real list of your staff, filtered to the right department automatically.
+- **Priority intelligence.** Complaints that look genuinely urgent, a safety risk, a health hazard, are automatically flagged so they don't sit in a queue behind something trivial.
+- **Full oversight of accounts and departments**, and an export button when you actually do need a spreadsheet.
+
+---
+
+## 🧭 How it works, start to finish
+
+1. **You describe the problem.** Type it into a form, or just tell Nagrik Saathi what's wrong the way you'd tell a friend.
+2. **The AI understands it.** It figures out the category (pothole, garbage, water, streetlight, and more), estimates how urgent it is, and checks it isn't a duplicate of something already reported nearby.
+3. **It's routed automatically** to the correct department. You never have to know which office handles what.
+4. **A staff member is assigned**, and they see your evidence, your exact location, and the urgency score before they even head out.
+5. **You're notified at every step.** Approved, assigned, started, resolved, each one lands as a notification the moment it happens.
+6. **You confirm the fix.** Once it's marked resolved, you get the final word, confirm it and rate it, or flag that it isn't actually fixed.
+
+No step in that journey is faked or simulated. Every action in NAGRIK AI hits a real database and produces a real, visible result.
+
+---
+
+## ✨ What makes it different
+
+| | |
+|---|---|
+| 🤖 **Talk to it, don't fill forms** | Nagrik Saathi understands plain language. "There's a huge pothole outside my building" is enough to start a complaint. |
+| 📍 **Evidence that actually helps** | Photos and GPS location travel with the complaint, so field staff go to the right place the first time. |
+| ⚡ **Urgency that isn't guesswork** | An AI priority engine scores every complaint and automatically flags the genuinely dangerous ones for immediate attention. |
+| 🔔 **You're never left wondering** | Automatic notifications on every status change, plus a live unread badge so nothing gets missed. |
+| 🗺️ **One shared source of truth** | Citizens, staff, and administrators all look at the same real data, not three disconnected systems. |
+| ✅ **Citizens get the final word** | A complaint can't be quietly closed without the citizen confirming it's actually fixed. |
+
+---
+
+## 🔑 Try it yourself
+
+Everyone on this project shares one demo admin account, since we all point at the same database.
 
 ```
 email:    admin@nagrikai.team
 password: TestPass123!
 ```
 
-> [!NOTE]
-> Password was reset during testing (2026-08-11), the old `Nagrik@2026` no longer works. If you change it again, update this section so the next person isn't stuck.
-
 > [!WARNING]
-> This account can hard-delete complaints and manage every user. Keep it out of anywhere public, screenshots included. Use it to create staff accounts too, through `POST /admin/users`, there's no signup page for staff or admin.
->
-> Any citizen account can now also hard-delete its own complaint while it's still "submitted" (`DELETE /complaints/{id}`, or the Delete button on the complaint detail page). Same shared database as everything else, it's gone for real, not just for that citizen.
+> This account can manage every user and permanently delete complaints. Please don't share it anywhere public. You can also register your own free citizen account any time and file a real complaint to see the whole journey for yourself.
 
 ---
+
+## 🛠️ Running it on your own machine
+
+This is the short version, meant for anyone who just wants it running. If you're setting up a fresh development environment or contributing code, the full technical reference below has every detail, including troubleshooting, the complete API surface, and the database schema.
+
+**You'll need:** Python 3.12+, Node.js 18+, PostgreSQL, Redis, and Git.
+
+```bash
+git clone https://github.com/24f2000777/MAY2026-Team-059.git
+cd MAY2026-Team-059/Backend
+python3 -m venv venv && source venv/bin/activate
+pip install --upgrade pip && pip install -r requirements.txt
+cp .env.example .env        # fill in the database, secret keys, and Groq API key
+alembic upgrade head
+```
+
+Then, in three separate terminals (each with the virtual environment activated):
+
+```bash
+celery -A app.core.celery_app worker --loglevel=info
+celery -A app.core.celery_app beat --loglevel=info
+uvicorn app.main:app --reload
+```
+
+And finally, the frontend:
+
+```bash
+cd ../frontend
+npm install && npm run dev
+```
+
+Open the address it prints, usually `http://localhost:5173`, and you're in.
+
+---
+
+## 💡 What's new lately
+
+The app recently got a full visual redesign across every dashboard, a faster admin experience that no longer freezes while loading complaints, staff can now attach a photo as proof once a job is resolved, and the chatbot now takes you straight to a complaint you just filed instead of leaving you to go find it. See the full, detailed changelog below.
+
+---
+
+<details>
+<summary><strong>📚 Full technical reference: setup troubleshooting, every API endpoint, error codes, database schema, and how the team works</strong></summary>
 
 ## 🩹 Hit an error? Check here first
 
@@ -117,75 +147,22 @@ password: TestPass123!
 |---|---|---|
 | `Address already in use` | An old server is still running on that port | `lsof -nP -iTCP:8000 -sTCP:LISTEN` then `kill <pid>` (swap `8000` for `5173` for the frontend) |
 | Login says it can't reach the server | Frontend and backend are on mismatched ports | Backend only accepts `5173`/`3000`. If Vite printed `5174` instead, free `5173` and restart it |
-| OTP email never arrives | The Celery worker isn't running, or SMTP is still a placeholder | Start terminal 1 above, or check `.env` still has the real Ethereal values from `.env.example` |
+| OTP email never arrives | The Celery worker isn't running, or SMTP is still a placeholder | Start the Celery worker, or check `.env` still has the real Ethereal values from `.env.example` |
 | `column does not exist` / missing table | Database schema is behind | `cd Backend && alembic upgrade head` |
-| `could not translate host name "db.....supabase.co"` | `SYNC_DATABASE_URL` is set to the "Direct connection" host, which only resolves over IPv6 | Swap it for the **Session pooler** connection string from Supabase dashboard → Connect, see the `.env` table above |
+| `could not translate host name "db.....supabase.co"` | `SYNC_DATABASE_URL` is set to the "Direct connection" host, which only resolves over IPv6 | Swap it for the **Session pooler** connection string from Supabase dashboard, under Connect |
 | `create_admin` refuses to run | Working as intended, only one admin allowed | Use the shared login above instead |
 | Chatbot hangs or never replies | The AI provider hit a rate limit | Wait a minute and retry, or add `GEMINI_API_KEY`/`HUGGINGFACE_API_KEY` as fallbacks |
 | Complaints or accounts you didn't create | Shared database, a teammate's test data | Expected. Don't delete anything that isn't clearly yours without asking first |
 
----
+### Environment variables, in detail
 
-## 🧭 What this actually does
-
-A citizen reports a problem, a pothole, a water leak, a broken streetlight, either through a form or by just describing it to an AI assistant called **Nagrik Saathi**. The system reads it, scores how urgent it is, decides which BMC department should handle it, and checks for duplicates. Staff and admins review, assign, and resolve it, the citizen gets notified at every step, and once it's fixed they confirm it and leave a rating.
-
-Auth, the full complaint lifecycle, attachments, notifications, feedback, analytics, department management, and staff/admin account creation are all real and tested against a live Postgres database, both on the backend and, for the core flow, on the frontend too. The general feedback form is the one page still running on sample data in the browser, see the status section in the full reference below for exactly where that line is.
-
----
-
-## 🔄 Try the full lifecycle yourself
-
-1. **Citizen:** file a complaint through Nagrik Saathi, or `POST /complaints` directly.
-2. **Admin:** `PATCH /complaints/{id}/approve`, then `PATCH /complaints/{id}/assign`.
-3. **Staff:** `PATCH /complaints/{id}/start`, then `PATCH /complaints/{id}/resolve`.
-4. **Citizen:** check `GET /notifications`, one entry per step above.
-5. **Citizen:** `POST /complaints/{id}/feedback` with a score 1 to 5, this auto-closes the complaint.
-
-Every call is real, hits the real database, nothing here is faked for a demo.
-
-```bash
-cd Backend && pytest        # the real test suite, 30+ minutes, real DB + real AI calls, no mocks
-```
-
----
-
-## 📝 Recent changes
-
-**Staff analytics redesigned:** the "My Performance" page's old category-breakdown bar chart was replaced with a workload overview, a resolution-rate ring, and a work-status breakdown.
-
-**Chatbot links straight to the filed complaint:** filing a complaint through Nagrik Saathi now shows a "View Complaint" link right on the confirmation card, instead of leaving you to go find it yourself.
-
-**Admin dashboard redesigned, with pagination:** a visual overhaul of the admin complaint-management screen (new hero/live-snapshot layout, filter toolbar, per-row priority/officer detail), plus proper pagination instead of dumping every complaint into one long table.
-
-**Resolution-rating page redesigned:** `RateReview.vue` now matches the rest of the app's visual language instead of looking like a leftover prototype.
-
-**Staff can attach a resolution photo:** once a complaint is resolved, staff can upload a photo as proof, visible to the citizen on the complaint detail page. Reuses the existing attachment upload endpoint with `purpose: resolution_proof` rather than a new endpoint.
-
-**Department management is real, not planned:** admins can create/list/update/delete departments (`POST`/`GET /admin/departments`, `PATCH`/`DELETE /admin/departments/{id}`) and reassign a staff member's department (`PATCH /admin/users/{id}/department`), from fixed set of BMC departments. Complaint routing to a department is now deterministic (category → department lookup) instead of going through an LLM call, and staff assignment is filtered to officers in the complaint's own department.
-
-**Groq model swap:** `llama-3.3-70b-versatile` was decommissioned upstream, the chatbot and priority scoring now use the current Groq model instead.
-
-**Redesign + real submit form:** the whole app got a visual redesign (Leaflet map for picking a complaint's location, new layouts throughout). `SubmitComplaint.vue` used to be a disconnected prototype with a fake stub submit and a made-up category list, it's now wired to the real backend (`createComplaint`, `uploadAttachment`, `getWards`), with the map defaulting to Mumbai instead of New Delhi.
-
-**Attachments visible to staff/admin:** photos a citizen attaches to a complaint now show up on the staff and admin views too, not just the citizen's own.
-
-**Chatbot photo uploads fixed:** a photo attached through Nagrik Saathi could silently fail to upload with no error and no way to retry, which is why it sometimes never showed up on the staff/admin side. Now a failed upload surfaces an error and stays attached for retry instead of vanishing. You can also send a photo on its own now, without typing anything first.
-
-**Citizens can delete their own complaint:** while it's still "submitted" (before any officer has approved it), a citizen can now delete it outright, from the complaint detail page or `DELETE /complaints/{id}`. Once it's been approved, withdraw is the option instead.
-
-**Notification reminders:** a red badge on the navbar bell shows the live unread count, and a dismissible banner on every dashboard (citizen, staff, admin) reminds you when there's something unread. The backend for this already existed, it just had no UI surface before.
-
-**Admin dashboard loads faster:** it used to fetch every page of complaints one at a time in sequence. Now it fetches the first page, then every remaining page in parallel, no more 100-complaint cap either.
-
-**Admin can reject complaints:** the Reject action existed on the backend but nothing in the UI called it, only Approve did. There's now a Reject button next to Approve for any "submitted" complaint, prompting for a reason.
-
-**Short complaint reference numbers:** every complaint now has a sequential number (`NGK-000123`) shown everywhere instead of the raw UUID, backed by a real DB sequence so it's assigned atomically. The UUID is still the real id for URLs and API calls, this is purely for display.
-
----
-
-<details>
-<summary><strong>📚 Full reference: frontend, backend, every endpoint, error codes, architecture, team</strong></summary>
+| Variable | What to put |
+|---|---|
+| `DATABASE_URL` / `SYNC_DATABASE_URL` | Same shared Supabase database, two different drivers. Get both from Supabase dashboard, under Connect. `DATABASE_URL` from the **Transaction pooler**, `SYNC_DATABASE_URL` from the **Session pooler**. Don't use "Direct connection", it only resolves over IPv6 and fails on plenty of networks |
+| `SECRET_KEY` / `OTP_SECRET_KEY` | Two different 32+ character random strings, generate with `python3 -c "import secrets; print(secrets.token_hex(32))"` |
+| `GROQ_API_KEY` | Powers the chatbot and priority scoring. `GEMINI_API_KEY`/`HUGGINGFACE_API_KEY` are optional automatic fallbacks |
+| SMTP settings | Leave exactly as they are. `.env.example` already ships real, working Ethereal test-inbox credentials |
+| `REDIS_URL` | `redis://localhost:6379/0` for a local install, no setup needed |
 
 ## Frontend reference
 
@@ -202,7 +179,7 @@ A Vue 3 app for citizens, staff, and admins. Vue 3.5 with `<script setup>`, Vue 
 | `api/analyticsApi.js` | Real backend, `GET /analytics/summary`, scoped by role (citizen sees their own filings, staff their assignments, admin everything) |
 | `api/client.js` | Sample data, only `FeedbackReport.vue` still uses it |
 
-`FeedbackReport.vue` is a deliberate gap, not an oversight, the real feedback system is always a rating on one specific resolved complaint, there's no endpoint for untargeted app feedback yet. `Profile.vue` used to be on this list too, it's fully wired to the real backend now (`authStore.updateProfile`/`changePassword` → real `PUT /auth/me` / `POST /auth/change-password`).
+`FeedbackReport.vue` is a deliberate gap, not an oversight. The real feedback system is always a rating on one specific resolved complaint, there's no endpoint for untargeted app feedback yet.
 
 ### What each role can do
 
@@ -228,11 +205,11 @@ frontend/src/
 └── assets/style.css
 ```
 
-Most complaint pages call `complaintApi.js`/`notificationApi.js` directly from their own `onMounted` hook with local `ref` state, rather than through a shared store, that was a deliberate choice over retrofitting the old synchronous mock store for real async calls.
+Most complaint pages call `complaintApi.js`/`notificationApi.js` directly from their own `onMounted` hook with local `ref` state, rather than through a shared store. That was a deliberate choice over retrofitting the old synchronous mock store for real async calls.
 
 ## Backend reference
 
-FastAPI, async throughout, SQLAlchemy 2.0 + asyncpg, JWT auth, Redis for OTP/rate limiting/token revocation, Celery for background email and the nightly rescore, Alembic for migrations, LangGraph for the chatbot with real retrieval augmented answers. Groq is the primary AI provider, Gemini and HuggingFace are automatic fallbacks.
+FastAPI, async throughout, SQLAlchemy 2.0 with asyncpg, JWT auth, Redis for OTP/rate limiting/token revocation, Celery for background email and the nightly rescore, Alembic for migrations, LangGraph for the chatbot with real retrieval augmented answers. Groq is the primary AI provider, Gemini and HuggingFace are automatic fallbacks.
 
 Every protected endpoint expects `Authorization: Bearer <access_token>`. Access tokens last 30 minutes, refresh tokens 7 days.
 
@@ -394,6 +371,52 @@ Celery sends verification/reset email asynchronously, and Beat runs a nightly 2 
 
 **Planned, not started:** scheduled auto-closing of stale resolved complaints, a broader analytics dashboard, Docker/CI deployment setup, a dedicated security audit before any real launch.
 
+### Detailed changelog
+
+**Staff analytics redesigned:** the "My Performance" page's old category-breakdown bar chart was replaced with a workload overview, a resolution-rate ring, and a work-status breakdown.
+
+**Chatbot links straight to the filed complaint:** filing a complaint through Nagrik Saathi now shows a "View Complaint" link right on the confirmation card, instead of leaving you to go find it yourself.
+
+**Admin dashboard redesigned, with pagination:** a visual overhaul of the admin complaint-management screen (new hero/live-snapshot layout, filter toolbar, per-row priority/officer detail), plus proper pagination instead of dumping every complaint into one long table.
+
+**Resolution-rating page redesigned:** `RateReview.vue` now matches the rest of the app's visual language instead of looking like a leftover prototype.
+
+**Staff can attach a resolution photo:** once a complaint is resolved, staff can upload a photo as proof, visible to the citizen on the complaint detail page. Reuses the existing attachment upload endpoint with `purpose: resolution_proof` rather than a new endpoint.
+
+**Department management is real, not planned:** admins can create/list/update/delete departments (`POST`/`GET /admin/departments`, `PATCH`/`DELETE /admin/departments/{id}`) and reassign a staff member's department (`PATCH /admin/users/{id}/department`), from a fixed set of BMC departments. Complaint routing to a department is now deterministic (category to department lookup) instead of going through an LLM call, and staff assignment is filtered to officers in the complaint's own department.
+
+**Groq model swap:** `llama-3.3-70b-versatile` was decommissioned upstream, the chatbot and priority scoring now use the current Groq model instead.
+
+**Redesign and real submit form:** the whole app got a visual redesign (Leaflet map for picking a complaint's location, new layouts throughout). `SubmitComplaint.vue` used to be a disconnected prototype with a fake stub submit and a made-up category list, it's now wired to the real backend (`createComplaint`, `uploadAttachment`, `getWards`), with the map defaulting to Mumbai instead of New Delhi.
+
+**Attachments visible to staff/admin:** photos a citizen attaches to a complaint now show up on the staff and admin views too, not just the citizen's own.
+
+**Chatbot photo uploads fixed:** a photo attached through Nagrik Saathi could silently fail to upload with no error and no way to retry, which is why it sometimes never showed up on the staff/admin side. Now a failed upload surfaces an error and stays attached for retry instead of vanishing. You can also send a photo on its own now, without typing anything first.
+
+**Citizens can delete their own complaint:** while it's still "submitted" (before any officer has approved it), a citizen can now delete it outright, from the complaint detail page or `DELETE /complaints/{id}`. Once it's been approved, withdraw is the option instead.
+
+**Notification reminders:** a red badge on the navbar bell shows the live unread count, and a dismissible banner on every dashboard (citizen, staff, admin) reminds you when there's something unread. The backend for this already existed, it just had no UI surface before.
+
+**Admin dashboard loads faster:** it used to fetch every page of complaints one at a time in sequence. Now it fetches the first page, then every remaining page in parallel, no more 100-complaint cap either.
+
+**Admin can reject complaints:** the Reject action existed on the backend but nothing in the UI called it, only Approve did. There's now a Reject button next to Approve for any "submitted" complaint, prompting for a reason.
+
+**Short complaint reference numbers:** every complaint now has a sequential number (`NGK-000123`) shown everywhere instead of the raw UUID, backed by a real DB sequence so it's assigned atomically. The UUID is still the real id for URLs and API calls, this is purely for display.
+
+### Try the full lifecycle yourself, via the API
+
+1. **Citizen:** file a complaint through Nagrik Saathi, or `POST /complaints` directly.
+2. **Admin:** `PATCH /complaints/{id}/approve`, then `PATCH /complaints/{id}/assign`.
+3. **Staff:** `PATCH /complaints/{id}/start`, then `PATCH /complaints/{id}/resolve`.
+4. **Citizen:** check `GET /notifications`, one entry per step above.
+5. **Citizen:** `POST /complaints/{id}/feedback` with a score 1 to 5, this auto-closes the complaint.
+
+Every call is real, hits the real database, nothing here is faked for a demo.
+
+```bash
+cd Backend && pytest        # the real test suite, 30+ minutes, real DB and real AI calls, no mocks
+```
+
 ## How we work as a team
 
 ```bash
@@ -405,7 +428,7 @@ git push -u origin feature/your-feature-name
 # open a pull request into develop
 ```
 
-Nothing merges directly into `main`. Before opening a PR: code runs, no hardcoded secrets, tests pass, new dependencies are in `requirements.txt`. Schema changes need a real Alembic migration, generated with `alembic revision --autogenerate -m "..."` and reviewed by hand.
+Nothing merges directly into `main` without a reviewed pull request. Before opening a PR: code runs, no hardcoded secrets, tests pass, new dependencies are in `requirements.txt`. Schema changes need a real Alembic migration, generated with `alembic revision --autogenerate -m "..."` and reviewed by hand.
 
 ### The team
 

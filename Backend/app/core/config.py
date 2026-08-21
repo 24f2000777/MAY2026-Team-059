@@ -1,0 +1,181 @@
+"""
+Application configuration.
+
+All settings are loaded automatically from the .env file.
+
+Example:
+    from app.core.config import settings
+
+    engine = create_async_engine(settings.DATABASE_URL)
+
+Avoid printing or logging settings.SECRET_KEY, settings.OTP_SECRET_KEY,
+or DATABASE_URL anywhere, they're credentials, not debug output.
+"""
+
+from typing import Optional
+
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    """
+    Application Settings
+
+    Values are automatically loaded from the .env file
+    and can be accessed anywhere using:
+
+        from app.core.config import settings
+    """
+
+    # =====================================================
+    # Database
+    # =====================================================
+
+    DATABASE_URL: str
+    SYNC_DATABASE_URL: str
+
+    # =====================================================
+    # JWT Authentication
+    # =====================================================
+
+    SECRET_KEY: str = Field(min_length=32)
+
+    ALGORITHM: str = "HS256"
+
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 7
+
+    # =====================================================
+    # Email (SMTP)
+    # =====================================================
+
+    SMTP_HOST: str
+
+    SMTP_PORT: int
+
+    SMTP_USERNAME: str
+
+    SMTP_PASSWORD: str
+
+    SMTP_FROM_EMAIL: str
+
+    SMTP_FROM_NAME: str = "NAGRIK AI"
+
+    # =====================================================
+    # Redis
+    # =====================================================
+
+    REDIS_URL: str = "redis://localhost:6379/0"
+    
+    OTP_EXPIRE_SECONDS: int = 300
+
+    # Reset-password OTPs get a longer window than verify-email
+    # OTPs (per the API design doc: 10 minutes vs 5 minutes),
+    # since a user recovering a locked-out account may take
+    # longer to find the email than someone mid-registration.
+    RESET_PASSWORD_OTP_EXPIRE_SECONDS: int = 600
+
+    # Caps how many times forgot-password can be requested for
+    # the same email in a rolling window, to stop an email
+    # address from being spammed with reset OTPs.
+    PASSWORD_RESET_RATE_LIMIT_MAX_ATTEMPTS: int = 3
+
+    PASSWORD_RESET_RATE_LIMIT_WINDOW_SECONDS: int = 3600
+
+    # Caps how many times a caller can attempt to verify an
+    # already-issued OTP (verify-email or reset-password) within
+    # its lifetime, so a 6-digit code can't just be brute-forced
+    # by guessing repeatedly before it expires.
+    OTP_VERIFY_RATE_LIMIT_MAX_ATTEMPTS: int = 5
+
+    OTP_VERIFY_RATE_LIMIT_WINDOW_SECONDS: int = 900
+
+    # Caps how many times verify-email's OTP can be resent for the
+    # same pending account in a rolling window, same reasoning as
+    # PASSWORD_RESET_RATE_LIMIT_* above — /auth/resend-otp only
+    # needs an email, so without this it's an easy way to spam a
+    # victim's inbox (or hammer the SMTP relay) with no friction.
+    OTP_RESEND_RATE_LIMIT_MAX_ATTEMPTS: int = 3
+
+    OTP_RESEND_RATE_LIMIT_WINDOW_SECONDS: int = 3600
+
+    # Caps how many login attempts a single email can make in a
+    # rolling window, so a known email's password can't just be
+    # brute-forced with unlimited guesses. Keyed by email rather
+    # than IP, same reasoning as the other auth rate limits above,
+    # an attacker can rotate IPs but not the email they're targeting.
+    LOGIN_RATE_LIMIT_MAX_ATTEMPTS: int = 5
+
+    LOGIN_RATE_LIMIT_WINDOW_SECONDS: int = 900
+
+    OTP_SECRET_KEY: str = Field(min_length=32)
+
+    # =====================================================
+    # Celery
+    # =====================================================
+
+    CELERY_BROKER_URL: str = "redis://localhost:6379/0"
+
+    CELERY_RESULT_BACKEND: str = "redis://localhost:6379/0"
+
+    # =====================================================
+    # AI
+    # =====================================================
+
+    GROQ_API_KEY: str
+
+    # Backup LLM providers for the complaint-severity extraction chain,
+    # used only if Groq's call fails. Optional since the app should still
+    # run without them, just with one fewer fallback available.
+    GEMINI_API_KEY: Optional[str] = None
+
+    HUGGINGFACE_API_KEY: Optional[str] = None
+
+    # =====================================================
+    # Complaint Attachments
+    #
+    # Per Section 4 of the API design doc: JPG/PNG/PDF/DOC/DOCX, max
+    # 5 MB per file, max 5 files per complaint. Dev storage is the
+    # local filesystem (UPLOAD_DIR, served back via a static mount in
+    # main.py), swapping to S3-compatible object storage for prod is
+    # a config-level change, not a code-level one, once that's needed.
+    # =====================================================
+
+    UPLOAD_DIR: str = "uploads"
+
+    MAX_UPLOAD_SIZE_BYTES: int = 5 * 1024 * 1024
+
+    MAX_ATTACHMENTS_PER_COMPLAINT: int = 5
+
+    # =====================================================
+    # Application
+    # =====================================================
+
+    ENVIRONMENT: str = "development"
+
+    DEBUG: bool = False
+
+    # Logs every SQL statement and its bound parameters to stdout.
+    # Deliberately its own flag rather than tied to DEBUG: printing full
+    # SQL on every query is a real, measurable per-request cost (and a
+    # lot of noise), so it should be something a developer opts into for
+    # a specific debugging session, not something that's silently on
+    # just because DEBUG is on.
+    SQL_ECHO: bool = False
+
+    FRONTEND_ORIGINS: list[str] = ["http://localhost:3000", "http://localhost:5173"]
+
+    # =====================================================
+    # Pydantic Configuration
+    # =====================================================
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        case_sensitive=True,
+        extra="ignore",
+    )
+
+
+settings = Settings()

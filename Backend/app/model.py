@@ -1,0 +1,201 @@
+# All 8 database tables for NAGRIK AI
+from sqlalchemy.orm import relationship
+from sqlalchemy import Text, Integer, String, Column, Boolean, ForeignKey, DateTime, Float, text
+from sqlalchemy.dialects.postgresql import UUID, JSONB
+from sqlalchemy.sql import func
+from app.core.database import Base
+import uuid
+
+
+# ─── TABLE 1: USERS ────────────────────────────────────
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    phone = Column(String(15), unique=True, nullable=False)
+    name = Column(String(100), nullable=False)
+    email = Column(String(200), unique=True, nullable=False)
+    role = Column(String(20), nullable=False)
+    hashed_password = Column(String(255), nullable=False)
+    is_active = Column(Boolean, default=False)
+    department_id = Column(UUID(as_uuid=True), ForeignKey("departments.id"), nullable=True)
+    notification_email_enabled = Column(Boolean, nullable=False, default=True, server_default="true")
+
+    created_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now()
+    )
+
+    updated_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now()
+    )
+
+    # one citizen can file many complaints
+    complaints = relationship(
+        "Complaint",
+        foreign_keys="Complaint.citizen_id",
+        backref="citizen",
+        lazy=True,
+    )
+
+
+# ─── TABLE 2: DEPARTMENTS ───────────────────────────────
+# municipal departments (roads, water supply, sanitation, ...)
+# staff belong to one, complaints route to one
+class Department(Base):
+    __tablename__ = "departments"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name = Column(String(100), unique=True, nullable=False)
+    description = Column(Text, nullable=True)
+    created_at = Column(DateTime, server_default=func.now())
+
+    staff = relationship("User", backref="department", lazy=True)
+    complaints = relationship("Complaint", backref="department", lazy=True)
+
+
+# ─── TABLE 3: COMPLAINTS ────────────────────────────────
+class Complaint(Base):
+    __tablename__ = "complaints"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    # Short human-facing reference (shown as e.g. "NGK-000123"), backed
+    # by a DB sequence (see the add_complaint_number migration) so it's
+    # assigned atomically and never collides even under concurrent
+    # inserts. The UUID id above stays the real primary key/URL param,
+    # this is purely for display.
+    complaint_number = Column(
+        Integer,
+        nullable=False,
+        unique=True,
+        server_default=text("nextval('complaint_number_seq')"),
+    )
+    citizen_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    assigned_to = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    department_id = Column(UUID(as_uuid=True), ForeignKey("departments.id"), nullable=True)
+    title = Column(String(200), nullable=False)
+    description = Column(Text, nullable=False)
+    category = Column(String(20), nullable=False)
+    status = Column(String(20), default="submitted")
+    priority_score = Column(Integer, default=0)
+    location_text = Column(String(300), nullable=True)
+    ward_code = Column(String(5), nullable=True)
+    latitude = Column(Float, nullable=True)
+    longitude = Column(Float, nullable=True)
+    reject_reason = Column(Text, nullable=True)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    updates = relationship(
+        "ComplaintUpdate",
+        backref="complaint",
+        lazy=True,
+        cascade="all, delete-orphan",
+    )
+    images = relationship(
+        "ComplaintImage",
+        backref="complaint",
+        lazy=True,
+        cascade="all, delete-orphan",
+    )
+    rating = relationship("Rating", backref="complaint", uselist=False)
+
+
+# ─── TABLE 4: COMPLAINT_UPDATES ─────────────────────────
+# audit log — every status change gets a row here
+class ComplaintUpdate(Base):
+    __tablename__ = "complaint_updates"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    complaint_id = Column(
+        UUID(as_uuid=True), ForeignKey("complaints.id", ondelete="CASCADE"), nullable=False
+    )
+    updated_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    old_status = Column(String(20), nullable=True)
+    new_status = Column(String(20), nullable=True)
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime, server_default=func.now())
+
+
+# ─── TABLE 5: COMPLAINT_IMAGES ──────────────────────────
+# photos attached to a complaint, either citizen evidence at
+# submission time or a staff-uploaded resolution photo afterwards,
+# see purpose below
+class ComplaintImage(Base):
+    __tablename__ = "complaint_images"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    complaint_id = Column(
+        UUID(as_uuid=True), ForeignKey("complaints.id", ondelete="CASCADE"), nullable=False
+    )
+    image_url = Column(String(500), nullable=False)
+    # "citizen_evidence" (default, the original photo(s) filed with
+    # the complaint) or "resolution_proof" (staff-uploaded, only once
+    # the complaint is resolved, see complaint_service.upload_complaint_attachment)
+    purpose = Column(String(20), nullable=False, server_default="citizen_evidence")
+    created_at = Column(DateTime, server_default=func.now())
+
+
+# ─── TABLE 6: NOTIFICATIONS ─────────────────────────────
+class Notification(Base):
+    __tablename__ = "notifications"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    complaint_id = Column(
+        UUID(as_uuid=True), ForeignKey("complaints.id", ondelete="SET NULL"), nullable=True
+    )
+    type = Column(String(30), nullable=False)
+    title = Column(String(200), nullable=False)
+    message = Column(Text, nullable=False)
+    is_read = Column(Boolean, default=False)
+    created_at = Column(DateTime, server_default=func.now())
+
+
+# ─── TABLE 7: RATINGS ───────────────────────────────────
+# one rating per complaint (unique constraint on complaint_id)
+class Rating(Base):
+    __tablename__ = "ratings"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    complaint_id = Column(
+        UUID(as_uuid=True), ForeignKey("complaints.id", ondelete="CASCADE"),
+        unique=True, nullable=False,
+    )
+    citizen_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    score = Column(Integer, nullable=False)  # 1 to 5
+    feedback = Column(Text, nullable=True)
+    created_at = Column(DateTime, server_default=func.now())
+
+
+# ─── TABLE 8: CHAT_SESSIONS ─────────────────────────────
+# stores RAG chatbot messages, both user and assistant
+class ChatSession(Base):
+    __tablename__ = "chat_sessions"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    session_id = Column(String(100), nullable=False)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    complaint_id = Column(UUID(as_uuid=True), ForeignKey("complaints.id"), nullable=True)
+    role = Column(String(10), nullable=False)  # 'user' | 'assistant'
+    message = Column(Text, nullable=False)
+    retrieved_docs = Column(JSONB, nullable=True)
+    created_at = Column(DateTime, server_default=func.now())
+
+
+# ─── TABLE 9: KNOWLEDGE_BASE_DOCUMENTS ──────────────────
+# admin-added text entries for Nagrik Saathi's RAG knowledge base,
+# on top of the static PDFs baked into app/chatbot/data. Only rows
+# here can be listed/deleted through the admin API, the static PDFs
+# aren't represented in the DB at all.
+class KnowledgeBaseDocument(Base):
+    __tablename__ = "knowledge_base_documents"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    title = Column(String(200), nullable=False)
+    content = Column(Text, nullable=False)
+    created_at = Column(DateTime, server_default=func.now())

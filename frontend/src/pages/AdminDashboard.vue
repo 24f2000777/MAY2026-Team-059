@@ -167,11 +167,34 @@ function officerName(id) {
   return officers.value.find((o) => o.id === id)?.name || 'Unassigned'
 }
 
+// Assign only makes sense once a complaint has cleared the
+// approve/reject decision, and the backend itself rejects assigning
+// a complaint that's already terminal (COMP_003), so the button
+// shouldn't offer that here either.
+const TERMINAL_STATUSES = ['resolved', 'closed', 'rejected', 'withdrawn']
+function canAssign(status) {
+  return status !== 'submitted' && !TERMINAL_STATUSES.includes(status)
+}
+
+// approve/reject only change one complaint's status, patching it
+// locally from the transition response is enough - reloading every
+// page of every complaint (loadAllComplaints) just to reflect one row
+// changing is what made the button feel slow, this avoids that
+// entirely instead of just making the same wasted refetch cheaper.
+function patchComplaint(data) {
+  const target = rawComplaints.value.find((c) => c.id === data.id)
+  if (target) {
+    target.status = data.status
+    target.assigned_to = data.assigned_to
+    target.updated_at = data.updated_at
+  }
+}
+
 async function doApprove(id) {
   actionError.value = ''
   try {
-    await approveComplaint({ id, accessToken: auth.accessToken })
-    await load()
+    const data = await approveComplaint({ id, accessToken: auth.accessToken })
+    patchComplaint(data)
   } catch (e) {
     actionError.value = e.message
   }
@@ -182,8 +205,8 @@ async function doReject(id) {
   if (!reason || !reason.trim()) return
   actionError.value = ''
   try {
-    await rejectComplaint({ id, reason: reason.trim(), accessToken: auth.accessToken })
-    await load()
+    const data = await rejectComplaint({ id, reason: reason.trim(), accessToken: auth.accessToken })
+    patchComplaint(data)
   } catch (e) {
     actionError.value = e.message
   }
@@ -675,6 +698,7 @@ onMounted(load)
                     </button>
 
                     <button
+                      v-if="canAssign(c.status)"
                       class="action-btn assign"
                       :title="c.assignedTo ? 'Reassign officer' : 'Assign officer'"
                       @click="router.push(`/admin/assign/${c.id}`)"

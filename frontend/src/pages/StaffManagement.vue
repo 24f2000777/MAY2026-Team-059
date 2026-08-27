@@ -2,7 +2,7 @@
 import { onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/authStore'
-import { assignStaffDepartment, createStaffAccount, listOfficers } from '../api/complaintApi'
+import { assignStaffDepartment, createStaffAccount, getOfficerRatings, listOfficers } from '../api/complaintApi'
 
 const auth = useAuthStore()
 const router = useRouter()
@@ -42,6 +42,12 @@ const createdCredentials = ref(null)
 const reassigning = ref({})
 const reassignError = ref({})
 
+// Per-officer ratings (average/total/individual feedback), keyed by
+// officer id. There's no bulk endpoint, so these are fetched one call
+// per officer, in parallel, after the officer list itself loads.
+const ratings = ref({})
+const expandedOfficer = ref(null)
+
 const phonePattern = /^[0-9]{10}$/
 
 async function load() {
@@ -49,6 +55,7 @@ async function load() {
   try {
     const data = await listOfficers({ accessToken: auth.accessToken })
     officers.value = data.officers
+    loadRatings()
   } catch (e) {
     if (e.status === 401) {
       await auth.logout()
@@ -59,6 +66,31 @@ async function load() {
   } finally {
     loading.value = false
   }
+}
+
+async function loadRatings() {
+  await Promise.all(
+    officers.value.map(async (o) => {
+      try {
+        const result = await getOfficerRatings({ officerId: o.id, accessToken: auth.accessToken })
+        // Mutate the reactive object directly rather than spreading
+        // ratings.value into a new object here - with 39+ of these
+        // running in parallel, every spread captures whatever
+        // ratings.value happened to be at that call's synchronous
+        // start (before its own await), so later resolutions would
+        // each overwrite the object with a stale base and silently
+        // drop every other officer's result but their own.
+        ratings.value[o.id] = result
+      } catch {
+        // A single officer's ratings failing to load isn't worth
+        // blocking the rest of the page, that row just shows nothing.
+      }
+    })
+  )
+}
+
+function toggleExpand(officerId) {
+  expandedOfficer.value = expandedOfficer.value === officerId ? null : officerId
 }
 
 onMounted(load)
@@ -257,60 +289,87 @@ async function reassign(officer, newDepartment) {
                 <th>Contact</th>
                 <th>Department</th>
                 <th>Status</th>
+                <th>Rating</th>
               </tr>
             </thead>
 
             <tbody>
-              <tr
+              <template
                 v-for="o in officers"
                 :key="o.id"
               >
-                <td>
-                  <div class="staff-person">
-                    <div class="staff-avatar">
-                      {{ o.name?.charAt(0)?.toUpperCase() || '?' }}
+                <tr>
+                  <td>
+                    <div class="staff-person">
+                      <div class="staff-avatar">
+                        {{ o.name?.charAt(0)?.toUpperCase() || '?' }}
+                      </div>
+
+                      <div>
+                        <strong>{{ o.name }}</strong>
+                        <span>{{ o.email }}</span>
+                      </div>
                     </div>
+                  </td>
 
-                    <div>
-                      <strong>{{ o.name }}</strong>
-                      <span>{{ o.email }}</span>
+                  <td>
+                    <span class="phone-number">
+                      {{ o.phone }}
+                    </span>
+                  </td>
+
+                  <td>
+                    <select
+                      class="dept-select"
+                      :value="o.department || ''"
+                      :disabled="reassigning[o.id]"
+                      @change="reassign(o, $event.target.value)"
+                    >
+                      <option value="">Unassigned</option>
+                      <option v-for="d in DEPARTMENTS" :key="d" :value="d">
+                        {{ d }}
+                      </option>
+                    </select>
+                    <p v-if="reassignError[o.id]" class="dept-row-error">
+                      {{ reassignError[o.id] }}
+                    </p>
+                  </td>
+
+                  <td>
+                    <span
+                      class="status-pill"
+                      :class="o.is_active ? 'active' : 'inactive'"
+                    >
+                      <span class="status-dot"></span>
+                      {{ o.is_active ? 'Active' : 'Inactive' }}
+                    </span>
+                  </td>
+
+                  <td>
+                    <button
+                      v-if="ratings[o.id]?.total_ratings"
+                      type="button"
+                      class="rating-toggle"
+                      @click="toggleExpand(o.id)"
+                    >
+                      ★ {{ ratings[o.id].average_score.toFixed(1) }} ({{ ratings[o.id].total_ratings }})
+                    </button>
+                    <span v-else class="rating-empty">No ratings yet</span>
+                  </td>
+                </tr>
+
+                <tr v-if="expandedOfficer === o.id" class="rating-detail-row">
+                  <td colspan="5">
+                    <div class="rating-detail">
+                      <div v-for="r in ratings[o.id].ratings" :key="r.id" class="rating-entry">
+                        <span class="rating-entry-score">★ {{ r.score }}</span>
+                        <span class="rating-entry-text">{{ r.feedback || 'No written comment.' }}</span>
+                        <span class="rating-entry-date">{{ new Date(r.created_at).toLocaleDateString() }}</span>
+                      </div>
                     </div>
-                  </div>
-                </td>
-
-                <td>
-                  <span class="phone-number">
-                    {{ o.phone }}
-                  </span>
-                </td>
-
-                <td>
-                  <select
-                    class="dept-select"
-                    :value="o.department || ''"
-                    :disabled="reassigning[o.id]"
-                    @change="reassign(o, $event.target.value)"
-                  >
-                    <option value="">Unassigned</option>
-                    <option v-for="d in DEPARTMENTS" :key="d" :value="d">
-                      {{ d }}
-                    </option>
-                  </select>
-                  <p v-if="reassignError[o.id]" class="dept-row-error">
-                    {{ reassignError[o.id] }}
-                  </p>
-                </td>
-
-                <td>
-                  <span
-                    class="status-pill"
-                    :class="o.is_active ? 'active' : 'inactive'"
-                  >
-                    <span class="status-dot"></span>
-                    {{ o.is_active ? 'Active' : 'Inactive' }}
-                  </span>
-                </td>
-              </tr>
+                  </td>
+                </tr>
+              </template>
             </tbody>
           </table>
         </div>
@@ -682,6 +741,64 @@ async function reassign(officer, newDepartment) {
 .dept-row-error {
   margin: 6px 0 0;
   color: var(--danger);
+  font-size: 11px;
+}
+
+/* Officer ratings */
+
+.rating-toggle {
+  padding: 5px 9px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.rating-toggle:hover {
+  border-color: var(--accent);
+  color: var(--accent-dark);
+}
+
+.rating-empty {
+  color: var(--text-dim);
+  font-size: 11px;
+}
+
+.rating-detail-row td {
+  background: rgba(0, 0, 0, .015);
+  padding: 12px 16px;
+}
+
+.rating-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.rating-entry {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 12px;
+}
+
+.rating-entry-score {
+  flex-shrink: 0;
+  font-weight: 800;
+  color: var(--accent-dark);
+}
+
+.rating-entry-text {
+  flex: 1;
+  color: var(--text);
+}
+
+.rating-entry-date {
+  flex-shrink: 0;
+  color: var(--text-dim);
   font-size: 11px;
 }
 

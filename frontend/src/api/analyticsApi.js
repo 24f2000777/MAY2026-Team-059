@@ -6,3 +6,7 @@ import { request } from './httpClient'
 export function getAnalyticsSummary({ accessToken }) {
   return request('/analytics/summary', { token: accessToken })
 }
+
+export function getFeedbackSummary({ accessToken }) {
+  return request('/feedback/summary', { token: accessToken })
+}

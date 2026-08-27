@@ -180,6 +180,12 @@ export function listOfficers({ accessToken }) {
   return request('/admin/officers', { token: accessToken })
 }
 
+// Aggregated ratings for one officer: average score, total, and every
+// individual citizen rating they've received.
+export function getOfficerRatings({ officerId, accessToken }) {
+  return request(`/feedback/officer/${officerId}`, { token: accessToken })
+}
+
 // name and phone only, email and a one-time password are generated
 // server-side, see the response's email/generated_password fields.
 export function createStaffAccount({ name, phone, department, accessToken }) {

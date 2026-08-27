@@ -2,7 +2,7 @@
 import { onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/authStore'
-import { assignStaffDepartment, createStaffAccount, getOfficerRatings, listOfficers } from '../api/complaintApi'
+import { assignStaffDepartment, createStaffAccount, getOfficerRatings, listOfficers, updateStaffStatus } from '../api/complaintApi'
 
 const auth = useAuthStore()
 const router = useRouter()
@@ -47,6 +47,11 @@ const reassignError = ref({})
 // per officer, in parallel, after the officer list itself loads.
 const ratings = ref({})
 const expandedOfficer = ref(null)
+
+// Per-officer activate/deactivate button state, same keyed-by-id
+// pattern as reassigning/reassignError above.
+const statusUpdating = ref({})
+const statusError = ref({})
 
 const phonePattern = /^[0-9]{10}$/
 
@@ -146,6 +151,25 @@ async function reassign(officer, newDepartment) {
     reassignError.value = { ...reassignError.value, [officer.id]: e.message }
   } finally {
     reassigning.value = { ...reassigning.value, [officer.id]: false }
+  }
+}
+
+async function toggleStatus(officer) {
+  const nextActive = !officer.is_active
+  if (nextActive === false) {
+    const ok = window.confirm(`Deactivate ${officer.name}? They'll lose access immediately and can no longer be assigned new complaints. This can be undone later.`)
+    if (!ok) return
+  }
+
+  statusError.value = { ...statusError.value, [officer.id]: '' }
+  statusUpdating.value = { ...statusUpdating.value, [officer.id]: true }
+  try {
+    await updateStaffStatus({ userId: officer.id, isActive: nextActive, accessToken: auth.accessToken })
+    officer.is_active = nextActive
+  } catch (e) {
+    statusError.value = { ...statusError.value, [officer.id]: e.message }
+  } finally {
+    statusUpdating.value = { ...statusUpdating.value, [officer.id]: false }
   }
 }
 </script>
@@ -290,6 +314,7 @@ async function reassign(officer, newDepartment) {
                 <th>Department</th>
                 <th>Status</th>
                 <th>Rating</th>
+                <th></th>
               </tr>
             </thead>
 
@@ -356,10 +381,25 @@ async function reassign(officer, newDepartment) {
                     </button>
                     <span v-else class="rating-empty">No ratings yet</span>
                   </td>
+
+                  <td>
+                    <button
+                      type="button"
+                      class="status-toggle-btn"
+                      :class="o.is_active ? 'deactivate' : 'reactivate'"
+                      :disabled="statusUpdating[o.id]"
+                      @click="toggleStatus(o)"
+                    >
+                      {{ statusUpdating[o.id] ? 'Working...' : (o.is_active ? 'Deactivate' : 'Reactivate') }}
+                    </button>
+                    <p v-if="statusError[o.id]" class="dept-row-error">
+                      {{ statusError[o.id] }}
+                    </p>
+                  </td>
                 </tr>
 
                 <tr v-if="expandedOfficer === o.id" class="rating-detail-row">
-                  <td colspan="5">
+                  <td colspan="6">
                     <div class="rating-detail">
                       <div v-for="r in ratings[o.id].ratings" :key="r.id" class="rating-entry">
                         <span class="rating-entry-score">★ {{ r.score }}</span>
@@ -800,6 +840,42 @@ async function reassign(officer, newDepartment) {
   flex-shrink: 0;
   color: var(--text-dim);
   font-size: 11px;
+}
+
+/* Activate/deactivate */
+
+.status-toggle-btn {
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.status-toggle-btn:disabled {
+  opacity: .6;
+  cursor: default;
+}
+
+.status-toggle-btn.deactivate {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+.status-toggle-btn.deactivate:hover:not(:disabled) {
+  background: rgba(214, 69, 69, .08);
+}
+
+.status-toggle-btn.reactivate {
+  color: var(--accent-dark);
+  border-color: var(--accent);
+}
+
+.status-toggle-btn.reactivate:hover:not(:disabled) {
+  background: rgba(47, 143, 91, .08);
 }
 
 /* Generated credentials callout */

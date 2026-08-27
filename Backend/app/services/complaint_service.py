@@ -874,47 +874,59 @@ async def transition_complaint_status(complaint_id, action: str, actor, notes, d
     caller (not admin, admins bypass this) is the complaint's own
     assigned staff member, not someone else's.
 
-    Locks the complaint row (SELECT ... FOR UPDATE) before checking
-    its status, so two concurrent transition requests on the same
-    complaint can't both read the same pre-transition status and both
-    succeed, the second waits for the first's transaction to commit
-    and then sees the already-updated status.
+    For approve/start/resolve, TRANSITIONS["from"] is always a single
+    status, so that status is already known without reading the row
+    first - lets the lock, the validity check, and the write happen
+    as one atomic `UPDATE ... WHERE status = <from> ... RETURNING`
+    instead of a separate SELECT ... FOR UPDATE followed by a second
+    UPDATE at flush time. Postgres's own row-level locking on UPDATE
+    gives the same guarantee the explicit FOR UPDATE was providing: a
+    concurrent transition on the same row blocks until the first one
+    commits, then its WHERE clause re-evaluates against the
+    already-updated status and simply matches zero rows. Against a
+    remote DB where every round trip has real latency, collapsing two
+    round trips into one is the difference that actually matters here
+    (see the commit that added this).
+
+    reject is the one action with two possible "from" statuses
+    (submitted or approved), so which one it actually was can't be
+    known without reading the row - guessing wrong would corrupt the
+    audit trail in ComplaintUpdate.old_status, so reject keeps the
+    original SELECT ... FOR UPDATE flow instead.
 
     Does not commit, same convention as create_complaint above.
     """
     rule = TRANSITIONS[action]
 
-    result = await db.execute(
-        select(Complaint).where(Complaint.id == complaint_id).with_for_update()
-    )
-    complaint = result.scalar_one_or_none()
-    if complaint is None:
-        raise ComplaintNotFoundError("Complaint not found.")
-
-    if complaint.status not in rule["from"]:
-        raise InvalidStatusTransitionError(
-            f"Cannot {action} a complaint that is currently '{complaint.status}'."
-        )
-
-    if rule["requires_assignment"]:
-        if complaint.assigned_to is None:
-            raise InvalidStatusTransitionError(
-                f"Cannot {action} a complaint that hasn't been assigned to a staff member yet."
-            )
-        if actor.role == ROLE_STAFF and complaint.assigned_to != actor.id:
-            raise ComplaintNotAssignedToUserError("This complaint isn't assigned to you.")
-
-    old_status = complaint.status
-    complaint.status = rule["to"]
-
     if action == "reject":
-        complaint.reject_reason = notes
-        complaint.assigned_to = None
+        complaint = await _reject_with_lock(complaint_id, notes, db)
+        old_status_for_history = complaint._old_status_before_reject
+    else:
+        (from_status,) = rule["from"]
+
+        stmt = (
+            update(Complaint)
+            .where(Complaint.id == complaint_id, Complaint.status == from_status)
+            .values(status=rule["to"], updated_at=datetime.utcnow())
+        )
+        if rule["requires_assignment"]:
+            stmt = stmt.where(Complaint.assigned_to.isnot(None))
+            if actor.role == ROLE_STAFF:
+                stmt = stmt.where(Complaint.assigned_to == actor.id)
+        stmt = stmt.returning(Complaint)
+
+        result = await db.execute(stmt)
+        complaint = result.scalar_one_or_none()
+
+        if complaint is None:
+            await _raise_transition_error(complaint_id, action, rule, actor, db)
+
+        old_status_for_history = from_status
 
     db.add(ComplaintUpdate(
         complaint_id=complaint.id,
         updated_by=actor.id,
-        old_status=old_status,
+        old_status=old_status_for_history,
         new_status=complaint.status,
         notes=notes,
     ))
@@ -932,6 +944,69 @@ async def transition_complaint_status(complaint_id, action: str, actor, notes, d
     await db.flush()
 
     return complaint
+
+
+async def _reject_with_lock(complaint_id, notes, db) -> Complaint:
+    """
+    reject's own path: locks and reads the row first (unlike the
+    single-round-trip path above) because its two possible "from"
+    statuses (submitted, approved) make the true pre-transition status
+    unknowable without reading it - see transition_complaint_status's
+    docstring. Stashes the status it read as a plain attribute (not a
+    mapped column) so the caller can log it accurately without a
+    second read.
+    """
+    rule = TRANSITIONS["reject"]
+
+    result = await db.execute(
+        select(Complaint).where(Complaint.id == complaint_id).with_for_update()
+    )
+    complaint = result.scalar_one_or_none()
+    if complaint is None:
+        raise ComplaintNotFoundError("Complaint not found.")
+
+    if complaint.status not in rule["from"]:
+        raise InvalidStatusTransitionError(
+            f"Cannot reject a complaint that is currently '{complaint.status}'."
+        )
+
+    complaint._old_status_before_reject = complaint.status
+    complaint.status = rule["to"]
+    complaint.updated_at = datetime.utcnow()
+    complaint.reject_reason = notes
+    complaint.assigned_to = None
+
+    return complaint
+
+
+async def _raise_transition_error(complaint_id, action, rule, actor, db):
+    """
+    Only reached when the single-round-trip UPDATE in
+    transition_complaint_status matched zero rows - a rare path (an
+    actually invalid request), so it can afford the extra read a
+    normal successful transition no longer pays for, purely to work
+    out which specific error the caller should see.
+    """
+    result = await db.execute(select(Complaint).where(Complaint.id == complaint_id))
+    existing = result.scalar_one_or_none()
+
+    if existing is None:
+        raise ComplaintNotFoundError("Complaint not found.")
+
+    if existing.status not in rule["from"]:
+        raise InvalidStatusTransitionError(
+            f"Cannot {action} a complaint that is currently '{existing.status}'."
+        )
+
+    if rule["requires_assignment"]:
+        if existing.assigned_to is None:
+            raise InvalidStatusTransitionError(
+                f"Cannot {action} a complaint that hasn't been assigned to a staff member yet."
+            )
+        if actor.role == ROLE_STAFF and existing.assigned_to != actor.id:
+            raise ComplaintNotAssignedToUserError("This complaint isn't assigned to you.")
+
+    raise InvalidStatusTransitionError(f"Cannot {action} this complaint.")
 
 
 # submitted --withdraw--> withdrawn

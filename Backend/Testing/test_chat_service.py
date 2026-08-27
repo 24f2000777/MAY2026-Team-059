@@ -264,6 +264,37 @@ class TestChatCreatesRealComplaints:
             await db.delete(h)
         await db.commit()
 
+    async def test_a_short_first_person_report_is_not_misread_as_app_help(self, db, citizen):
+        # Regression test: classify_intent's single LLM call misread
+        # "i want to register a pothole in andheri" as app_help in
+        # production (Groq, no provider error, just a wrong call),
+        # silently dropping a real complaint report instead of filing
+        # it. classify_intent now cross-checks an app_help verdict
+        # against extraction (a second, independent signal) before
+        # trusting it, this proves a real, short, first-person report
+        # like this one still reaches filing even if the classifier
+        # calls it app_help.
+        session_id = f"pytest-session-{uuid.uuid4()}"
+        message = "i want to register a pothole in andheri"
+
+        first_reply, first_filed = await send_chat_message(session_id, citizen.id, message, db)
+        assert isinstance(first_reply, str) and len(first_reply) > 0
+        assert first_filed is None, "filing waits for the photo-prompt turn, not this one"
+
+        reply, filed_complaint = await send_chat_message(session_id, citizen.id, "no", db)
+        assert isinstance(reply, str) and len(reply) > 0
+        assert filed_complaint is not None, "a real complaint report must not be silently dropped"
+
+        result = await db.execute(select(Complaint).where(Complaint.citizen_id == citizen.id))
+        complaints = result.scalars().all()
+        assert len(complaints) == 1
+        assert "andheri" in complaints[0].location_text.lower()
+
+        history = await get_chat_history(session_id, citizen.id, db)
+        for h in history:
+            await db.delete(h)
+        await db.commit()
+
     async def test_extracted_info_does_not_leak_into_a_later_unrelated_turn(self, db, citizen):
         # Regression check for the update_state() clearing in
         # send_message_and_extract: without it, a complaint filed on

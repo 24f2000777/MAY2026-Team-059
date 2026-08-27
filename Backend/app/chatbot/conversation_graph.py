@@ -143,6 +143,29 @@ def classify_intent(state):
     else:
         intent = "question"
 
+    # Confirmed in production: this single classification call can
+    # misread a real, first-person complaint report as app_help (e.g.
+    # "I want to register a pothole in Andheri" came back app_help on
+    # Groq, no provider error, just a wrong call), which silently drops
+    # the report instead of filing it - the citizen gets a chatty reply
+    # that sounds like it's engaging with their problem but never
+    # extracts or files anything. Don't trust one LLM call alone for
+    # something this consequential. extract_complaint_info is a second,
+    # independent signal already grounded against the actual message
+    # text (see _location_is_grounded), so if it confidently finds both
+    # a real category and a real location, that overrides an app_help
+    # misread. Requiring both, not just a category, keeps a genuine
+    # meta-question like "how do I file a complaint about a pothole"
+    # (category-shaped but no concrete location) from being
+    # overcorrected into a phantom complaint.
+    if intent == "app_help":
+        try:
+            probe = extract_complaint_info(last_message)
+        except Exception:
+            probe = None
+        if probe and probe.get("complaint_category") and probe.get("location"):
+            intent = "complaint"
+
     return {"intent": intent}
 
 

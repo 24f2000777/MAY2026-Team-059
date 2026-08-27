@@ -203,3 +203,15 @@ export function assignStaffDepartment({ userId, department, accessToken }) {
     body: { department: department ?? null }
   })
 }
+
+// There's no hard delete for a user account, deactivating is how a
+// staff member is removed - it revokes their access immediately
+// without orphaning the complaint history/notes/assignments a real
+// delete would cascade into. isActive: true re-activates the account.
+export function updateStaffStatus({ userId, isActive, accessToken }) {
+  return request(`/admin/users/${userId}/status`, {
+    method: 'PATCH',
+    token: accessToken,
+    body: { is_active: isActive }
+  })
+}

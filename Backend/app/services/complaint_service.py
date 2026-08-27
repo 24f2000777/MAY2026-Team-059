@@ -906,6 +906,7 @@ async def transition_complaint_status(complaint_id, action: str, actor, notes, d
 
     old_status = complaint.status
     complaint.status = rule["to"]
+    complaint.updated_at = datetime.utcnow()
 
     if action == "reject":
         complaint.reject_reason = notes

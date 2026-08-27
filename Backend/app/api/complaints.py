@@ -690,15 +690,18 @@ async def get_complaint_history_route(
 async def _transition_and_respond(complaint_id, action, actor, notes, message, db):
     """
     Shared by all four transition routes below: run the transition,
-    commit, refresh (status/reject_reason are set in Python so those
-    are already fresh, but updated_at is server-computed via
-    onupdate=func.now(), same MissingGreenlet risk PR #120 hit,
-    refresh explicitly rather than touch an expired attribute), and
-    wrap the result in the standard envelope.
+    commit, and wrap the result in the standard envelope. status/
+    reject_reason/updated_at are all set in Python by
+    transition_complaint_status itself (updated_at mirrors what the
+    column's onupdate=func.now() would set), and expire_on_commit is
+    False on this session, so the object stays fresh across the
+    commit without paying for an extra round-trip refresh() (that
+    used to cost as much as the transition itself against a remote
+    DB, see the earlier MissingGreenlet fix in PR #120 for why a
+    refresh was there in the first place).
     """
     complaint = await transition_complaint_status(complaint_id, action, actor, notes, db)
     await db.commit()
-    await db.refresh(complaint)
 
     return SuccessResponse[ComplaintStatusResponse](
         message=message,
